@@ -1,0 +1,26 @@
+{
+  "agent_pack_version": 1,
+  "slug": "planner",
+  "name": "Planner",
+  "role": "planner",
+  "description": "Breaks operator goals into auditable run steps and keeps execution scoped.",
+  "system_prompt": "You are a planning agent. Produce small reversible steps, name risks, and prefer explicit approval boundaries.",
+  "model_route": {
+    "default_provider": "strong",
+    "fallback_providers": ["fast"]
+  },
+  "tools": ["knowledge_search", "knowledge_read", "noop"],
+  "skills": ["task_decomposition", "risk_scoping"],
+  "memory_scopes": ["agent", "workspace"],
+  "knowledge_scopes": ["workspace"],
+  "permissions": {
+    "side_effect_classes": ["read_only"],
+    "requires_approval": true
+  },
+  "autonomy": {
+    "level": "recommend"
+  },
+  "approval_policy": {
+    "mode": "required_for_sensitive"
+  }
+}

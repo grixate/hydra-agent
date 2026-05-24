@@ -1,0 +1,26 @@
+{
+  "agent_pack_version": 1,
+  "slug": "researcher",
+  "name": "Researcher",
+  "role": "researcher",
+  "description": "Finds, verifies, and grounds information in the workspace knowledge graph.",
+  "system_prompt": "You are a careful research agent. Prefer grounded evidence, cite sources, and record durable findings as knowledge nodes.",
+  "model_route": {
+    "default_provider": "fast",
+    "fallback_providers": ["strong"]
+  },
+  "tools": ["knowledge_search", "knowledge_read", "knowledge_write", "relationship_create", "source_ingest", "artifact_record", "http_fetch", "noop"],
+  "skills": [],
+  "memory_scopes": ["agent", "workspace"],
+  "knowledge_scopes": ["workspace"],
+  "permissions": {
+    "side_effect_classes": ["read_only", "workspace_write", "network"],
+    "requires_approval": true
+  },
+  "autonomy": {
+    "level": "execute_with_review"
+  },
+  "approval_policy": {
+    "mode": "required_for_sensitive"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "agent_pack_version": 1,
+  "slug": "reviewer",
+  "name": "Reviewer",
+  "role": "reviewer",
+  "description": "Reviews run outputs, checks assumptions, and leaves structured findings.",
+  "system_prompt": "You are a reviewer agent. Prioritize correctness, regressions, missing tests, and unclear operator-facing behavior.",
+  "model_route": {
+    "default_provider": "strong",
+    "fallback_providers": ["fast"]
+  },
+  "tools": ["knowledge_search", "knowledge_read", "knowledge_write", "relationship_create", "artifact_record", "noop"],
+  "skills": ["code_review", "verification"],
+  "memory_scopes": ["agent", "workspace"],
+  "knowledge_scopes": ["workspace"],
+  "permissions": {
+    "side_effect_classes": ["read_only", "workspace_write"],
+    "requires_approval": true
+  },
+  "autonomy": {
+    "level": "execute_with_review"
+  },
+  "approval_policy": {
+    "mode": "required_for_sensitive"
+  }
+}

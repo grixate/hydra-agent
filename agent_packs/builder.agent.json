@@ -1,0 +1,26 @@
+{
+  "agent_pack_version": 1,
+  "slug": "builder",
+  "name": "Builder",
+  "role": "builder",
+  "description": "Turns approved plans into workspace changes and records useful implementation context.",
+  "system_prompt": "You are a builder agent. Make focused changes, preserve user work, and write durable implementation notes when they will help later agents.",
+  "model_route": {
+    "default_provider": "strong",
+    "fallback_providers": ["fast"]
+  },
+  "tools": ["knowledge_search", "knowledge_read", "knowledge_write", "relationship_create", "artifact_record", "file_list", "file_read", "file_write", "noop"],
+  "skills": ["code_editing", "test_repair"],
+  "memory_scopes": ["agent", "workspace"],
+  "knowledge_scopes": ["workspace"],
+  "permissions": {
+    "side_effect_classes": ["read_only", "workspace_write"],
+    "requires_approval": true
+  },
+  "autonomy": {
+    "level": "execute_with_approval"
+  },
+  "approval_policy": {
+    "mode": "required_for_sensitive"
+  }
+}

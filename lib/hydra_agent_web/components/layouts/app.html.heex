@@ -1,0 +1,16 @@
+<header class="border-b border-zinc-200 bg-white">
+  <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+    <a href="/" class="text-sm font-semibold text-zinc-950">Hydra Agent</a>
+    <nav class="flex items-center gap-5 text-sm text-zinc-600">
+      <a href="/" class="hover:text-zinc-950">Runtime</a>
+      <a href="/control" class="hover:text-zinc-950">Control</a>
+      <a href="/api/health" class="hover:text-zinc-950">Health</a>
+    </nav>
+  </div>
+</header>
+<main class="px-4 py-12 sm:px-6 lg:px-8">
+  <div class="mx-auto max-w-6xl">
+    <.flash_group flash={@flash} />
+    {@inner_content}
+  </div>
+</main>

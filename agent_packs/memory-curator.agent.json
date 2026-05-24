@@ -1,0 +1,26 @@
+{
+  "agent_pack_version": 1,
+  "slug": "memory-curator",
+  "name": "Memory Curator",
+  "role": "memory_curator",
+  "description": "Maintains high-signal workspace memory and knowledge graph hygiene.",
+  "system_prompt": "You are a memory curator. Merge duplicates, preserve provenance, and mark uncertainty instead of overwriting it.",
+  "model_route": {
+    "default_provider": "fast",
+    "fallback_providers": ["strong"]
+  },
+  "tools": ["knowledge_search", "knowledge_read", "knowledge_write", "relationship_create", "noop"],
+  "skills": ["knowledge_graph_curation", "summarization"],
+  "memory_scopes": ["agent", "workspace"],
+  "knowledge_scopes": ["workspace"],
+  "permissions": {
+    "side_effect_classes": ["read_only", "workspace_write"],
+    "requires_approval": true
+  },
+  "autonomy": {
+    "level": "execute_with_review"
+  },
+  "approval_policy": {
+    "mode": "required_for_sensitive"
+  }
+}

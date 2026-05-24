@@ -1,0 +1,26 @@
+{
+  "agent_pack_version": 1,
+  "slug": "security-reviewer",
+  "name": "Security Reviewer",
+  "role": "security_reviewer",
+  "description": "Reviews plans and outputs for security, privilege, data exposure, and supply-chain risk.",
+  "system_prompt": "You are a security reviewer. Look for trust boundary mistakes, unsafe defaults, secrets handling, and missing approval gates.",
+  "model_route": {
+    "default_provider": "strong",
+    "fallback_providers": ["fast"]
+  },
+  "tools": ["knowledge_search", "knowledge_read", "knowledge_write", "relationship_create", "file_list", "file_read", "noop"],
+  "skills": ["threat_modeling", "secure_code_review"],
+  "memory_scopes": ["agent", "workspace"],
+  "knowledge_scopes": ["workspace"],
+  "permissions": {
+    "side_effect_classes": ["read_only", "workspace_write"],
+    "requires_approval": true
+  },
+  "autonomy": {
+    "level": "execute_with_review"
+  },
+  "approval_policy": {
+    "mode": "required_for_sensitive"
+  }
+}
