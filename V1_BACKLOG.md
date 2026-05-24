@@ -40,15 +40,24 @@ OTP, easy to specialize through agent packs, and measurable through evals.
 
 ## Remaining High-Value Work
 
-1. True SSE transport for provider adapters that support it.
-2. Status-aware worker loop tests with DB-backed run fixtures.
+The complete continuation plan lives in
+[`docs/implementation-roadmap.md`](docs/implementation-roadmap.md).
+
+Highest-value remaining work:
+
+1. Status-aware worker loop tests with DB-backed run fixtures.
+2. True SSE transport for provider adapters that support it.
 3. Expand the LiveView control plane with run timelines and graph drill-downs.
 4. DB-backed integration tests for planner, approval, recovery, streaming, and pack import.
-5. True SSE transport for provider adapters that support it.
-6. MCP tool scaffolding behind explicit allowlists.
-7. More integration tests that exercise full DB-backed planner, approval, and recovery flows.
-8. Benchmark suites for orchestration, safety, recovery, cost, and latency.
+5. MCP tool scaffolding behind explicit allowlists.
+6. Benchmark suites for orchestration, safety, recovery, cost, and latency.
 
 ## Next Batch
 
-Expand the LiveView control plane with run timelines and graph drill-downs.
+Start with runtime hardening and true provider streaming:
+
+1. Add DB-backed runner/worker fixtures.
+2. Test pause/cancel/approval/failure/recovery semantics.
+3. Implement OpenAI-compatible SSE streaming.
+4. Add streaming endpoint tests.
+5. Expand `/control` with run timeline and graph drill-downs.
