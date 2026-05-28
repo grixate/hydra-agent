@@ -11,6 +11,12 @@ config :hydra_agent,
   ecto_repos: [HydraAgent.Repo],
   generators: [timestamp_type: :utc_datetime_usec]
 
+config :hydra_agent, :api_auth,
+  enabled?: false,
+  token_env: "HYDRA_API_TOKEN"
+
+config :hydra_agent, :browser_worker_url, nil
+
 # Configures the endpoint
 config :hydra_agent, HydraAgentWeb.Endpoint,
   url: [host: "localhost"],

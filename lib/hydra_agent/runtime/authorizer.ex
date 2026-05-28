@@ -9,10 +9,11 @@ defmodule HydraAgent.Runtime.Authorizer do
   import Ecto.Query
 
   alias HydraAgent.Repo
+  alias HydraAgent.MCP
   alias HydraAgent.Runtime.{AgentProfile, ToolPolicy}
   alias HydraAgent.Tools.Registry
 
-  @dangerous_side_effects ~w(workspace_write shell network browser mcp external_delivery plugin_install)
+  @dangerous_side_effects ~w(workspace_write shell network browser mcp external_delivery plugin_install media_generation code_execution multi_model)
 
   def authorize(agent, tool_name, opts \\ [])
 
@@ -79,7 +80,7 @@ defmodule HydraAgent.Runtime.Authorizer do
       policy ->
         {:ok, policy}
 
-      Keyword.get(opts, :allow_capability_fallback, true) ->
+      capability_policy_fallback?(opts) ->
         {:ok,
          %ToolPolicy{
            workspace_id: agent.workspace_id,
@@ -92,6 +93,14 @@ defmodule HydraAgent.Runtime.Authorizer do
       true ->
         {:blocked, "missing_tool_policy", %{}}
     end
+  end
+
+  defp capability_policy_fallback?(opts) do
+    Keyword.get(
+      opts,
+      :allow_capability_fallback,
+      Application.get_env(:hydra_agent, :allow_capability_policy_fallback, true)
+    )
   end
 
   defp tool_allowed_by_policy(policy, tool_spec) do
@@ -130,6 +139,18 @@ defmodule HydraAgent.Runtime.Authorizer do
     end
   end
 
+  defp input_allowed_by_policy(policy, %{side_effect_class: "browser"}, input) do
+    input = stringify_keys(input || %{})
+
+    case input["url"] do
+      nil ->
+        :ok
+
+      url ->
+        input_allowed_by_policy(policy, %{side_effect_class: "network"}, %{"url" => url})
+    end
+  end
+
   defp input_allowed_by_policy(policy, %{side_effect_class: "shell"}, input) do
     input = stringify_keys(input || %{})
     allowlist = policy.shell_allowlist || []
@@ -138,11 +159,9 @@ defmodule HydraAgent.Runtime.Authorizer do
       command when is_list(command) ->
         command = Enum.map(command, &to_string/1)
 
-        if shell_command_allowed?(command, allowlist) do
+        with :ok <- shell_command_allowed(command, allowlist),
+             :ok <- shell_env_allowed(policy, input["env"] || %{}) do
           :ok
-        else
-          {:blocked, "shell_command_not_allowed",
-           %{"command" => command, "shell_allowlist" => allowlist}}
         end
 
       _command ->
@@ -171,6 +190,13 @@ defmodule HydraAgent.Runtime.Authorizer do
     end
   end
 
+  defp input_allowed_by_policy(policy, %{name: "mcp_call"}, input) do
+    case MCP.authorize_call(policy.workspace_id, input) do
+      :ok -> :ok
+      {:blocked, reason, metadata} -> {:blocked, reason, metadata}
+    end
+  end
+
   defp input_allowed_by_policy(_policy, _tool_spec, _input), do: :ok
 
   defp host_allowed?(_host, ["*" | _allowlist]), do: true
@@ -196,28 +222,62 @@ defmodule HydraAgent.Runtime.Authorizer do
     end)
   end
 
-  defp shell_command_allowed?(_command, ["*" | _allowlist]), do: true
+  defp shell_command_allowed(_command, ["*" | _allowlist]), do: :ok
 
-  defp shell_command_allowed?(command, allowlist) do
+  defp shell_command_allowed(command, allowlist) do
     command_string = Enum.join(command, " ")
 
-    Enum.any?(allowlist, fn allowed ->
-      allowed_parts = String.split(allowed)
+    allowed? =
+      Enum.any?(allowlist, fn allowed ->
+        allowed = to_string(allowed)
+        allowed_parts = String.split(allowed)
 
-      cond do
-        allowed == command_string ->
-          true
+        cond do
+          allowed == command_string ->
+            true
 
-        allowed_parts == [] ->
-          false
+          allowed_parts == [] ->
+            false
 
-        Enum.take(command, length(allowed_parts)) == allowed_parts ->
-          true
+          Enum.take(command, length(allowed_parts)) == allowed_parts ->
+            true
 
-        true ->
-          false
-      end
-    end)
+          true ->
+            false
+        end
+      end)
+
+    if allowed? do
+      :ok
+    else
+      {:blocked, "shell_command_not_allowed",
+       %{"command" => command, "shell_allowlist" => allowlist}}
+    end
+  end
+
+  defp shell_env_allowed(policy, env) when is_map(env) do
+    allowlist = policy.shell_env_allowlist || []
+    env_keys = env |> Map.keys() |> Enum.map(&to_string/1)
+    disallowed = env_keys -- allowlist
+
+    cond do
+      env_keys == [] ->
+        :ok
+
+      "*" in allowlist ->
+        :ok
+
+      disallowed == [] ->
+        :ok
+
+      true ->
+        {:blocked, "shell_env_not_allowed",
+         %{"env" => disallowed, "shell_env_allowlist" => allowlist}}
+    end
+  end
+
+  defp shell_env_allowed(policy, _env) do
+    {:blocked, "shell_env_invalid", %{"shell_env_allowlist" => policy.shell_env_allowlist || []}}
   end
 
   defp filesystem_path_allowed?(path, ["*" | _allowlist], denylist) do
@@ -269,7 +329,8 @@ defmodule HydraAgent.Runtime.Authorizer do
         "approval_sensitive" => Map.get(tool_spec, :approval_sensitive, true),
         "timeout_ms" => Map.get(tool_spec, :timeout_ms),
         "autonomy_level" => autonomy_level,
-        "approval_mode" => approval_mode
+        "approval_mode" => approval_mode,
+        "shell_env_allowlist" => policy.shell_env_allowlist || []
       })
 
     if requires_approval? and tool_spec.side_effect_class in @dangerous_side_effects do

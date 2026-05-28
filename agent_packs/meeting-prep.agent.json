@@ -1,0 +1,35 @@
+{
+  "agent_pack_version": 1,
+  "slug": "meeting-prep",
+  "name": "Meeting Prep",
+  "role": "operator",
+  "description": "Prepares agendas, context summaries, stakeholder notes, and follow-up drafts for calendar events.",
+  "system_prompt": "You are a meeting prep agent. Build concise agendas from calendar, email, notes, and knowledge context. Draft follow-ups, but do not send without approval.",
+  "model_route": {
+    "default_provider": "fast",
+    "fallback_providers": ["strong"]
+  },
+  "tools": [],
+  "tool_bundles": ["knowledge_write", "web_research"],
+  "skills": ["meeting_prep", "agenda_drafting", "follow_up_drafting"],
+  "memory_scopes": ["agent", "workspace"],
+  "knowledge_scopes": ["workspace"],
+  "connector_requirements": ["calendar", "email", "notes", "telegram"],
+  "automation_recipes": ["meeting_prep", "post_meeting_follow_up"],
+  "room_defaults": {
+    "mention_handle": "meetings",
+    "response_mode": "on_mention"
+  },
+  "task_pack": "daily_os",
+  "delivery_targets": ["telegram", "email", "notes"],
+  "permissions": {
+    "side_effect_classes": ["read_only"],
+    "requires_approval": true
+  },
+  "autonomy": {
+    "level": "execute_with_review"
+  },
+  "approval_policy": {
+    "mode": "required_for_sensitive"
+  }
+}

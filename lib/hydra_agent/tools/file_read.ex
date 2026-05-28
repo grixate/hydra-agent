@@ -14,7 +14,8 @@ defmodule HydraAgent.Tools.FileRead do
         "required" => ["path"],
         "properties" => %{
           "path" => %{"type" => "string"},
-          "max_bytes" => %{"type" => "integer", "minimum" => 1, "maximum" => 1_000_000}
+          "max_bytes" => %{"type" => "integer", "minimum" => 1, "maximum" => 1_000_000},
+          "allow_binary" => %{"type" => "boolean"}
         }
       },
       output_schema: %{
@@ -22,7 +23,8 @@ defmodule HydraAgent.Tools.FileRead do
         "properties" => %{
           "path" => %{"type" => "string"},
           "content" => %{"type" => "string"},
-          "truncated" => %{"type" => "boolean"}
+          "truncated" => %{"type" => "boolean"},
+          "bytes_read" => %{"type" => "integer"}
         }
       }
     }
@@ -32,14 +34,32 @@ defmodule HydraAgent.Tools.FileRead do
   def execute(input, context) do
     input = stringify_keys(input || %{})
     max_bytes = input["max_bytes"] || 500_000
+    allow_binary? = input["allow_binary"] == true
 
     with {:ok, path} <- resolve_workspace_path(input["path"], context),
          true <-
            File.regular?(path) ||
              {:error, %{"reason" => "not_regular_file", "path" => input["path"]}},
+         :ok <- validate_max_bytes(max_bytes),
          {:ok, content} <- File.read(path) do
-      {content, truncated?} = truncate(content, max_bytes)
-      {:ok, %{"path" => path, "content" => content, "truncated" => truncated?}}
+      if binary_content?(content) and not allow_binary? do
+        {:error,
+         %{
+           "reason" => "binary_file_not_read",
+           "path" => input["path"],
+           "bytes" => byte_size(content)
+         }}
+      else
+        {content, truncated?} = truncate(content, max_bytes)
+
+        {:ok,
+         %{
+           "path" => path,
+           "content" => content,
+           "truncated" => truncated?,
+           "bytes_read" => byte_size(content)
+         }}
+      end
     else
       {:error, %File.Error{} = error} ->
         {:error, %{"reason" => "file_read_failed", "error" => Exception.message(error)}}
@@ -62,6 +82,16 @@ defmodule HydraAgent.Tools.FileRead do
   end
 
   defp resolve_workspace_path(_path, _context), do: {:error, %{"reason" => "path_required"}}
+
+  defp validate_max_bytes(value) when is_integer(value) and value >= 1 and value <= 1_000_000,
+    do: :ok
+
+  defp validate_max_bytes(value),
+    do: {:error, %{"reason" => "invalid_max_bytes", "max_bytes" => value}}
+
+  defp binary_content?(content) do
+    not String.valid?(content) or :binary.match(content, <<0>>) != :nomatch
+  end
 
   defp truncate(content, max_bytes) when byte_size(content) > max_bytes do
     {binary_part(content, 0, max_bytes), true}

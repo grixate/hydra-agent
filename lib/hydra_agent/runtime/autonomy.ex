@@ -5,7 +5,7 @@ defmodule HydraAgent.Runtime.Autonomy do
 
   @roles ~w(supervisor planner researcher builder reviewer operator memory_curator security_reviewer)
   @autonomy_levels ~w(observe recommend execute_with_review execute_with_approval fully_automatic)
-  @side_effect_classes ~w(read_only workspace_write shell network browser mcp external_delivery plugin_install)
+  @side_effect_classes ~w(read_only workspace_write shell network browser mcp external_delivery plugin_install media_generation code_execution multi_model)
 
   def roles, do: @roles
   def autonomy_levels, do: @autonomy_levels

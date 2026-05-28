@@ -14,6 +14,7 @@ defmodule HydraAgent.Runtime.ProviderConfig do
     field :metadata, :map, default: %{}
 
     belongs_to :workspace, HydraAgent.Runtime.Workspace
+    belongs_to :credential_pool, HydraAgent.Runtime.CredentialPool
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -22,6 +23,7 @@ defmodule HydraAgent.Runtime.ProviderConfig do
     provider
     |> cast(attrs, [
       :workspace_id,
+      :credential_pool_id,
       :name,
       :kind,
       :base_url,
@@ -36,5 +38,6 @@ defmodule HydraAgent.Runtime.ProviderConfig do
       message: "must name an environment variable"
     )
     |> assoc_constraint(:workspace)
+    |> assoc_constraint(:credential_pool)
   end
 end

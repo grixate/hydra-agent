@@ -6,7 +6,8 @@ defmodule HydraAgentWeb.SafetyController do
   def index(conn, %{"workspace_id" => workspace_id} = params) do
     events =
       Safety.list_events(workspace_id,
-        category: params["category"]
+        category: params["category"],
+        run_id: params["run_id"]
       )
 
     json(conn, %{data: Enum.map(events, &event_json/1)})

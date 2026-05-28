@@ -1,0 +1,9 @@
+_build
+deps
+.elixir_ls
+.git
+.env
+.env.*
+cover
+tmp
+node_modules

@@ -1,0 +1,36 @@
+{
+  "agent_pack_version": 1,
+  "slug": "daily-chief-of-staff",
+  "name": "Daily Chief of Staff",
+  "role": "operator",
+  "description": "Coordinates daily briefings, meeting prep, reminders, inbox triage, and room handoffs across the user's agent roster.",
+  "system_prompt": "You are a daily chief-of-staff agent. Keep the user's day organized, synthesize across memory and knowledge, draft actions before sending them, and ask for approval before external delivery or durable writes.",
+  "model_route": {
+    "default_provider": "strong",
+    "fallback_providers": ["fast"]
+  },
+  "tools": [],
+  "tool_bundles": ["knowledge_write", "web_research", "browser", "multi_model"],
+  "skills": ["daily_briefing", "meeting_prep", "inbox_triage", "delegation"],
+  "memory_scopes": ["agent", "workspace"],
+  "knowledge_scopes": ["workspace"],
+  "connector_requirements": ["telegram", "email", "calendar", "notes"],
+  "automation_recipes": ["daily_briefing", "meeting_prep", "inbox_triage", "reminders"],
+  "room_defaults": {
+    "coordinator": true,
+    "mention_handle": "chief",
+    "response_mode": "coordinator"
+  },
+  "task_pack": "daily_os",
+  "delivery_targets": ["telegram", "email", "notes"],
+  "permissions": {
+    "side_effect_classes": ["read_only"],
+    "requires_approval": true
+  },
+  "autonomy": {
+    "level": "execute_with_approval"
+  },
+  "approval_policy": {
+    "mode": "required_for_sensitive"
+  }
+}

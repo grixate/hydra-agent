@@ -15,8 +15,10 @@ defmodule HydraAgent.Application do
       {Phoenix.PubSub, name: HydraAgent.PubSub},
       {Task.Supervisor, name: HydraAgent.TaskSupervisor},
       HydraAgent.Agent.Supervisor,
+      HydraAgent.MCP.SessionSupervisor,
       HydraAgent.Runtime.RecoveryWorker,
       HydraAgent.Automations.Worker,
+      HydraAgent.Skills.LearningWorker,
       # Start to serve requests, typically the last entry
       HydraAgentWeb.Endpoint
     ]

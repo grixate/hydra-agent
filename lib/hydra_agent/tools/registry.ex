@@ -16,7 +16,19 @@ defmodule HydraAgent.Tools.Registry do
     HydraAgent.Tools.FileRead,
     HydraAgent.Tools.FileWrite,
     HydraAgent.Tools.HttpFetch,
+    HydraAgent.Tools.BrowserNavigate,
+    HydraAgent.Tools.BrowserClick,
+    HydraAgent.Tools.BrowserType,
+    HydraAgent.Tools.BrowserScreenshot,
+    HydraAgent.Tools.BrowserExtract,
+    HydraAgent.Tools.VisionAnalyze,
+    HydraAgent.Tools.ImageGenerate,
+    HydraAgent.Tools.TextToSpeech,
+    HydraAgent.Tools.CodeExecute,
+    HydraAgent.Tools.ProjectSkillRun,
+    HydraAgent.Tools.MultiModelConsensus,
     HydraAgent.Tools.ShellCommand,
+    HydraAgent.Tools.McpCall,
     HydraAgent.Tools.Noop
   ]
 

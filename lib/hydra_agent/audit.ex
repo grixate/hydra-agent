@@ -10,6 +10,7 @@ defmodule HydraAgent.Audit do
     Budgets,
     Evals,
     Gateways,
+    MCP,
     Providers,
     Repo,
     Runtime,
@@ -17,7 +18,7 @@ defmodule HydraAgent.Audit do
   }
 
   alias HydraAgent.Runtime.RunEvent
-  alias HydraAgent.Tools.Registry, as: ToolRegistry
+  alias HydraAgent.Tools.{Bundles, Registry}
 
   def export_workspace(workspace_id) do
     workspace = Runtime.get_workspace!(workspace_id)
@@ -35,7 +36,9 @@ defmodule HydraAgent.Audit do
       "providers" => Enum.map(Providers.list_configs(workspace_id), &provider_json/1),
       "budgets" => Enum.map(Budgets.list_budgets(workspace_id), &budget_json/1),
       "tool_policies" => Enum.map(Runtime.list_tool_policies(workspace_id), &policy_json/1),
-      "tools" => ToolRegistry.all(),
+      "tools" => Registry.all(),
+      "tool_bundles" => Bundles.all(),
+      "mcp_servers" => Enum.map(MCP.list_servers(workspace_id), &mcp_server_json/1),
       "runs" => Enum.map(Runtime.list_runs(workspace_id), &run_json/1),
       "run_events" => Enum.map(run_events(workspace_id), &run_event_json/1),
       "safety_events" =>
@@ -101,9 +104,33 @@ defmodule HydraAgent.Audit do
       "side_effect_classes" => policy.side_effect_classes,
       "network_allowlist" => policy.network_allowlist,
       "shell_allowlist" => policy.shell_allowlist,
+      "shell_env_allowlist" => Map.get(policy, :shell_env_allowlist, []),
       "filesystem_allowlist" => Map.get(policy, :filesystem_allowlist, []),
       "filesystem_denylist" => Map.get(policy, :filesystem_denylist, []),
+      "tool_bundles" => get_in(policy.metadata || %{}, ["tool_bundles"]) || [],
       "requires_approval" => policy.requires_approval
+    }
+  end
+
+  defp mcp_server_json(server) do
+    %{
+      "id" => server.id,
+      "slug" => server.slug,
+      "name" => server.name,
+      "status" => server.status,
+      "transport" => server.transport,
+      "trust_level" => server.trust_level,
+      "env_refs" => server.env_refs,
+      "include_tools" => server.include_tools,
+      "exclude_tools" => server.exclude_tools,
+      "resource_access" => server.resource_access,
+      "prompt_access" => server.prompt_access,
+      "timeout_ms" => server.timeout_ms,
+      "approval_sensitive" => server.approval_sensitive,
+      "health_status" => server.health_status,
+      "last_checked_at" => server.last_checked_at,
+      "last_error" => server.last_error,
+      "metadata" => server.metadata
     }
   end
 

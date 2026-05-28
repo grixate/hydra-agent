@@ -39,7 +39,15 @@ defmodule HydraAgentWeb.KnowledgeController do
     json(conn, %{data: Enum.map(nodes, &node_json/1)})
   end
 
+  def create(conn, %{"workspace_id" => workspace_id} = params) do
+    do_create(conn, Map.put(params, "workspace_id", workspace_id))
+  end
+
   def create(conn, params) do
+    do_create(conn, params)
+  end
+
+  defp do_create(conn, params) do
     case Knowledge.create_node(params) do
       {:ok, node} ->
         conn
@@ -53,6 +61,16 @@ defmodule HydraAgentWeb.KnowledgeController do
     end
   end
 
+  def show(conn, %{"workspace_id" => workspace_id, "id" => id}) do
+    node = Knowledge.get_node_detail_for_workspace!(workspace_id, id)
+    json(conn, %{data: node_json(node)})
+  end
+
+  def show(conn, %{"id" => id}) do
+    node = Knowledge.get_node_detail!(id)
+    json(conn, %{data: node_json(node)})
+  end
+
   def relationships(conn, %{"workspace_id" => workspace_id} = params) do
     relationships =
       Knowledge.list_relationships(workspace_id,
@@ -62,7 +80,15 @@ defmodule HydraAgentWeb.KnowledgeController do
     json(conn, %{data: Enum.map(relationships, &relationship_json/1)})
   end
 
+  def create_relationship(conn, %{"workspace_id" => workspace_id} = params) do
+    do_create_relationship(conn, Map.put(params, "workspace_id", workspace_id))
+  end
+
   def create_relationship(conn, params) do
+    do_create_relationship(conn, params)
+  end
+
+  defp do_create_relationship(conn, params) do
     case Knowledge.create_relationship(params) do
       {:ok, relationship} ->
         conn
@@ -74,6 +100,16 @@ defmodule HydraAgentWeb.KnowledgeController do
         |> put_status(:unprocessable_entity)
         |> json(%{errors: errors_json(changeset)})
     end
+  end
+
+  def show_relationship(conn, %{"workspace_id" => workspace_id, "id" => id}) do
+    relationship = Knowledge.get_relationship_detail_for_workspace!(workspace_id, id)
+    json(conn, %{data: relationship_json(relationship)})
+  end
+
+  def show_relationship(conn, %{"id" => id}) do
+    relationship = Knowledge.get_relationship_detail!(id)
+    json(conn, %{data: relationship_json(relationship)})
   end
 
   defp node_json(node) do
@@ -88,7 +124,17 @@ defmodule HydraAgentWeb.KnowledgeController do
       importance: node.importance,
       confidence: node.confidence,
       provenance: node.provenance,
-      created_by_agent_id: node.created_by_agent_id
+      created_by_agent_id: node.created_by_agent_id,
+      outgoing_relationships:
+        Enum.map(
+          (Ecto.assoc_loaded?(node.outgoing_relationships) && node.outgoing_relationships) || [],
+          &relationship_json/1
+        ),
+      incoming_relationships:
+        Enum.map(
+          (Ecto.assoc_loaded?(node.incoming_relationships) && node.incoming_relationships) || [],
+          &relationship_json/1
+        )
     }
   end
 
@@ -102,8 +148,27 @@ defmodule HydraAgentWeb.KnowledgeController do
       attributes: relationship.attributes,
       confidence: relationship.confidence,
       provenance: relationship.provenance,
-      created_by_agent_id: relationship.created_by_agent_id
+      created_by_agent_id: relationship.created_by_agent_id,
+      from_node: assoc_json(relationship, :from_node, &node_ref_json/1),
+      to_node: assoc_json(relationship, :to_node, &node_ref_json/1)
     }
+  end
+
+  defp node_ref_json(node) do
+    %{
+      id: node.id,
+      type_key: node.type_key,
+      title: node.title,
+      status: node.status
+    }
+  end
+
+  defp assoc_json(parent, assoc, mapper) do
+    value = Map.get(parent, assoc)
+
+    if Ecto.assoc_loaded?(value) and value do
+      mapper.(value)
+    end
   end
 
   defp type_definition_json(definition) do

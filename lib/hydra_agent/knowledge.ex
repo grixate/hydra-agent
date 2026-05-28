@@ -176,8 +176,53 @@ defmodule HydraAgent.Knowledge do
 
   def get_node!(id), do: Repo.get!(Node, id)
 
+  def get_node_detail!(id) do
+    Node
+    |> Repo.get!(id)
+    |> Repo.preload(
+      outgoing_relationships: [:to_node],
+      incoming_relationships: [:from_node]
+    )
+  end
+
+  def get_node_detail_for_workspace!(workspace_id, id) do
+    Node
+    |> where(
+      [node],
+      node.workspace_id == ^normalize_id(workspace_id) and node.id == ^normalize_id(id)
+    )
+    |> Repo.one!()
+    |> Repo.preload(
+      outgoing_relationships: [:to_node],
+      incoming_relationships: [:from_node]
+    )
+  end
+
   def update_node(%Node{} = node, attrs) do
     node |> Node.changeset(attrs) |> Repo.update()
+  end
+
+  def get_relationship!(id), do: Repo.get!(Relationship, id)
+
+  def get_relationship_detail!(id) do
+    Relationship
+    |> Repo.get!(id)
+    |> Repo.preload([:from_node, :to_node])
+  end
+
+  def get_relationship_detail_for_workspace!(workspace_id, id) do
+    Relationship
+    |> where(
+      [relationship],
+      relationship.workspace_id == ^normalize_id(workspace_id) and
+        relationship.id == ^normalize_id(id)
+    )
+    |> Repo.one!()
+    |> Repo.preload([:from_node, :to_node])
+  end
+
+  def update_relationship(%Relationship{} = relationship, attrs) do
+    relationship |> Relationship.changeset(attrs) |> Repo.update()
   end
 
   def list_nodes(workspace_id, opts \\ []) do
@@ -235,6 +280,28 @@ defmodule HydraAgent.Knowledge do
     |> preload([:from_node, :to_node])
     |> order_by([relationship], desc: relationship.updated_at)
     |> limit(^Keyword.get(opts, :limit, 100))
+    |> Repo.all()
+  end
+
+  def list_run_nodes(workspace_id, run_id, opts \\ []) do
+    Node
+    |> where([node], node.workspace_id == ^normalize_id(workspace_id))
+    |> where([node], fragment("?->>? = ?", node.provenance, "run_id", ^to_string(run_id)))
+    |> order_by([node], desc: node.updated_at)
+    |> limit(^Keyword.get(opts, :limit, 500))
+    |> Repo.all()
+  end
+
+  def list_run_relationships(workspace_id, run_id, opts \\ []) do
+    Relationship
+    |> where([relationship], relationship.workspace_id == ^normalize_id(workspace_id))
+    |> where(
+      [relationship],
+      fragment("?->>? = ?", relationship.provenance, "run_id", ^to_string(run_id))
+    )
+    |> preload([:from_node, :to_node])
+    |> order_by([relationship], desc: relationship.updated_at)
+    |> limit(^Keyword.get(opts, :limit, 500))
     |> Repo.all()
   end
 

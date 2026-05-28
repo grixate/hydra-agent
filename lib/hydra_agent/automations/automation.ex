@@ -51,6 +51,7 @@ defmodule HydraAgent.Automations.Automation do
     ])
     |> validate_format(:slug, ~r/^[a-z0-9][a-z0-9-]*$/)
     |> validate_inclusion(:status, @statuses)
+    |> validate_timezone()
     |> validate_cron_expression()
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:agent)
@@ -62,6 +63,18 @@ defmodule HydraAgent.Automations.Automation do
       case Crontab.CronExpression.Parser.parse(expression) do
         {:ok, _cron} -> []
         {:error, reason} -> [cron_expression: "is invalid: #{reason}"]
+      end
+    end)
+  end
+
+  defp validate_timezone(changeset) do
+    validate_change(changeset, :timezone, fn :timezone, timezone ->
+      case DateTime.now(timezone) do
+        {:ok, _datetime} ->
+          []
+
+        {:error, reason} ->
+          [timezone: "is not supported by the configured timezone database: #{reason}"]
       end
     end)
   end

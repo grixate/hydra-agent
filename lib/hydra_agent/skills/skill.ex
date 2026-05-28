@@ -24,6 +24,7 @@ defmodule HydraAgent.Skills.Skill do
     belongs_to :workspace, HydraAgent.Runtime.Workspace
     belongs_to :owner_agent, HydraAgent.Runtime.AgentProfile
     belongs_to :source_run, HydraAgent.Runtime.Run
+    has_many :versions, HydraAgent.Skills.SkillVersion
 
     timestamps(type: :utc_datetime_usec)
   end
