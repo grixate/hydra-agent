@@ -1,8 +1,10 @@
 defmodule HydraAgentWeb.ControlLive do
   use HydraAgentWeb, :live_view
 
-  alias HydraAgent.{Budgets, Knowledge, Providers, Runtime, Safety, Usage}
+  alias HydraAgent.{Budgets, Knowledge, MCP, Memory, Providers, Runtime, Safety, Usage}
   alias HydraAgent.Agent.Supervisor, as: AgentSupervisor
+  alias HydraAgentWeb.ControlComponents
+  alias HydraAgentWeb.ControlShell
   alias HydraAgent.Runtime.PubSub
 
   @impl true
@@ -117,6 +119,46 @@ defmodule HydraAgentWeb.ControlLive do
     {:noreply, load_workspace_state(socket)}
   end
 
+  def handle_event("promote-memory", %{"id" => id}, socket) do
+    socket =
+      id
+      |> parse_id()
+      |> Memory.promote_proposal(%{"actor" => "control_plane"})
+      |> handle_memory_result(socket, "Memory promoted")
+
+    {:noreply, load_workspace_state(socket)}
+  end
+
+  def handle_event("reject-memory", %{"id" => id}, socket) do
+    socket =
+      id
+      |> parse_id()
+      |> Memory.reject_proposal(%{"actor" => "control_plane"})
+      |> handle_memory_result(socket, "Memory rejected")
+
+    {:noreply, load_workspace_state(socket)}
+  end
+
+  def handle_event(
+        "review-memory",
+        %{"decision" => decision, "proposal_id" => id} = params,
+        socket
+      )
+      when decision in ["promote", "reject"] do
+    attrs = %{"actor" => "control_plane", "reason" => Map.get(params, "reason", "")}
+
+    result =
+      case decision do
+        "promote" -> id |> parse_id() |> Memory.promote_proposal(attrs)
+        "reject" -> id |> parse_id() |> Memory.reject_proposal(attrs)
+      end
+
+    message = if decision == "promote", do: "Memory promoted", else: "Memory rejected"
+    socket = handle_memory_result(result, socket, message)
+
+    {:noreply, load_workspace_state(socket)}
+  end
+
   defp load_workspaces(socket) do
     assign(socket, :workspaces, Runtime.list_workspaces())
   end
@@ -132,8 +174,15 @@ defmodule HydraAgentWeb.ControlLive do
     budget_statuses = Budgets.list_budget_statuses(workspace_id)
     nodes = Knowledge.list_nodes(workspace_id, limit: 8)
     relationships = Knowledge.list_relationships(workspace_id, limit: 8)
+    memory_proposals = Memory.list_proposals(workspace_id, limit: 6)
     providers = Providers.list_configs(workspace_id)
+    tool_bundles = Runtime.tool_bundles()
+    tool_policies = Runtime.list_tool_policies(workspace_id)
+    mcp_servers = MCP.list_servers(workspace_id)
     usage = Usage.summarize(workspace_id)
+
+    worker_statuses =
+      Map.new(runs, fn run -> {run.id, AgentSupervisor.run_worker_status(run.id)} end)
 
     socket
     |> assign(:runs, runs)
@@ -142,8 +191,13 @@ defmodule HydraAgentWeb.ControlLive do
     |> assign(:budget_statuses, budget_statuses)
     |> assign(:nodes, nodes)
     |> assign(:relationships, relationships)
+    |> assign(:memory_proposals, memory_proposals)
     |> assign(:providers, providers)
+    |> assign(:tool_bundles, tool_bundles)
+    |> assign(:tool_policies, tool_policies)
+    |> assign(:mcp_servers, mcp_servers)
     |> assign(:usage, usage)
+    |> assign(:worker_statuses, worker_statuses)
     |> assign(:run_counts, status_counts(runs))
   end
 
@@ -155,8 +209,13 @@ defmodule HydraAgentWeb.ControlLive do
     |> assign(:budget_statuses, [])
     |> assign(:nodes, [])
     |> assign(:relationships, [])
+    |> assign(:memory_proposals, [])
     |> assign(:providers, [])
+    |> assign(:tool_bundles, [])
+    |> assign(:tool_policies, [])
+    |> assign(:mcp_servers, [])
     |> assign(:usage, %{"records" => 0, "total_tokens" => 0, "by_category" => %{}})
+    |> assign(:worker_statuses, %{})
     |> assign(:run_counts, %{})
   end
 
@@ -188,7 +247,15 @@ defmodule HydraAgentWeb.ControlLive do
   end
 
   defp parse_id(id) when is_integer(id), do: id
-  defp parse_id(id) when is_binary(id), do: String.to_integer(id)
+
+  defp parse_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {parsed, ""} -> parsed
+      _other -> nil
+    end
+  end
+
+  defp parse_id(_id), do: nil
 
   defp get_run(id), do: id |> parse_id() |> Runtime.get_run!()
   defp get_step(id), do: id |> parse_id() |> Runtime.get_run_step!()
@@ -203,6 +270,11 @@ defmodule HydraAgentWeb.ControlLive do
   defp handle_step_result({:error, changeset}, socket, _message),
     do: put_flash(socket, :error, "Step update failed: #{inspect(changeset.errors)}")
 
+  defp handle_memory_result({:ok, _node}, socket, message), do: put_flash(socket, :info, message)
+
+  defp handle_memory_result({:error, %{} = error}, socket, _message),
+    do: put_flash(socket, :error, "Memory update failed: #{inspect(error)}")
+
   defp status_counts(records) do
     records
     |> Enum.frequencies_by(& &1.status)
@@ -212,302 +284,50 @@ defmodule HydraAgentWeb.ControlLive do
     |> Map.put_new("completed", 0)
   end
 
-  defp latest_run(runs), do: List.first(runs)
-
-  defp percent(nil), do: "n/a"
-  defp percent(value), do: "#{Float.round(value * 100, 1)}%"
-
-  defp timestamp(nil), do: "n/a"
-
-  defp timestamp(datetime) do
-    datetime
-    |> Calendar.strftime("%m-%d %H:%M")
-  end
-
   @impl true
   def render(assigns) do
     ~H"""
     <section id="control-plane" class="space-y-8">
-      <div class="flex flex-col gap-5 border-b border-zinc-200 pb-6 lg:flex-row lg:items-end lg:justify-between">
-        <div class="space-y-2">
-          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-            Operator control
-          </p>
-          <h1 class="text-3xl font-semibold tracking-normal text-zinc-950">Runtime Console</h1>
-          <p class="max-w-3xl text-sm leading-6 text-zinc-600">
-            Durable orchestration, policy pressure, budgets, and graph state for the selected workspace.
-          </p>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-2">
-          <.link
-            :for={workspace <- @workspaces}
-            patch={~p"/control?workspace_id=#{workspace.id}"}
-            class={[
-              "rounded-md border px-3 py-2 text-sm font-medium transition",
-              workspace.id == @workspace_id && "border-zinc-950 bg-zinc-950 text-white",
-              workspace.id != @workspace_id &&
-                "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400"
-            ]}
-          >
-            {workspace.name}
-          </.link>
-        </div>
-      </div>
+      <ControlShell.header
+        active={:mission}
+        description="Durable orchestration, policy pressure, budgets, and graph state for the selected workspace."
+        eyebrow="Operator control"
+        title="Runtime Console"
+        workspaces={@workspaces}
+        workspace_id={@workspace_id}
+      />
 
       <%= if @workspace_id do %>
-        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div class="rounded-lg border border-zinc-200 bg-white p-4">
-            <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Runs</p>
-            <p class="mt-3 text-3xl font-semibold text-zinc-950">{length(@runs)}</p>
-            <p class="mt-1 text-sm text-zinc-600">
-              {@run_counts["running"]} running / {@run_counts["awaiting_approval"]} awaiting approval
-            </p>
-          </div>
-          <div class="rounded-lg border border-zinc-200 bg-white p-4">
-            <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Approvals</p>
-            <p class="mt-3 text-3xl font-semibold text-zinc-950">{length(@approvals)}</p>
-            <p class="mt-1 text-sm text-zinc-600">operator-gated steps</p>
-          </div>
-          <div class="rounded-lg border border-zinc-200 bg-white p-4">
-            <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Usage</p>
-            <p class="mt-3 text-3xl font-semibold text-zinc-950">{@usage["total_tokens"]}</p>
-            <p class="mt-1 text-sm text-zinc-600">{@usage["records"]} ledger records</p>
-          </div>
-          <div class="rounded-lg border border-zinc-200 bg-white p-4">
-            <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Graph</p>
-            <p class="mt-3 text-3xl font-semibold text-zinc-950">{length(@nodes)}</p>
-            <p class="mt-1 text-sm text-zinc-600">{length(@relationships)} recent relationships</p>
-          </div>
-        </div>
+        <ControlComponents.metrics
+          runs={@runs}
+          run_counts={@run_counts}
+          approvals={@approvals}
+          usage={@usage}
+          nodes={@nodes}
+          relationships={@relationships}
+        />
 
         <div class="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
-          <section class="space-y-3">
-            <div class="flex items-center justify-between">
-              <h2 class="text-lg font-semibold text-zinc-950">Runs</h2>
-              <p class="text-sm text-zinc-500">
-                latest: {(@runs |> latest_run() || %{inserted_at: nil}).inserted_at |> timestamp()}
-              </p>
-            </div>
-            <div id="control-runs" class="overflow-hidden rounded-lg border border-zinc-200 bg-white">
-              <div class="grid grid-cols-[72px_1fr_120px_120px_280px] border-b border-zinc-100 px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                <span>ID</span>
-                <span>Goal</span>
-                <span>Status</span>
-                <span>Autonomy</span>
-                <span>Actions</span>
-              </div>
-              <div
-                :for={run <- Enum.take(@runs, 8)}
-                id={"control-run-#{run.id}"}
-                class="grid grid-cols-[72px_1fr_120px_120px_280px] gap-3 border-b border-zinc-100 px-4 py-3 last:border-b-0"
-              >
-                <span class="text-sm font-medium text-zinc-500">{run.id}</span>
-                <div class="min-w-0">
-                  <p class="truncate text-sm font-semibold text-zinc-950">{run.title}</p>
-                  <p class="truncate text-sm text-zinc-600">{run.goal}</p>
-                </div>
-                <span class="text-sm text-zinc-700">{run.status}</span>
-                <span class="text-sm text-zinc-700">{run.autonomy_level}</span>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    id={"control-start-run-#{run.id}"}
-                    type="button"
-                    phx-click="start-run"
-                    phx-value-id={run.id}
-                    class="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-400"
-                  >
-                    Start
-                  </button>
-                  <button
-                    id={"control-pause-run-#{run.id}"}
-                    type="button"
-                    phx-click="pause-run"
-                    phx-value-id={run.id}
-                    class="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-400"
-                  >
-                    Pause
-                  </button>
-                  <button
-                    id={"control-resume-run-#{run.id}"}
-                    type="button"
-                    phx-click="resume-run"
-                    phx-value-id={run.id}
-                    class="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-400"
-                  >
-                    Resume
-                  </button>
-                  <button
-                    id={"control-cancel-run-#{run.id}"}
-                    type="button"
-                    phx-click="cancel-run"
-                    phx-value-id={run.id}
-                    class="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 transition hover:border-red-400"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    id={"control-start-worker-#{run.id}"}
-                    type="button"
-                    phx-click="start-worker"
-                    phx-value-id={run.id}
-                    class="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-400"
-                  >
-                    Worker
-                  </button>
-                  <button
-                    id={"control-stop-worker-#{run.id}"}
-                    type="button"
-                    phx-click="stop-worker"
-                    phx-value-id={run.id}
-                    class="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 transition hover:border-zinc-400"
-                  >
-                    Stop
-                  </button>
-                </div>
-              </div>
-              <div :if={@runs == []} class="px-4 py-8 text-sm text-zinc-500">No runs yet.</div>
-            </div>
-          </section>
-
-          <section class="space-y-3">
-            <h2 class="text-lg font-semibold text-zinc-950">Approvals</h2>
-            <div id="control-approvals" class="space-y-2">
-              <div
-                :for={step <- Enum.take(@approvals, 6)}
-                id={"control-approval-#{step.id}"}
-                class="rounded-lg border border-amber-200 bg-amber-50 p-4"
-              >
-                <p class="text-sm font-semibold text-zinc-950">{step.title}</p>
-                <p class="mt-1 text-sm text-zinc-700">{step.tool_name} / {step.side_effect_class}</p>
-                <div class="mt-3 flex gap-2">
-                  <button
-                    id={"control-approve-step-#{step.id}"}
-                    type="button"
-                    phx-click="approve-step"
-                    phx-value-id={step.id}
-                    class="rounded-md border border-emerald-200 bg-white px-2 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-400"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    id={"control-reject-step-#{step.id}"}
-                    type="button"
-                    phx-click="reject-step"
-                    phx-value-id={step.id}
-                    class="rounded-md border border-red-200 bg-white px-2 py-1 text-xs font-medium text-red-700 transition hover:border-red-400"
-                  >
-                    Reject
-                  </button>
-                </div>
-              </div>
-              <div
-                :if={@approvals == []}
-                class="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-500"
-              >
-                No pending approvals.
-              </div>
-            </div>
-          </section>
+          <ControlComponents.runs_panel runs={@runs} worker_statuses={@worker_statuses} />
+          <ControlComponents.approvals_panel approvals={@approvals} />
         </div>
 
-        <div class="grid gap-6 xl:grid-cols-3">
-          <section class="space-y-3">
-            <h2 class="text-lg font-semibold text-zinc-950">Safety</h2>
-            <div id="control-safety" class="space-y-2">
-              <div
-                :for={event <- @safety_events}
-                id={"control-safety-#{event.id}"}
-                class="rounded-lg border border-zinc-200 bg-white p-4"
-              >
-                <div class="flex items-center justify-between gap-3">
-                  <p class="text-sm font-semibold text-zinc-950">{event.action}</p>
-                  <span class="text-xs font-medium uppercase text-zinc-500">{event.severity}</span>
-                </div>
-                <p class="mt-1 text-sm text-zinc-600">{event.summary}</p>
-              </div>
-              <div
-                :if={@safety_events == []}
-                class="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-500"
-              >
-                No safety events.
-              </div>
-            </div>
-          </section>
+        <ControlComponents.operations_grid
+          safety_events={@safety_events}
+          budget_statuses={@budget_statuses}
+          providers={@providers}
+          tool_bundles={@tool_bundles}
+          tool_policies={@tool_policies}
+          mcp_servers={@mcp_servers}
+        />
 
-          <section class="space-y-3">
-            <h2 class="text-lg font-semibold text-zinc-950">Budgets</h2>
-            <div id="control-budgets" class="space-y-2">
-              <div
-                :for={budget <- @budget_statuses}
-                id={"control-budget-#{budget["budget_id"]}"}
-                class="rounded-lg border border-zinc-200 bg-white p-4"
-              >
-                <div class="flex items-center justify-between">
-                  <p class="text-sm font-semibold text-zinc-950">{budget["period"]}</p>
-                  <span class="text-xs font-medium uppercase text-zinc-500">{budget["status"]}</span>
-                </div>
-                <p class="mt-2 text-sm text-zinc-600">
-                  {budget["used_tokens"]} / {budget["token_limit"] || "unbounded"} tokens
-                </p>
-                <p class="mt-1 text-xs text-zinc-500">{percent(budget["token_ratio"])}</p>
-              </div>
-              <div
-                :if={@budget_statuses == []}
-                class="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-500"
-              >
-                No budgets configured.
-              </div>
-            </div>
-          </section>
-
-          <section class="space-y-3">
-            <h2 class="text-lg font-semibold text-zinc-950">Providers</h2>
-            <div id="control-providers" class="space-y-2">
-              <div
-                :for={provider <- @providers}
-                id={"control-provider-#{provider.id}"}
-                class="rounded-lg border border-zinc-200 bg-white p-4"
-              >
-                <p class="text-sm font-semibold text-zinc-950">{provider.name}</p>
-                <p class="mt-1 text-sm text-zinc-600">{provider.kind} / {provider.model}</p>
-              </div>
-              <div
-                :if={@providers == []}
-                class="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-500"
-              >
-                No providers configured.
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <section class="space-y-3">
-          <h2 class="text-lg font-semibold text-zinc-950">Knowledge Graph</h2>
-          <div id="control-graph" class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div
-              :for={node <- @nodes}
-              id={"control-node-#{node.id}"}
-              class="rounded-lg border border-zinc-200 bg-white p-4"
-            >
-              <p class="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
-                {node.type_key}
-              </p>
-              <p class="mt-2 truncate text-sm font-semibold text-zinc-950">{node.title}</p>
-              <p class="mt-1 text-xs text-zinc-500">confidence {node.confidence}</p>
-            </div>
-            <div
-              :if={@nodes == []}
-              class="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-500"
-            >
-              No graph nodes.
-            </div>
-          </div>
-        </section>
+        <ControlComponents.knowledge_graph
+          memory_proposals={@memory_proposals}
+          nodes={@nodes}
+          relationships={@relationships}
+        />
       <% else %>
-        <div class="rounded-lg border border-zinc-200 bg-white p-8 text-sm text-zinc-500">
-          No workspaces yet.
-        </div>
+        <ControlComponents.empty_state />
       <% end %>
     </section>
     """

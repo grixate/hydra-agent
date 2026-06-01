@@ -51,6 +51,7 @@ defmodule HydraAgent.Usage do
     |> where([record], record.workspace_id == ^workspace_id)
     |> maybe_filter_category(opt(opts, :category))
     |> maybe_filter_agent(opt(opts, :agent_id))
+    |> maybe_filter_run(opt(opts, :run_id))
     |> maybe_filter_inserted_after(opt(opts, :since))
     |> order_by([record], desc: record.inserted_at)
     |> limit(^Keyword.get(opts, :limit, 200))
@@ -81,6 +82,11 @@ defmodule HydraAgent.Usage do
 
   defp maybe_filter_agent(query, agent_id),
     do: where(query, [record], record.agent_id == ^agent_id)
+
+  defp maybe_filter_run(query, nil), do: query
+
+  defp maybe_filter_run(query, run_id),
+    do: where(query, [record], record.run_id == ^run_id)
 
   defp maybe_filter_inserted_after(query, nil), do: query
 

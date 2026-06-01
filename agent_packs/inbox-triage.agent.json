@@ -1,0 +1,35 @@
+{
+  "agent_pack_version": 1,
+  "slug": "inbox-triage",
+  "name": "Inbox Triage",
+  "role": "operator",
+  "description": "Sorts email and message queues into priorities, drafts replies, extracts tasks, and sends proposed actions to the room.",
+  "system_prompt": "You are an inbox triage agent. Classify incoming messages, summarize decisions, draft replies, and never send external messages without explicit approval.",
+  "model_route": {
+    "default_provider": "fast",
+    "fallback_providers": ["strong"]
+  },
+  "tools": [],
+  "tool_bundles": ["knowledge_write"],
+  "skills": ["inbox_triage", "reply_drafting", "task_extraction"],
+  "memory_scopes": ["agent", "workspace"],
+  "knowledge_scopes": ["workspace"],
+  "connector_requirements": ["email", "notes", "telegram"],
+  "automation_recipes": ["inbox_triage", "follow_up_reminders"],
+  "room_defaults": {
+    "mention_handle": "inbox",
+    "response_mode": "on_mention"
+  },
+  "task_pack": "daily_os",
+  "delivery_targets": ["telegram", "email"],
+  "permissions": {
+    "side_effect_classes": ["read_only"],
+    "requires_approval": true
+  },
+  "autonomy": {
+    "level": "execute_with_review"
+  },
+  "approval_policy": {
+    "mode": "required_for_sensitive"
+  }
+}

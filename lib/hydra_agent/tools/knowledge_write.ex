@@ -41,6 +41,10 @@ defmodule HydraAgent.Tools.KnowledgeWrite do
       |> stringify_keys()
       |> Map.put_new("workspace_id", context["workspace_id"] || context[:workspace_id])
       |> Map.put_new("created_by_agent_id", context["agent_id"] || context[:agent_id])
+      |> Map.update("provenance", run_provenance(context), fn
+        provenance when is_map(provenance) -> Map.merge(run_provenance(context), provenance)
+        _provenance -> run_provenance(context)
+      end)
 
     case Knowledge.create_node(attrs) do
       {:ok, node} ->
@@ -53,6 +57,16 @@ defmodule HydraAgent.Tools.KnowledgeWrite do
 
   defp stringify_keys(map) when is_map(map) do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp run_provenance(context) do
+    %{
+      "kind" => "knowledge_write",
+      "run_id" => context["run_id"] || context[:run_id],
+      "run_step_id" => context["run_step_id"] || context[:run_step_id]
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   defp errors_json(changeset) do

@@ -1,11 +1,29 @@
 defmodule HydraAgentWeb.AutomationController do
   use HydraAgentWeb, :controller
 
-  alias HydraAgent.Automations
+  alias HydraAgent.{Automations, Connectors}
 
   def index(conn, %{"workspace_id" => workspace_id} = params) do
     automations = Automations.list_automations(workspace_id, status: params["status"])
-    json(conn, %{data: Enum.map(automations, &automation_json/1)})
+    connector_accounts = Connectors.list_accounts(workspace_id)
+    json(conn, %{data: Enum.map(automations, &automation_json(&1, connector_accounts))})
+  end
+
+  def recipes(conn, _params) do
+    json(conn, %{data: Automations.recipes()})
+  end
+
+  def create_from_recipe(
+        conn,
+        %{"workspace_id" => workspace_id, "recipe_id" => recipe_id} = params
+      ) do
+    case Automations.create_from_recipe(workspace_id, recipe_id, params) do
+      {:ok, automation} ->
+        conn |> put_status(:created) |> json(%{data: automation_json(automation)})
+
+      {:error, error} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{errors: error})
+    end
   end
 
   def show(conn, %{"id" => id}) do
@@ -57,7 +75,14 @@ defmodule HydraAgentWeb.AutomationController do
     end
   end
 
-  defp automation_json(automation) do
+  defp automation_json(automation, connector_accounts \\ nil) do
+    readiness =
+      if is_nil(connector_accounts) do
+        Automations.readiness(automation)
+      else
+        Automations.readiness(automation, connector_accounts)
+      end
+
     %{
       id: automation.id,
       workspace_id: automation.workspace_id,
@@ -71,6 +96,7 @@ defmodule HydraAgentWeb.AutomationController do
       last_run_at: automation.last_run_at,
       next_run_at: automation.next_run_at,
       last_error: automation.last_error,
+      readiness: readiness,
       metadata: automation.metadata
     }
   end

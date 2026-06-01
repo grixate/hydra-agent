@@ -20,6 +20,10 @@ if System.get_env("PHX_SERVER") do
   config :hydra_agent, HydraAgentWeb.Endpoint, server: true
 end
 
+if browser_worker_url = System.get_env("HYDRA_BROWSER_WORKER_URL") do
+  config :hydra_agent, :browser_worker_url, browser_worker_url
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
@@ -52,6 +56,13 @@ if config_env() == :prod do
   port = String.to_integer(System.get_env("PORT") || "4000")
 
   config :hydra_agent, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+
+  api_token_env = System.get_env("HYDRA_API_TOKEN_ENV") || "HYDRA_API_TOKEN"
+  api_auth_required? = System.get_env("HYDRA_API_AUTH_REQUIRED") in ~w(true 1)
+
+  config :hydra_agent, :api_auth,
+    enabled?: api_auth_required? or is_binary(System.get_env("HYDRA_API_TOKEN_ENV")),
+    token_env: api_token_env
 
   config :hydra_agent, HydraAgentWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],

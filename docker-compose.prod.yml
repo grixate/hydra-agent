@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hydra_agent
+      POSTGRES_USER: hydra
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - hydra_agent_pg_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hydra -d hydra_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  browser-worker:
+    image: mcr.microsoft.com/playwright:v1.44.0-jammy
+    restart: unless-stopped
+    working_dir: /worker
+    command: ["node", "server.js"]
+    environment:
+      PORT: "4100"
+    volumes:
+      - ./services/browser-worker:/worker:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      browser-worker:
+        condition: service_healthy
+    ports:
+      - "${PORT:-4000}:4000"
+    environment:
+      PHX_SERVER: "true"
+      PHX_HOST: ${PHX_HOST:?set PHX_HOST}
+      PORT: "4000"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE}
+      DATABASE_URL: ecto://hydra:${POSTGRES_PASSWORD}@postgres/hydra_agent
+      HYDRA_API_AUTH_REQUIRED: ${HYDRA_API_AUTH_REQUIRED:-true}
+      HYDRA_API_TOKEN_ENV: HYDRA_API_TOKEN
+      HYDRA_API_TOKEN: ${HYDRA_API_TOKEN:?set HYDRA_API_TOKEN}
+      HYDRA_BROWSER_WORKER_URL: http://browser-worker:4100/actions
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      EMAIL_ACCESS_TOKEN: ${EMAIL_ACCESS_TOKEN:-}
+      CALENDAR_ACCESS_TOKEN: ${CALENDAR_ACCESS_TOKEN:-}
+      NOTION_TOKEN: ${NOTION_TOKEN:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      X_ACCESS_TOKEN: ${X_ACCESS_TOKEN:-}
+      LINKEDIN_ACCESS_TOKEN: ${LINKEDIN_ACCESS_TOKEN:-}
+
+volumes:
+  hydra_agent_pg_prod:

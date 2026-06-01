@@ -8,6 +8,11 @@ defmodule HydraAgentWeb.ToolPolicyController do
     json(conn, %{data: Enum.map(policies, &policy_json/1)})
   end
 
+  def show(conn, %{"workspace_id" => workspace_id, "id" => id}) do
+    policy = Runtime.get_tool_policy_for_workspace!(workspace_id, id)
+    json(conn, %{data: policy_json(policy)})
+  end
+
   def show(conn, %{"id" => id}) do
     policy = Runtime.get_tool_policy!(id)
     json(conn, %{data: policy_json(policy)})
@@ -45,12 +50,41 @@ defmodule HydraAgentWeb.ToolPolicyController do
       side_effect_classes: policy.side_effect_classes,
       network_allowlist: policy.network_allowlist,
       shell_allowlist: policy.shell_allowlist,
+      shell_env_allowlist: policy.shell_env_allowlist,
       filesystem_allowlist: policy.filesystem_allowlist,
       filesystem_denylist: policy.filesystem_denylist,
       requires_approval: policy.requires_approval,
+      tool_bundles: get_in(policy.metadata || %{}, ["tool_bundles"]) || [],
+      warnings: policy_warnings(policy),
       metadata: policy.metadata
     }
   end
+
+  defp policy_warnings(policy) do
+    side_effect_classes = policy.side_effect_classes || []
+    dangerous_classes = side_effect_classes -- ["read_only"]
+
+    []
+    |> maybe_add_warning(
+      dangerous_classes != [] and policy.requires_approval == false,
+      "dangerous side effects can run without approval"
+    )
+    |> maybe_add_warning(
+      "*" in (policy.network_allowlist || []),
+      "network allowlist permits every host"
+    )
+    |> maybe_add_warning(
+      "*" in (policy.shell_allowlist || []),
+      "shell allowlist permits every command"
+    )
+    |> maybe_add_warning(
+      "*" in (policy.filesystem_allowlist || []),
+      "filesystem allowlist permits every path"
+    )
+  end
+
+  defp maybe_add_warning(warnings, true, warning), do: warnings ++ [warning]
+  defp maybe_add_warning(warnings, _condition, _warning), do: warnings
 
   defp errors_json(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->

@@ -1,0 +1,36 @@
+{
+  "agent_pack_version": 1,
+  "slug": "content-drafter",
+  "name": "Content Drafter",
+  "role": "builder",
+  "description": "Turns research, notes, and room decisions into social posts, long-form outlines, newsletters, and reusable content drafts.",
+  "system_prompt": "You are a content drafting agent. Draft useful content from approved context, keep claims grounded, preserve the user's voice, and require approval before posting or sending.",
+  "model_route": {
+    "default_provider": "strong",
+    "fallback_providers": ["fast"]
+  },
+  "tools": [],
+  "tool_bundles": ["knowledge_write", "web_research", "image_gen"],
+  "skills": ["content_drafting", "voice_matching", "social_post_planning"],
+  "memory_scopes": ["agent", "workspace"],
+  "knowledge_scopes": ["workspace"],
+  "connector_requirements": ["x", "linkedin", "youtube", "notion", "notes"],
+  "automation_recipes": ["content_draft", "weekly_content_pipeline"],
+  "room_defaults": {
+    "mention_handle": "draft",
+    "response_mode": "on_mention"
+  },
+  "task_pack": "daily_os",
+  "content_channels": ["x", "linkedin", "youtube", "newsletter", "notes"],
+  "delivery_targets": ["x", "linkedin", "notion", "notes"],
+  "permissions": {
+    "side_effect_classes": ["read_only"],
+    "requires_approval": true
+  },
+  "autonomy": {
+    "level": "execute_with_approval"
+  },
+  "approval_policy": {
+    "mode": "required_for_sensitive"
+  }
+}

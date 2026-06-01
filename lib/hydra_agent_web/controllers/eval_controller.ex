@@ -71,6 +71,20 @@ defmodule HydraAgentWeb.EvalController do
     json(conn, %{data: Evals.report(run)})
   end
 
+  def benchmark(conn, %{"workspace_id" => workspace_id}) do
+    json(conn, %{data: Evals.benchmark_report(workspace_id)})
+  end
+
+  def seed_benchmarks(conn, %{"workspace_id" => workspace_id}) do
+    case Evals.seed_standard_benchmarks(workspace_id) do
+      {:ok, suites} ->
+        json(conn, %{data: Enum.map(suites, &suite_json(&1, include_cases: true))})
+
+      {:error, errors} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{errors: inspect(errors)})
+    end
+  end
+
   defp suite_json(suite, opts \\ []) do
     base = %{
       id: suite.id,

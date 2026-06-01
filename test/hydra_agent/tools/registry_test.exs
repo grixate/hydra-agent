@@ -20,6 +20,38 @@ defmodule HydraAgent.Tools.RegistryTest do
 
     assert Enum.any?(specs, &(&1.name == "http_fetch" and &1.side_effect_class == "network"))
     assert Enum.any?(specs, &(&1.name == "shell_command" and &1.side_effect_class == "shell"))
+    assert Enum.any?(specs, &(&1.name == "mcp_call" and &1.side_effect_class == "mcp"))
+
+    assert Enum.any?(
+             specs,
+             &(&1.name == "browser_navigate" and &1.side_effect_class == "browser")
+           )
+
+    assert Enum.any?(
+             specs,
+             &(&1.name == "vision_analyze" and &1.side_effect_class == "read_only")
+           )
+
+    assert Enum.any?(
+             specs,
+             &(&1.name == "image_generate" and &1.side_effect_class == "media_generation")
+           )
+
+    assert Enum.any?(
+             specs,
+             &(&1.name == "text_to_speech" and &1.side_effect_class == "media_generation")
+           )
+
+    assert Enum.any?(
+             specs,
+             &(&1.name == "code_execute" and &1.side_effect_class == "code_execution")
+           )
+
+    assert Enum.any?(
+             specs,
+             &(&1.name == "multi_model_consensus" and &1.side_effect_class == "multi_model")
+           )
+
     assert Enum.any?(specs, &(&1.name == "file_read" and &1.side_effect_class == "read_only"))
 
     assert Enum.any?(
@@ -51,6 +83,7 @@ defmodule HydraAgent.Tools.RegistryTest do
     refute "file_write" in names
     refute "http_fetch" in names
     refute "shell_command" in names
+    refute "mcp_call" in names
   end
 
   test "noop is bounded and side-effect free" do

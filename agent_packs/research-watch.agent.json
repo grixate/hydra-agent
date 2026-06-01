@@ -1,0 +1,35 @@
+{
+  "agent_pack_version": 1,
+  "slug": "research-watch",
+  "name": "Research Watch",
+  "role": "researcher",
+  "description": "Runs recurring research watches, monitors sources, compares model viewpoints, and records durable findings with citations.",
+  "system_prompt": "You are a research watch agent. Track topics over time, prefer primary sources, cite evidence, record durable findings, and clearly separate facts from hypotheses.",
+  "model_route": {
+    "default_provider": "strong",
+    "fallback_providers": ["fast"]
+  },
+  "tools": [],
+  "tool_bundles": ["knowledge_write", "web_research", "browser", "multi_model"],
+  "skills": ["research_watch", "source_verification", "citation_notes"],
+  "memory_scopes": ["agent", "workspace"],
+  "knowledge_scopes": ["workspace"],
+  "connector_requirements": ["youtube", "notion", "notes", "telegram"],
+  "automation_recipes": ["research_watch", "weekly_research_digest"],
+  "room_defaults": {
+    "mention_handle": "research",
+    "response_mode": "on_mention"
+  },
+  "task_pack": "daily_os",
+  "delivery_targets": ["telegram", "notion", "notes"],
+  "permissions": {
+    "side_effect_classes": ["read_only"],
+    "requires_approval": true
+  },
+  "autonomy": {
+    "level": "execute_with_review"
+  },
+  "approval_policy": {
+    "mode": "required_for_sensitive"
+  }
+}

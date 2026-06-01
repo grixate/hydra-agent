@@ -132,7 +132,8 @@ defmodule HydraAgent.Runtime.Runner do
       "run_id" => run.id,
       "run_step_id" => running_step.id,
       "agent_id" => agent.id,
-      "workspace_root" => get_in(run.metadata || %{}, ["workspace_root"])
+      "workspace_root" => get_in(run.metadata || %{}, ["workspace_root"]),
+      "shell_env_allowlist" => get_in(decision, ["metadata", "shell_env_allowlist"]) || []
     }
 
     case Registry.execute(running_step.tool_name, running_step.input, context) do
