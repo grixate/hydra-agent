@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Hydra Agent doctor monitor every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=hydra-doctor.service
+
+[Install]
+WantedBy=timers.target

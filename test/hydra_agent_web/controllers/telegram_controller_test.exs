@@ -43,7 +43,7 @@ defmodule HydraAgentWeb.TelegramControllerTest do
         update_id: 123,
         message: %{
           message_id: 456,
-          chat: %{id: -10042},
+          chat: %{id: -10_042},
           text: "hello from telegram"
         }
       })
@@ -67,7 +67,7 @@ defmodule HydraAgentWeb.TelegramControllerTest do
         update_id: 123,
         message: %{
           message_id: 456,
-          chat: %{id: -10042},
+          chat: %{id: -10_042},
           text: "hello from telegram"
         }
       })
@@ -117,7 +117,7 @@ defmodule HydraAgentWeb.TelegramControllerTest do
         update_id: 789,
         message: %{
           message_id: 101,
-          chat: %{id: -20042},
+          chat: %{id: -20_042},
           text: "capture me"
         }
       })

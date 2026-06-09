@@ -41,21 +41,59 @@ defmodule HydraAgent.Browser do
       context: Map.take(context, ~w(workspace_id agent_id run_id browser_session_id))
     }
 
-    Req.post(worker_url, json: payload)
-    |> case do
-      {:ok, response} when response.status in 200..299 ->
-        record_worker_result(action, input, context, response.body)
+    started_at = System.monotonic_time()
 
-      {:ok, response} ->
-        {:error,
-         %{
-           "reason" => "browser_worker_http_error",
-           "status" => response.status,
-           "body" => response.body
-         }}
+    result =
+      worker_url
+      |> Req.post(
+        json: payload,
+        headers: worker_auth_headers(),
+        receive_timeout: worker_receive_timeout_ms(),
+        retry: false
+      )
+      |> case do
+        {:ok, response} when response.status in 200..299 ->
+          record_worker_result(action, input, context, response.body)
 
-      {:error, error} ->
-        {:error, %{"reason" => inspect(error)}}
+        {:ok, response} ->
+          {:error,
+           %{
+             "reason" => "browser_worker_http_error",
+             "status" => response.status,
+             "body" => response.body
+           }}
+
+        {:error, error} ->
+          {:error, %{"reason" => inspect(error)}}
+      end
+
+    emit_worker_telemetry(action, result, started_at)
+    result
+  end
+
+  def worker_auth_headers do
+    case worker_token() do
+      token when is_binary(token) and token != "" -> [{"authorization", "Bearer #{token}"}]
+      _missing -> []
+    end
+  end
+
+  def worker_auth_required? do
+    :hydra_agent
+    |> Application.get_env(:browser_worker, [])
+    |> Keyword.get(:auth_required?, false)
+  end
+
+  def worker_token_env do
+    :hydra_agent
+    |> Application.get_env(:browser_worker, [])
+    |> Keyword.get(:token_env, "HYDRA_BROWSER_WORKER_TOKEN")
+  end
+
+  def worker_token_configured? do
+    case worker_token() do
+      token when is_binary(token) and token != "" -> true
+      _missing -> false
     end
   end
 
@@ -205,6 +243,34 @@ defmodule HydraAgent.Browser do
 
   defp browser_worker_url(context) do
     context["browser_worker_url"] || Application.get_env(:hydra_agent, :browser_worker_url)
+  end
+
+  defp worker_token do
+    worker_token_env()
+    |> case do
+      env when is_binary(env) and env != "" -> System.get_env(env)
+      _missing -> nil
+    end
+  end
+
+  defp worker_receive_timeout_ms do
+    :hydra_agent
+    |> Application.get_env(:browser_worker, [])
+    |> Keyword.get(:receive_timeout_ms, 35_000)
+  end
+
+  defp emit_worker_telemetry(action, result, started_at) do
+    status =
+      case result do
+        {:ok, _payload} -> :ok
+        {:error, _reason} -> :error
+      end
+
+    :telemetry.execute(
+      [:hydra_agent, :browser, :action, :stop],
+      %{duration: System.monotonic_time() - started_at},
+      %{action: action, backend: :worker, status: status}
+    )
   end
 
   defp maybe_filter(query, _field, nil), do: query

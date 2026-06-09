@@ -15,6 +15,14 @@ config :hydra_agent, :api_auth,
   enabled?: false,
   token_env: "HYDRA_API_TOKEN"
 
+config :hydra_agent, :browser_auth,
+  enabled?: false,
+  username_env: "HYDRA_ADMIN_USERNAME",
+  password_env: "HYDRA_ADMIN_PASSWORD",
+  session_ttl_seconds: 28_800,
+  max_failed_attempts: 5,
+  rate_limit_window_seconds: 300
+
 config :hydra_agent, :browser_worker_url, nil
 
 # Configures the endpoint
@@ -27,6 +35,23 @@ config :hydra_agent, HydraAgentWeb.Endpoint,
   ],
   pubsub_server: HydraAgent.PubSub,
   live_view: [signing_salt: "7rbF02Px"]
+
+config :esbuild,
+  version: "0.25.12",
+  hydra_agent: [
+    args:
+      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets --external:/fonts/* --external:/images/*),
+    cd: Path.expand("../assets", __DIR__),
+    env: %{"NODE_PATH" => Path.expand("../deps", __DIR__)}
+  ]
+
+config :tailwind,
+  version: "4.1.17",
+  hydra_agent: [
+    args:
+      ~w(--input=assets/css/app.css --output=priv/static/assets/app.css --source=lib/hydra_agent_web --source=priv/static/assets),
+    cd: Path.expand("..", __DIR__)
+  ]
 
 # Configures Elixir's Logger
 config :logger, :console,

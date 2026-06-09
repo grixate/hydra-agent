@@ -24,6 +24,8 @@ config :hydra_agent, HydraAgentWeb.Endpoint,
 # Print only warnings and errors during test
 config :logger, level: :warning
 
+config :hydra_agent, :simulation_reconciler_enabled, false
+
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
 

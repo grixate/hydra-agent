@@ -18,7 +18,7 @@ defmodule HydraAgent.Runtime.Authorizer do
   def authorize(agent, tool_name, opts \\ [])
 
   def authorize(%AgentProfile{} = agent, tool_name, opts) do
-    with {_, tool_spec} <- find_tool(tool_name),
+    with {_, tool_spec} <- find_tool(agent.workspace_id, tool_name),
          :ok <- tool_allowed_by_capabilities(agent, tool_spec),
          :ok <- side_effect_allowed_by_capabilities(agent, tool_spec),
          {:ok, policy} <- find_policy(agent, opts),
@@ -36,8 +36,8 @@ defmodule HydraAgent.Runtime.Authorizer do
     {:blocked, %{"tool_name" => tool_name, "reason" => "missing_agent"}}
   end
 
-  defp find_tool(tool_name) do
-    case Registry.get(tool_name) do
+  defp find_tool(workspace_id, tool_name) do
+    case Registry.get(tool_name, workspace_id) do
       nil -> {:blocked, "unknown_tool", %{"tool_name" => tool_name}}
       tool -> tool
     end
@@ -159,9 +159,8 @@ defmodule HydraAgent.Runtime.Authorizer do
       command when is_list(command) ->
         command = Enum.map(command, &to_string/1)
 
-        with :ok <- shell_command_allowed(command, allowlist),
-             :ok <- shell_env_allowed(policy, input["env"] || %{}) do
-          :ok
+        with :ok <- shell_command_allowed(command, allowlist) do
+          shell_env_allowed(policy, input["env"] || %{})
         end
 
       _command ->

@@ -1,6 +1,6 @@
-<header class="border-b border-zinc-200 bg-white">
-  <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-    <a href="/" class="text-sm font-semibold text-zinc-950">Hydra Agent</a>
+<header id="hydra-app-header" class="hx-material sticky top-0 z-30 border-x-0 border-t-0">
+  <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-5">
+    <a href="/" class="text-sm font-semibold text-zinc-950">Hydra</a>
     <nav class="flex items-center gap-5 text-sm text-zinc-600">
       <a href="/" class="hover:text-zinc-950">Runtime</a>
       <a href="/control" class="hover:text-zinc-950">Control</a>
@@ -8,8 +8,8 @@
     </nav>
   </div>
 </header>
-<main class="px-4 py-12 sm:px-6 lg:px-8">
-  <div class="mx-auto max-w-6xl">
+<main id="hydra-app-main" class="px-4 py-6 sm:px-6 lg:px-8">
+  <div class="mx-auto max-w-7xl">
     <.flash_group flash={@flash} />
     {@inner_content}
   </div>

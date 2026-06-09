@@ -1,0 +1,4 @@
+{$PHX_HOST} {
+	encode gzip zstd
+	reverse_proxy app:4000
+}

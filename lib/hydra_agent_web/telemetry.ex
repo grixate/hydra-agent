@@ -74,6 +74,24 @@ defmodule HydraAgentWeb.Telemetry do
           "The time the connection spent waiting before being checked out for the query"
       ),
 
+      # Runtime tool surface metrics
+      summary("hydra_agent.browser.action.stop.duration",
+        tags: [:action, :backend, :status],
+        unit: {:native, :millisecond}
+      ),
+      counter("hydra_agent.simulation.transition.count",
+        tags: [:status]
+      ),
+      summary("hydra_agent.simulation.tick.stop.duration_us",
+        tags: [:status]
+      ),
+      counter("hydra_agent.simulation.tick.stop.count",
+        tags: [:status]
+      ),
+      counter("hydra_agent.simulation.budget.block.count",
+        tags: [:status]
+      ),
+
       # VM Metrics
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),

@@ -3,8 +3,9 @@
 This is the continuation plan after the first public `hydra-agent` snapshot.
 Hydra Agent is now a Phoenix/LiveView + OTP runtime foundation with
 workspace-scoped agents, providers, tools, policies, runs, approvals, memory,
-knowledge graph state, usage, budgets, evals, webhooks, audit export, starter
-packs, supervised run workers, and a first LiveView control plane.
+knowledge graph state, governed loops, usage, budgets, evals, webhooks, audit
+export, starter packs, supervised run workers, and a first LiveView control
+plane.
 
 The next stage is not to rebuild the old Hydra-X product. It is to make Hydra a
 mission-first, evidence-first agent runtime: long-lived agents, durable
@@ -28,6 +29,8 @@ advantage without becoming an Erlang debugger.
   for state that disappears on refresh.
 - Keep the core runtime neutral. Domain-specific workflows belong in agent packs,
   skills, templates, or workspace graph types.
+- Treat Loop as the reusable operating program, Mission as the operator-facing
+  objective, and Run as the durable execution attempt.
 
 Reference plans:
 
@@ -175,6 +178,11 @@ Already implemented:
   schedule previews with UTC cross-checks, recurring execution analytics, and
   fail-closed timezone validation plus setup documentation for unsupported
   timezone databases.
+- Governed Loops now exist as workspace-scoped operating programs with manual
+  or cron triggers, DB leases, loop-linked runs, strict JSON decisions,
+  optional verifier agents, state patches, no-progress detection, budget and
+  runtime guardrails, neutral recipes, API routes, `/control/loops`, run-index
+  loop filtering, run-detail lineage badges, audit export, and trace export.
 - Agent packs now expose a generated JSON Schema through API and structured
   validation details with stable field/code/message metadata while preserving
   existing human-readable error strings.
@@ -189,8 +197,8 @@ Already implemented:
 ## Definition Of A Solid V1
 
 V1 is ready when a user can clone the repo, configure providers, create or
-import specialized agents, run mission-style work safely, inspect what happened,
-review what Hydra learned, and compare quality over time.
+import specialized agents, run mission-style and loop-style work safely,
+inspect what happened, review what Hydra learned, and compare quality over time.
 
 Required acceptance criteria:
 

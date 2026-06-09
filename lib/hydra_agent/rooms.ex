@@ -10,7 +10,7 @@ defmodule HydraAgent.Rooms do
   import Ecto.Query
 
   alias Ecto.Multi
-  alias HydraAgent.{AgentChat, Repo, Runtime, Secrets}
+  alias HydraAgent.{AgentChat, Plugins, Repo, Runtime, Secrets}
   alias HydraAgent.Rooms.{ChannelBinding, Delivery, Member, Message, Room}
 
   def list_rooms(workspace_id) do
@@ -117,6 +117,18 @@ defmodule HydraAgent.Rooms do
     |> Repo.all()
   end
 
+  def create_system_message(%Room{} = room, content, metadata \\ %{}) do
+    Message.changeset(%Message{}, %{
+      "workspace_id" => room.workspace_id,
+      "room_id" => room.id,
+      "author_type" => "system",
+      "source_channel" => "system",
+      "content" => content,
+      "metadata" => stringify_keys(metadata || %{})
+    })
+    |> Repo.insert()
+  end
+
   def export_transcript(%Room{} = room, opts \\ []) do
     messages = list_messages(room, opts)
 
@@ -156,7 +168,7 @@ defmodule HydraAgent.Rooms do
         {:error, %{"reason" => "empty_room_message"}}
 
       true ->
-        do_send_user_message(room, content, opts)
+        do_send_user_message(room, expand_plugin_command(room.workspace_id, content), opts)
     end
   end
 
@@ -187,8 +199,24 @@ defmodule HydraAgent.Rooms do
       |> stringify_keys()
       |> Map.put("workspace_id", room.workspace_id)
       |> Map.put("room_id", room.id)
+      |> maybe_allow_plugin_room_channel(room.workspace_id)
 
     %ChannelBinding{} |> ChannelBinding.changeset(attrs) |> Repo.insert()
+  end
+
+  def room_channel_specs(workspace_id) do
+    [
+      %{
+        "provider" => "telegram",
+        "label" => "Telegram",
+        "delivery" => "built_in",
+        "config_fields" => ["token_env", "secret_env", "external_chat_id"]
+      }
+    ] ++ Plugins.enabled_room_channel_specs(workspace_id)
+  end
+
+  def plugin_command_specs(workspace_id) do
+    Plugins.enabled_cli_command_specs(workspace_id)
   end
 
   def list_channel_bindings(%Room{} = room) do
@@ -332,6 +360,62 @@ defmodule HydraAgent.Rooms do
       false -> {:error, %{"reason" => "telegram_delivery_failed"}}
       {:error, error} -> {:error, normalize_error(error)}
     end
+  end
+
+  defp maybe_allow_plugin_room_channel(attrs, workspace_id) do
+    provider = attrs["provider"]
+
+    plugin_providers =
+      workspace_id
+      |> Plugins.enabled_room_channel_specs()
+      |> Enum.map(&(&1["provider"] || &1["name"]))
+
+    if provider in plugin_providers do
+      metadata =
+        attrs
+        |> Map.get("metadata", %{})
+        |> Map.merge(%{"plugin_allowed_providers" => [provider]})
+
+      Map.put(attrs, "metadata", metadata)
+    else
+      attrs
+    end
+  end
+
+  defp expand_plugin_command(workspace_id, "/" <> command_text = content) do
+    [command | rest] = String.split(command_text, " ", parts: 2)
+    args = List.first(rest) || ""
+    command = "/" <> command
+
+    workspace_id
+    |> plugin_command_specs()
+    |> Enum.find(&plugin_command_matches?(&1, command))
+    |> case do
+      nil ->
+        content
+
+      spec ->
+        prompt = spec["prompt"] || spec["description"] || content
+
+        [prompt, args]
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.join("\n\n")
+    end
+  end
+
+  defp expand_plugin_command(_workspace_id, content), do: content
+
+  defp plugin_command_matches?(spec, command) do
+    commands =
+      [spec["command"], spec["name"]]
+      |> Enum.concat(List.wrap(spec["aliases"] || []))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(fn value ->
+        value = to_string(value)
+        if String.starts_with?(value, "/"), do: value, else: "/#{value}"
+      end)
+
+    command in commands
   end
 
   defp telegram_setup_items(binding) do
@@ -576,18 +660,6 @@ defmodule HydraAgent.Rooms do
     |> Repo.insert()
   end
 
-  defp create_system_message(room, content, metadata) do
-    Message.changeset(%Message{}, %{
-      "workspace_id" => room.workspace_id,
-      "room_id" => room.id,
-      "author_type" => "system",
-      "source_channel" => "system",
-      "content" => content,
-      "metadata" => metadata
-    })
-    |> Repo.insert()
-  end
-
   defp get_room_message(_room, nil), do: {:error, %{"reason" => "room_message_missing"}}
 
   defp get_room_message(room, message_id) do
@@ -702,6 +774,9 @@ defmodule HydraAgent.Rooms do
       members
       |> Enum.filter(&(&1.mention_handle in mentions))
       |> Enum.reject(&(&1.role == "observer" or &1.response_mode == "silent"))
+      |> Enum.sort_by(fn member ->
+        Enum.find_index(mentions, &(&1 == member.mention_handle)) || 0
+      end)
 
     cond do
       mentioned != [] ->

@@ -9,26 +9,63 @@ Hydra V4 focuses on making the runtime useful as an everyday agent OS: Telegram 
    - `PHX_HOST`
    - `SECRET_KEY_BASE`
    - `POSTGRES_PASSWORD`
+   - `HYDRA_ADMIN_USERNAME`
+   - `HYDRA_ADMIN_PASSWORD`
    - `HYDRA_API_TOKEN`
+   - `HYDRA_BROWSER_WORKER_TOKEN`
    - `TELEGRAM_BOT_TOKEN`
    - `TELEGRAM_WEBHOOK_SECRET`
 3. Start Hydra:
 
 ```bash
+docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
 docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml exec app /app/bin/hydra_agent eval "HydraAgent.Release.migrate"
+docker compose -f docker-compose.prod.yml --profile smoke run --rm smoke
 ```
 
-The compose profile runs Postgres, Hydra, and the Playwright browser worker. Hydra talks to the browser worker through `HYDRA_BROWSER_WORKER_URL=http://browser-worker:4100/actions`.
+The production compose file runs Caddy, Postgres, Hydra, and the Playwright browser worker. Caddy is the only public HTTP service and proxies HTTPS traffic to the app over the internal Docker network. Hydra talks to the browser worker through `HYDRA_BROWSER_WORKER_URL=http://browser-worker:4100/actions` and signs action requests with `HYDRA_BROWSER_WORKER_TOKEN`. The worker is built from `services/browser-worker` with pinned Playwright dependencies so the deploy image owns its Node runtime instead of relying on a bind-mounted script.
+
+Browser management routes are protected by the env-backed admin credentials. JSON APIs are protected by `HYDRA_API_TOKEN` by default. `GET /api/health` remains public for load balancers and container health checks. Webhook ingress routes remain publicly reachable but verify their own configured bearer or secret tokens.
+
+Run the local preflight before deployment:
+
+```bash
+scripts/prod-env-check.sh
+```
 
 After deployment, run the global and workspace doctor checks:
 
 ```bash
-curl "https://$PHX_HOST/api/v1/doctor"
-curl "https://$PHX_HOST/api/v1/workspaces/$WORKSPACE_ID/doctor"
+curl -H "authorization: Bearer $HYDRA_API_TOKEN" "https://$PHX_HOST/api/v1/doctor"
+curl -H "authorization: Bearer $HYDRA_API_TOKEN" "https://$PHX_HOST/api/v1/workspaces/$WORKSPACE_ID/doctor"
 ```
 
-The global doctor checks database access, tool registry integrity, starter pack validity, OTP process registration, and browser worker URL shape. The workspace doctor adds provider health, Telegram binding readiness, connector env/config readiness, automation connector readiness blockers, and active MCP server readiness.
+The global doctor checks database access, migration state, auth envs, backup configuration, tool registry integrity, starter pack validity, OTP process registration, runtime pressure, browser worker action auth, and browser worker health. The workspace doctor adds provider health, Telegram binding readiness, connector env/config readiness, automation connector readiness blockers, and active MCP server readiness.
+
+The `smoke` profile runs the same doctor checks through the production release
+command and exits non-zero if any check is an error. Set
+`HYDRA_SMOKE_WORKSPACE_ID` to include workspace-scoped readiness, and set
+`HYDRA_SMOKE_FAIL_ON_WARNING=true` when warnings should fail a deployment gate.
+
+### Backup And Restore
+
+Before every upgrade, create a Postgres backup:
+
+```bash
+scripts/prod-backup.sh
+```
+
+Prove that a backup can restore into a fresh Compose project and still pass
+migrations plus release smoke checks:
+
+```bash
+scripts/prod-restore-smoke.sh backups/hydra-agent-YYYYMMDDTHHMMSSZ.sql
+```
+
+Set `HYDRA_BACKUP_CONFIGURED=true` in production once an external backup schedule is in place.
+
+The full production runbook is in `docs/production-runbooks.md`. The current
+no-VPS readiness boundary is tracked in `docs/production-readiness.md`.
 
 ## Telegram Setup Wizard
 
@@ -137,6 +174,8 @@ Automation readiness is computed from each automation's `metadata.required_conne
 Browser tools now call `HydraAgent.Browser`.
 
 - If `HYDRA_BROWSER_WORKER_URL` is set, actions are sent to the Playwright worker.
+- In production, action requests fail closed unless `HYDRA_BROWSER_WORKER_TOKEN` is configured.
+- The worker limits request body size, action timeout, session count, session idle lifetime, and screenshot payload size through `HYDRA_BROWSER_WORKER_*` environment settings.
 - If no worker is configured, actions are recorded as browser sessions/artifacts when workspace context is present.
 - Navigation supports a host allowlist through runtime context.
 - Worker results update the durable browser session with current URL, worker session id, artifacts, and last error state.

@@ -92,7 +92,7 @@ defmodule HydraAgent.Runtime.Runner do
     Runtime.recover_stale_steps(workspace_id, opts)
   end
 
-  defp do_execute_step(%RunStep{} = step, %Run{} = run, _opts) do
+  defp do_execute_step(%RunStep{} = step, %Run{} = run, opts) do
     cond do
       is_nil(step.assigned_agent) ->
         block_step(step, "missing_assigned_agent", %{})
@@ -101,17 +101,17 @@ defmodule HydraAgent.Runtime.Runner do
         block_step(step, "missing_tool_name", %{})
 
       true ->
-        authorize_and_execute(step, run, step.assigned_agent)
+        authorize_and_execute(step, run, step.assigned_agent, opts)
     end
   end
 
-  defp authorize_and_execute(step, run, %AgentProfile{} = agent) do
+  defp authorize_and_execute(step, run, %AgentProfile{} = agent, opts) do
     case Authorizer.authorize(agent, step.tool_name,
            autonomy_level: run.autonomy_level,
            input: step.input
          ) do
       {:authorized, decision} ->
-        execute_authorized_step(step, run, agent, decision)
+        execute_authorized_step(step, run, agent, decision, opts)
 
       {:approval_required, decision} ->
         approval_required(step, run, agent, decision)
@@ -121,7 +121,7 @@ defmodule HydraAgent.Runtime.Runner do
     end
   end
 
-  defp execute_authorized_step(step, run, agent, decision) do
+  defp execute_authorized_step(step, run, agent, decision, opts) do
     {:ok, running_step} = Runtime.heartbeat_step(step, step.lease_owner)
 
     record_event(running_step, run, "step.started", "Step started", decision)
@@ -136,12 +136,66 @@ defmodule HydraAgent.Runtime.Runner do
       "shell_env_allowlist" => get_in(decision, ["metadata", "shell_env_allowlist"]) || []
     }
 
-    case Registry.execute(running_step.tool_name, running_step.input, context) do
+    case execute_tool_with_lease(running_step, run, context, opts) do
       {:ok, output} ->
         complete_step(running_step, run, output)
 
+      {:interrupted, status} ->
+        interrupt_step(running_step, run, status)
+
       {:error, error} ->
         fail_step(running_step, run, error)
+    end
+  end
+
+  defp execute_tool_with_lease(step, run, context, opts) do
+    heartbeat_interval_ms = opts |> Keyword.get(:heartbeat_interval_ms, 15_000) |> max(1)
+    timeout_ms = tool_timeout_ms(step.tool_name)
+    deadline = System.monotonic_time(:millisecond) + timeout_ms + heartbeat_interval_ms
+    task = Task.async(fn -> Registry.execute(step.tool_name, step.input, context) end)
+
+    await_tool_result(task, step, run, heartbeat_interval_ms, deadline)
+  end
+
+  defp await_tool_result(task, step, run, heartbeat_interval_ms, deadline) do
+    wait_ms = min(heartbeat_interval_ms, max(deadline - System.monotonic_time(:millisecond), 0))
+
+    case Task.yield(task, wait_ms) do
+      {:ok, result} ->
+        result
+
+      nil ->
+        cond do
+          terminal_or_paused_run?(run.id) ->
+            status = Runtime.get_run!(run.id).status
+            Task.shutdown(task, :brutal_kill)
+            {:interrupted, status}
+
+          System.monotonic_time(:millisecond) >= deadline ->
+            Task.shutdown(task, :brutal_kill)
+            {:error, %{"reason" => "tool_timeout", "tool_name" => step.tool_name}}
+
+          true ->
+            case Runtime.heartbeat_step(step, step.lease_owner) do
+              {:ok, _updated_step} ->
+                await_tool_result(task, step, run, heartbeat_interval_ms, deadline)
+
+              {:error, reason} ->
+                Task.shutdown(task, :brutal_kill)
+                {:error, %{"reason" => "step_lease_lost", "detail" => inspect(reason)}}
+            end
+        end
+    end
+  end
+
+  defp terminal_or_paused_run?(run_id) do
+    Runtime.get_run!(run_id).status in ["paused", "canceled", "failed", "completed"]
+  end
+
+  defp tool_timeout_ms(tool_name) do
+    case Registry.get(tool_name) do
+      {_module, spec} -> Map.get(spec, :timeout_ms, 30_000)
+      nil -> 30_000
     end
   end
 
@@ -238,6 +292,37 @@ defmodule HydraAgent.Runtime.Runner do
     Runtime.fail_run(run, %{"result" => %{"error" => error}})
 
     {:error, failed_step}
+  end
+
+  defp interrupt_step(step, run, "paused") do
+    {:ok, planned_step} =
+      Runtime.release_step_lease(step, %{
+        "status" => "planned",
+        "error" => %{"reason" => "run_interrupted", "status" => "paused"}
+      })
+
+    record_event(planned_step, run, "step.retrying", "Step returned to planned after pause", %{
+      "reason" => "run_interrupted",
+      "status" => "paused"
+    })
+
+    {:error, planned_step}
+  end
+
+  defp interrupt_step(step, run, status) do
+    {:ok, canceled_step} =
+      Runtime.release_step_lease(step, %{
+        "status" => "canceled",
+        "error" => %{"reason" => "run_interrupted", "status" => status},
+        "completed_at" => now()
+      })
+
+    record_event(canceled_step, run, "step.canceled", "Step canceled after run interruption", %{
+      "reason" => "run_interrupted",
+      "status" => status
+    })
+
+    {:error, canceled_step}
   end
 
   defp record_event(step, run, event_type, summary, payload) do

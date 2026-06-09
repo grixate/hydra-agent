@@ -105,47 +105,45 @@ defmodule HydraAgentWeb.ControlComponents do
           latest: {(@runs |> latest_run() || %{inserted_at: nil}).inserted_at |> timestamp()}
         </p>
       </div>
-      <div id="control-runs" class="overflow-hidden rounded-lg border border-zinc-200 bg-white">
-        <div class="grid grid-cols-[72px_1fr_120px_120px_150px_280px] border-b border-zinc-100 px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
-          <span>ID</span>
-          <span>Goal</span>
-          <span>Status</span>
-          <span>Autonomy</span>
-          <span>Worker</span>
-          <span>Actions</span>
-        </div>
+      <div id="control-runs" class="space-y-2">
         <div
           :for={run <- Enum.take(@runs, 8)}
           id={"control-run-#{run.id}"}
-          class="grid grid-cols-[72px_1fr_120px_120px_150px_280px] gap-3 border-b border-zinc-100 px-4 py-3 last:border-b-0"
+          class="rounded-lg border border-zinc-200 bg-white p-4"
         >
-          <span class="text-sm font-medium text-zinc-500">{run.id}</span>
-          <div class="min-w-0">
-            <p class="truncate text-sm font-semibold text-zinc-950">{run.title}</p>
-            <p class="truncate text-sm text-zinc-600">{run.goal}</p>
-            <.link
-              navigate={~p"/control/runs/#{run.id}"}
-              class="mt-1 inline-flex text-xs font-semibold text-zinc-950 underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-950"
-            >
-              Open timeline
-            </.link>
+          <% worker_status = Map.get(@worker_statuses, run.id, %{active: false}) %>
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-xs font-medium uppercase tracking-[0.1em] text-zinc-500">
+                  Run #{run.id}
+                </span>
+                <span class="hx-status-pill">{run.status}</span>
+                <span class="hx-status-pill">{run.autonomy_level}</span>
+              </div>
+              <p class="mt-2 truncate text-sm font-semibold text-zinc-950">{run.title}</p>
+              <p class="mt-1 line-clamp-2 text-sm text-zinc-600">{run.goal}</p>
+              <.link
+                navigate={~p"/control/runs/#{run.id}"}
+                class="mt-2 inline-flex text-xs font-semibold text-zinc-950 underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-950"
+              >
+                Open timeline
+              </.link>
+            </div>
+            <div class="min-w-[9rem] rounded-[var(--radius-3)] bg-[var(--bg-card-subtle)] px-3 py-2 text-sm text-zinc-700">
+              <p class={[
+                "font-medium",
+                worker_status.active && "text-emerald-700",
+                !worker_status.active && "text-zinc-500"
+              ]}>
+                {if worker_status.active, do: "Worker active", else: "Worker idle"}
+              </p>
+              <p class="mt-1 truncate text-xs text-zinc-500">
+                {worker_status.current_step_title || "no active step"}
+              </p>
+            </div>
           </div>
-          <span class="text-sm text-zinc-700">{run.status}</span>
-          <span class="text-sm text-zinc-700">{run.autonomy_level}</span>
-          <div class="min-w-0 text-sm text-zinc-700">
-            <% worker_status = Map.get(@worker_statuses, run.id, %{active: false}) %>
-            <p class={[
-              "font-medium",
-              worker_status.active && "text-emerald-700",
-              !worker_status.active && "text-zinc-500"
-            ]}>
-              {if worker_status.active, do: "active", else: "idle"}
-            </p>
-            <p class="truncate text-xs text-zinc-500">
-              {worker_status.current_step_title || "no active step"}
-            </p>
-          </div>
-          <div class="flex flex-wrap gap-2">
+          <div class="mt-4 flex flex-wrap gap-2">
             <button
               id={"control-start-run-#{run.id}"}
               type="button"
@@ -202,7 +200,12 @@ defmodule HydraAgentWeb.ControlComponents do
             </button>
           </div>
         </div>
-        <div :if={@runs == []} class="px-4 py-8 text-sm text-zinc-500">No runs yet.</div>
+        <div
+          :if={@runs == []}
+          class="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-500"
+        >
+          No runs yet.
+        </div>
       </div>
     </section>
     """

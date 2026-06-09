@@ -49,6 +49,17 @@ defmodule HydraAgentWeb.SkillController do
     json(conn, %{data: Enum.map(imports, &skill_import_json/1)})
   end
 
+  def evolve_due(conn, %{"workspace_id" => workspace_id} = params) do
+    {:ok, summary} =
+      Skills.evolve_due(workspace_id,
+        minimum_tool_count: parse_int(params["minimum_tool_count"], 5),
+        minimum_turn_count: parse_int(params["minimum_turn_count"], 4),
+        minimum_message_count: parse_int(params["minimum_message_count"], 4)
+      )
+
+    conn |> put_status(:created) |> json(%{data: summary})
+  end
+
   def scan_import(conn, %{"workspace_id" => workspace_id} = params) do
     case Skills.scan_skill_import(workspace_id, params) do
       {:ok, skill_import} ->
@@ -204,6 +215,18 @@ defmodule HydraAgentWeb.SkillController do
     case Skills.run_skill_experiment(skill, params) do
       {:ok, experiment} ->
         conn |> put_status(:created) |> json(%{data: experiment_json(experiment)})
+
+      {:error, error} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{errors: errors_json(error)})
+    end
+  end
+
+  def restore_version(conn, %{"id" => id, "version" => version} = params) do
+    skill = Skills.get_skill!(id)
+
+    case Skills.restore_skill_version(skill, version, params) do
+      {:ok, skill} ->
+        json(conn, %{data: skill_json(skill)})
 
       {:error, error} ->
         conn |> put_status(:unprocessable_entity) |> json(%{errors: errors_json(error)})
@@ -368,6 +391,8 @@ defmodule HydraAgentWeb.SkillController do
   end
 
   defp proposal_json(proposal) do
+    metadata = proposal.metadata || %{}
+
     %{
       id: proposal.id,
       workspace_id: proposal.workspace_id,
@@ -380,6 +405,10 @@ defmodule HydraAgentWeb.SkillController do
       proposed_snapshot: proposal.proposed_snapshot,
       evaluation_report: proposal.evaluation_report,
       confidence: proposal.confidence,
+      policy_decision: metadata["policy_decision"],
+      policy_snapshot: metadata["policy_snapshot"],
+      auto_activation_reason: metadata["auto_activation_reason"],
+      source_summary: source_summary(proposal),
       metadata: proposal.metadata,
       inserted_at: proposal.inserted_at
     }
@@ -426,6 +455,15 @@ defmodule HydraAgentWeb.SkillController do
       scoring: eval_case.scoring,
       metadata: eval_case.metadata
     }
+  end
+
+  defp source_summary(proposal) do
+    cond do
+      proposal.source_room_id -> "room:#{proposal.source_room_id}"
+      proposal.source_conversation_id -> "conversation:#{proposal.source_conversation_id}"
+      proposal.source_run_id -> "run:#{proposal.source_run_id}"
+      true -> "manual"
+    end
   end
 
   defp errors_json(%Ecto.Changeset{} = changeset) do

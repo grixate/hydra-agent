@@ -9,7 +9,7 @@ defmodule HydraAgentWeb.SkillRegistryLiveTest do
   test "renders empty skills registry", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/control/skills")
 
-    assert html =~ "Skills Registry"
+    assert html =~ "Skill Evolution"
     assert html =~ "No workspaces yet."
   end
 
@@ -45,7 +45,47 @@ defmodule HydraAgentWeb.SkillRegistryLiveTest do
     assert html =~ "proposed / Runtime Steward"
     assert html =~ "knowledge_read"
     assert html =~ "runtime_triage_eval / 0.85"
-    assert html =~ "Skills"
+    assert html =~ "Skill Evolution"
+  end
+
+  test "runs safe skill evolution from the registry", %{conn: conn} do
+    workspace = workspace_fixture(%{name: "Ops", slug: "ops-skills-registry-evolution"})
+    agent = agent_fixture(workspace, %{name: "Research Agent", slug: "registry-evolution-agent"})
+
+    {:ok, conversation} =
+      Runtime.create_conversation(%{
+        workspace_id: workspace.id,
+        agent_id: agent.id,
+        title: "Registry Evolution",
+        channel: "telegram"
+      })
+
+    for {role, content, metadata} <- [
+          {"user", "Summarize these sources", %{}},
+          {"assistant", "I will read the approved source notes", %{}},
+          {"tool", "read notes", %{"tool_name" => "knowledge_read"}},
+          {"assistant", "Summary includes source caveats", %{}},
+          {"user", "Reuse this pattern", %{}},
+          {"assistant", "Reusable source-summary pattern captured", %{}}
+        ] do
+      {:ok, _turn} =
+        Runtime.append_turn(conversation, %{
+          role: role,
+          content: content,
+          metadata: metadata
+        })
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/control/skills?workspace_id=#{workspace.id}")
+
+    html =
+      view
+      |> element("#skills-run-evolution")
+      |> render_click()
+
+    assert html =~ "Skill evolution checked"
+    assert html =~ "skill-evolution-summary"
+    assert html =~ "Auto-activated"
   end
 
   test "renders cross-skill eval and override analytics", %{conn: conn} do
@@ -304,6 +344,15 @@ defmodule HydraAgentWeb.SkillRegistryLiveTest do
     view |> element("#skill-detail-activate") |> render_click()
     assert Skills.get_skill!(skill.id).status == "active"
     assert render(view) =~ "Version 2 / active"
+
+    view
+    |> element("#skill-detail-version-1 button", "Restore")
+    |> render_click()
+
+    restored = Skills.get_skill!(skill.id)
+    assert restored.status == "proposed"
+    assert restored.provenance["restored_from_version"] == 1
+    assert render(view) =~ "Version 3 / restored"
   end
 
   test "skill detail edits proposed skill drafts before activation", %{conn: conn} do

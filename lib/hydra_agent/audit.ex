@@ -10,6 +10,7 @@ defmodule HydraAgent.Audit do
     Budgets,
     Evals,
     Gateways,
+    Loops,
     MCP,
     Providers,
     Repo,
@@ -39,6 +40,7 @@ defmodule HydraAgent.Audit do
       "tools" => Registry.all(),
       "tool_bundles" => Bundles.all(),
       "mcp_servers" => Enum.map(MCP.list_servers(workspace_id), &mcp_server_json/1),
+      "loops" => Enum.map(Loops.list_loops(workspace_id), &loop_json/1),
       "runs" => Enum.map(Runtime.list_runs(workspace_id), &run_json/1),
       "run_events" => Enum.map(run_events(workspace_id), &run_event_json/1),
       "safety_events" =>
@@ -137,12 +139,36 @@ defmodule HydraAgent.Audit do
   defp run_json(run) do
     %{
       "id" => run.id,
+      "loop_id" => run.loop_id,
       "title" => run.title,
       "goal" => run.goal,
       "status" => run.status,
       "autonomy_level" => run.autonomy_level,
       "supervisor_agent_id" => run.supervisor_agent_id,
       "steps" => Enum.map(loaded(run.steps), &step_json/1)
+    }
+  end
+
+  defp loop_json(loop) do
+    %{
+      "id" => loop.id,
+      "mission_id" => loop.mission_id,
+      "supervisor_agent_id" => loop.supervisor_agent_id,
+      "verifier_agent_id" => loop.verifier_agent_id,
+      "slug" => loop.slug,
+      "name" => loop.name,
+      "status" => loop.status,
+      "purpose" => loop.purpose,
+      "trigger" => loop.trigger,
+      "body" => loop.body,
+      "autonomy_level" => loop.autonomy_level,
+      "budget" => loop.budget,
+      "guardrails" => loop.guardrails,
+      "state" => loop.state,
+      "last_error" => loop.last_error,
+      "next_tick_at" => loop.next_tick_at,
+      "last_tick_at" => loop.last_tick_at,
+      "metadata" => loop.metadata
     }
   end
 

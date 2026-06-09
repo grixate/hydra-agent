@@ -1,13 +1,36 @@
 defmodule HydraAgentWeb.Router do
   use HydraAgentWeb, :router
 
+  @content_security_policy Enum.join(
+                             [
+                               "default-src 'self'",
+                               "base-uri 'self'",
+                               "object-src 'none'",
+                               "frame-ancestors 'self'",
+                               "img-src 'self' data: blob:",
+                               "font-src 'self' data:",
+                               "style-src 'self' 'unsafe-inline'",
+                               "script-src 'self'",
+                               "connect-src 'self' ws: wss:"
+                             ],
+                             "; "
+                           )
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
     plug :fetch_live_flash
     plug :put_root_layout, html: {HydraAgentWeb.Layouts, :root}
     plug :protect_from_forgery
-    plug :put_secure_browser_headers
+    plug :put_secure_browser_headers, %{"content-security-policy" => @content_security_policy}
+  end
+
+  pipeline :protected_browser do
+    plug HydraAgentWeb.Plugs.AdminAuth
+  end
+
+  pipeline :public_api do
+    plug :accepts, ["json"]
   end
 
   pipeline :api do
@@ -19,6 +42,15 @@ defmodule HydraAgentWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    get "/login", AuthController, :new
+    post "/login", AuthController, :create
+    delete "/logout", AuthController, :delete
+  end
+
+  scope "/", HydraAgentWeb do
+    pipe_through [:browser, :protected_browser]
+
+    live "/setup", SetupLive, :index
     live "/dashboard", ControlLive, :index
     live "/missions", MissionLive, :index
     live "/missions/:id", MissionLive, :show
@@ -32,6 +64,8 @@ defmodule HydraAgentWeb.Router do
     live "/graph/nodes/:id", KnowledgeNodeLive, :show
     live "/skills", SkillRegistryLive, :index
     live "/skills/:id", SkillDetailLive, :show
+    live "/loops", LoopLive, :index
+    live "/loops/:id", LoopLive, :show
     live "/automations", AutomationLive, :index
     live "/agent-studio", AgentStudioLive, :index
     live "/settings", SettingsLive, :index
@@ -48,24 +82,39 @@ defmodule HydraAgentWeb.Router do
     live "/control/memory", MemoryStudioLive, :index
     live "/control/memory/:id", KnowledgeNodeLive, :show
     live "/control/runtime", RuntimeOperationsLive, :index
+    live "/control/simulations", SimulationLive, :index
+    live "/control/simulations/:id", SimulationLive, :show
     live "/control/settings", SettingsLive, :index
     live "/control/runs", RunIndexLive, :index
     live "/control/runs/:id", RunDetailLive, :show
     live "/control/skills", SkillRegistryLive, :index
     live "/control/skills/:id", SkillDetailLive, :show
+    live "/control/loops", LoopLive, :index
+    live "/control/loops/:id", LoopLive, :show
     live "/control/tools", ToolsProtocolsLive, :index
+  end
+
+  scope "/api", HydraAgentWeb do
+    pipe_through :public_api
+
+    get "/health", HealthController, :show
+
+    scope "/v1" do
+      post "/webhooks/:slug", WebhookController, :receive
+      post "/telegram/:binding_slug/webhook", TelegramController, :webhook
+    end
   end
 
   scope "/api", HydraAgentWeb do
     pipe_through :api
 
-    get "/health", HealthController, :show
-
     scope "/v1" do
       get "/doctor", DoctorController, :show
+      get "/plugins/manifest_schema", PluginController, :schema
 
       resources "/workspaces", WorkspaceController, only: [:index, :create, :show] do
         get "/doctor", DoctorController, :show
+        get "/agents/starter_packs", AgentController, :starter_packs
         post "/agents/import_pack", AgentController, :import_pack
         resources "/agents", AgentController, only: [:index, :create]
         post "/agent_builder/preview", AgentBuilderController, :preview
@@ -74,6 +123,13 @@ defmodule HydraAgentWeb.Router do
         resources "/automations", AutomationController, only: [:index, :create]
         get "/automation_recipes", AutomationController, :recipes
         post "/automation_recipes/:recipe_id", AutomationController, :create_from_recipe
+        get "/loop_recipes", LoopController, :recipes
+        post "/loop_recipes/:recipe_id", LoopController, :create_from_recipe
+        resources "/loops", LoopController, only: [:index, :create, :show, :update]
+        post "/loops/:id/trigger", LoopController, :trigger
+        post "/loops/:id/pause", LoopController, :pause
+        post "/loops/:id/resume", LoopController, :resume
+        post "/loops/:id/archive", LoopController, :archive
         resources "/webhooks", WebhookController, only: [:index, :create]
         get "/audit/export", AuditController, :export
         get "/eval_suites", EvalController, :suites
@@ -91,6 +147,26 @@ defmodule HydraAgentWeb.Router do
         post "/connectors/:account_id/actions", ConnectorController, :request_action
         post "/connector_actions/:action_id/approve", ConnectorController, :approve_action
         post "/connector_actions/:action_id/reject", ConnectorController, :reject_action
+        get "/tools/bundles", ToolController, :bundles
+        get "/tools", ToolController, :index
+        get "/plugins/manifest_schema", PluginController, :schema
+        get "/plugins/capabilities", PluginController, :capabilities
+        get "/plugins/client_contract", PluginController, :client_contract
+        get "/plugins/client_surfaces", PluginController, :client_surfaces
+        get "/plugins/web_routes", PluginController, :web_routes
+        resources "/plugins", PluginController, only: [:index, :show]
+        post "/plugins/scan", PluginController, :scan
+        post "/plugins/install", PluginController, :install
+        post "/plugins/:id/enable", PluginController, :enable
+        post "/plugins/:id/disable", PluginController, :disable
+        post "/plugins/:id/upgrade", PluginController, :upgrade
+        post "/plugins/:id/uninstall", PluginController, :uninstall
+        get "/plugins/:id/doctor", PluginController, :doctor
+        get "/plugins/:id/config", PluginController, :config
+        put "/plugins/:id/config", PluginController, :update_config
+        post "/plugins/:id/migrations/dry_run", PluginController, :migration_plan
+        post "/plugins/:id/migrations/run", PluginController, :run_migrations
+        get "/room_channel_specs", RoomController, :channel_specs
         resources "/rooms", RoomController, only: [:index, :create, :show, :update]
         post "/rooms/:id/members", RoomController, :create_member
         delete "/rooms/:id/members/:agent_id", RoomController, :delete_member
@@ -111,11 +187,24 @@ defmodule HydraAgentWeb.Router do
         post "/credential_pools", ProviderController, :create_credential_pool
         post "/credential_pools/:id/items", ProviderController, :create_credential_pool_item
         resources "/budgets", BudgetController, only: [:index, :create]
+
+        resources "/simulations", SimulationController, only: [:index, :create, :show]
+        post "/simulations/estimate", SimulationController, :estimate
+        post "/simulations/:id/start", SimulationController, :start
+        post "/simulations/:id/pause", SimulationController, :pause
+        post "/simulations/:id/resume", SimulationController, :resume
+        post "/simulations/:id/cancel", SimulationController, :cancel
+        post "/simulations/:id/report", SimulationController, :report
+        post "/simulations/:id/duplicate", SimulationController, :duplicate
+        get "/simulations/:id/replay", SimulationController, :replay
+        get "/simulations/:id/export", SimulationController, :export
+
         resources "/skills", SkillController, only: [:index, :create]
         get "/skills/usage", SkillController, :usage
         get "/skills/improvement_proposals", SkillController, :improvement_proposals
         get "/skills/experiments", SkillController, :experiments
         get "/skill_imports", SkillController, :imports
+        post "/skills/evolve_due", SkillController, :evolve_due
         post "/skill_imports/scan", SkillController, :scan_import
         post "/skill_imports/:import_id/approve", SkillController, :approve_import
         post "/skill_imports/:import_id/reject", SkillController, :reject_import
@@ -182,8 +271,6 @@ defmodule HydraAgentWeb.Router do
       resources "/automations", AutomationController, only: [:create, :show, :update]
       post "/automations/:id/run", AutomationController, :run
       resources "/webhooks", WebhookController, only: [:create, :show]
-      post "/webhooks/:slug", WebhookController, :receive
-      post "/telegram/:binding_slug/webhook", TelegramController, :webhook
 
       resources "/eval_suites", EvalController, only: [] do
         post "/cases", EvalController, :create_case
@@ -198,10 +285,12 @@ defmodule HydraAgentWeb.Router do
       get "/providers/:id/health", ProviderController, :health
       get "/providers/:id/models", ProviderController, :models
       resources "/budgets", BudgetController, only: [:create, :show]
+
       resources "/skills", SkillController, only: [:create, :show]
       get "/skills/:id/export_markdown", SkillController, :export_markdown
       post "/skills/:id/eval_suite", SkillController, :generate_eval_suite
       post "/skills/:id/experiments", SkillController, :run_experiment
+      post "/skills/:id/restore_version", SkillController, :restore_version
       post "/skills/:id/improvement_proposals/refine", SkillController, :refine_proposal
       post "/skills/:id/improvement_proposals/prune", SkillController, :prune_proposal
       post "/skills/:id/test", SkillController, :test

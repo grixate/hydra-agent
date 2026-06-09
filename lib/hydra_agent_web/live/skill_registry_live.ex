@@ -15,6 +15,7 @@ defmodule HydraAgentWeb.SkillRegistryLive do
      |> assign(:workspace_id, nil)
      |> assign(:status, "all")
      |> assign(:statuses, @statuses)
+     |> assign(:evolution_summary, nil)
      |> load_workspaces()}
   end
 
@@ -70,6 +71,16 @@ defmodule HydraAgentWeb.SkillRegistryLive do
       {:error, error} ->
         {:noreply, put_flash(socket, :error, "Skill pack seeding failed: #{inspect(error)}")}
     end
+  end
+
+  def handle_event("run-evolution", _params, socket) do
+    {:ok, summary} = Skills.evolve_due(socket.assigns.workspace_id)
+
+    {:noreply,
+     socket
+     |> assign(:evolution_summary, summary)
+     |> put_flash(:info, "Skill evolution checked #{length(summary.results)} sources")
+     |> load_workspace_state()}
   end
 
   def handle_event("generate-eval-suite", %{"id" => id}, socket) do
@@ -378,16 +389,19 @@ defmodule HydraAgentWeb.SkillRegistryLive do
   defp stringify_keys(map) when is_map(map),
     do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
 
+  defp evolution_count(nil, _key), do: 0
+  defp evolution_count(summary, key), do: Map.get(summary, key, 0)
+
   @impl true
   def render(assigns) do
     ~H"""
     <section id="skills-registry" class="space-y-8">
       <ControlShell.header
         active={:skills}
-        description="Review durable skills, lifecycle state, required tools, owning agents, eval metadata, and provenance."
-        eyebrow="Learning loop"
+        description="Hydra watches successful work, evolves safe read-only skills automatically, and keeps risky changes drafted for review."
+        eyebrow="Skill Evolution"
         query={%{status: @status}}
-        title="Skills Registry"
+        title="Skill Evolution"
         workspaces={@workspaces}
         workspace_id={@workspace_id}
       />
@@ -396,7 +410,7 @@ defmodule HydraAgentWeb.SkillRegistryLive do
         <form
           id="skills-filter-form"
           phx-change="filter-skills"
-          class="grid gap-3 rounded-lg border border-zinc-200 bg-white p-4 md:grid-cols-[220px_1fr_auto]"
+          class="hydra-panel grid gap-3 rounded-lg p-4 md:grid-cols-[220px_1fr_auto_auto]"
         >
           <select
             id="skills-filter-status"
@@ -418,13 +432,59 @@ defmodule HydraAgentWeb.SkillRegistryLive do
           >
             Seed Pack
           </button>
+          <button
+            id="skills-run-evolution"
+            type="button"
+            phx-click="run-evolution"
+            class="rounded-md bg-teal-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-teal-800"
+          >
+            Run Evolution
+          </button>
         </form>
+
+        <section
+          id="skill-evolution-summary"
+          class="hydra-panel grid gap-3 rounded-lg p-4 text-sm md:grid-cols-4"
+        >
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+              Auto-activated
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-teal-800">
+              {evolution_count(@evolution_summary, :auto_activated)}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+              Drafted
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-zinc-950">
+              {evolution_count(@evolution_summary, :drafted)}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+              Blocked by policy
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-amber-700">
+              {evolution_count(@evolution_summary, :blocked)}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+              Skipped
+            </p>
+            <p class="mt-1 text-2xl font-semibold text-zinc-950">
+              {evolution_count(@evolution_summary, :skipped)}
+            </p>
+          </div>
+        </section>
 
         <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <div
             :for={status <- Skill.statuses()}
             id={"skills-count-#{status}"}
-            class="rounded-lg border border-zinc-200 bg-white p-4"
+            class="hydra-panel rounded-lg p-4"
           >
             <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">{status}</p>
             <p class="mt-3 text-3xl font-semibold text-zinc-950">
@@ -434,7 +494,7 @@ defmodule HydraAgentWeb.SkillRegistryLive do
         </div>
 
         <div id="skills-registry-analytics" class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <div class="rounded-lg border border-zinc-200 bg-white p-4">
+          <div class="hydra-panel rounded-lg p-4">
             <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
               Thresholded
             </p>
@@ -442,13 +502,13 @@ defmodule HydraAgentWeb.SkillRegistryLive do
               {@registry_analytics.thresholded}
             </p>
           </div>
-          <div class="rounded-lg border border-zinc-200 bg-white p-4">
+          <div class="hydra-panel rounded-lg p-4">
             <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Passing</p>
             <p class="mt-3 text-3xl font-semibold text-zinc-950">
               {@registry_analytics.passing}
             </p>
           </div>
-          <div class="rounded-lg border border-zinc-200 bg-white p-4">
+          <div class="hydra-panel rounded-lg p-4">
             <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
               Blocked
             </p>
@@ -456,7 +516,7 @@ defmodule HydraAgentWeb.SkillRegistryLive do
               {@registry_analytics.blocked}
             </p>
           </div>
-          <div class="rounded-lg border border-zinc-200 bg-white p-4">
+          <div class="hydra-panel rounded-lg p-4">
             <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
               Overrides
             </p>
@@ -464,7 +524,7 @@ defmodule HydraAgentWeb.SkillRegistryLive do
               {@registry_analytics.overrides}
             </p>
           </div>
-          <div class="rounded-lg border border-zinc-200 bg-white p-4">
+          <div class="hydra-panel rounded-lg p-4">
             <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
               Compared
             </p>
@@ -478,7 +538,7 @@ defmodule HydraAgentWeb.SkillRegistryLive do
           <article
             :for={skill <- @skills}
             id={"skill-card-#{skill.id}"}
-            class="rounded-lg border border-zinc-200 bg-white p-5"
+            class="hydra-panel rounded-lg p-5"
           >
             <div class="flex items-start justify-between gap-4">
               <div class="min-w-0">
@@ -610,7 +670,7 @@ defmodule HydraAgentWeb.SkillRegistryLive do
 
           <div
             :if={@skills == []}
-            class="rounded-lg border border-zinc-200 bg-white p-8 text-sm text-zinc-500"
+            class="hydra-panel rounded-lg p-8 text-sm text-zinc-500"
           >
             No skills match this filter.
           </div>
@@ -618,13 +678,13 @@ defmodule HydraAgentWeb.SkillRegistryLive do
 
         <section
           id="skill-improvement-proposals"
-          class="rounded-lg border border-zinc-200 bg-white p-5"
+          class="hydra-panel rounded-lg p-5"
         >
           <div class="flex items-center justify-between gap-4">
             <div>
-              <h2 class="text-base font-semibold text-zinc-950">Improvement Proposals</h2>
+              <h2 class="text-base font-semibold text-zinc-950">Evolution Queue</h2>
               <p class="mt-1 text-sm text-zinc-500">
-                Draft skill creations, refinements, and pruning candidates from the learning loop.
+                Safe winners auto-activate. Risky, low-confidence, or write-capable changes wait here.
               </p>
             </div>
             <span class="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">
@@ -635,7 +695,7 @@ defmodule HydraAgentWeb.SkillRegistryLive do
             <div
               :for={proposal <- @improvement_proposals}
               id={"skill-improvement-proposal-#{proposal.id}"}
-              class="rounded-lg border border-zinc-200 p-4"
+              class="rounded-lg border border-stone-200 bg-stone-50/60 p-4"
             >
               <p class="text-sm font-semibold text-zinc-950">
                 {proposal.kind} / {proposal.status}
@@ -671,7 +731,7 @@ defmodule HydraAgentWeb.SkillRegistryLive do
           </div>
         </section>
       <% else %>
-        <div class="rounded-lg border border-zinc-200 bg-white p-8 text-sm text-zinc-500">
+        <div class="hydra-panel rounded-lg p-8 text-sm text-zinc-500">
           No workspaces yet.
         </div>
       <% end %>

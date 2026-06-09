@@ -328,6 +328,7 @@ defmodule HydraAgentWeb.RunController do
       id: run.id,
       workspace_id: run.workspace_id,
       mission_id: run.mission_id,
+      loop_id: run.loop_id,
       supervisor_agent_id: run.supervisor_agent_id,
       parent_run_id: run.parent_run_id,
       lineage_type: run.lineage_type,
@@ -343,6 +344,7 @@ defmodule HydraAgentWeb.RunController do
       runtime_state: run.runtime_state,
       metadata: run.metadata,
       mission: assoc_json(run, :mission, &mission_json/1),
+      loop: assoc_json(run, :loop, &loop_json/1),
       parent_run: assoc_json(run, :parent_run, &run_ref_json/1),
       child_runs:
         Enum.map((Ecto.assoc_loaded?(run.child_runs) && run.child_runs) || [], &run_ref_json/1),
@@ -355,6 +357,7 @@ defmodule HydraAgentWeb.RunController do
     %{
       id: run.id,
       mission_id: run.mission_id,
+      loop_id: run.loop_id,
       parent_run_id: run.parent_run_id,
       lineage_type: run.lineage_type,
       title: run.title,
@@ -376,6 +379,30 @@ defmodule HydraAgentWeb.RunController do
       priority: mission.priority,
       deadline_at: mission.deadline_at,
       start_mode: mission.start_mode
+    }
+  end
+
+  defp loop_json(loop) do
+    %{
+      id: loop.id,
+      workspace_id: loop.workspace_id,
+      mission_id: loop.mission_id,
+      supervisor_agent_id: loop.supervisor_agent_id,
+      verifier_agent_id: loop.verifier_agent_id,
+      name: loop.name,
+      slug: loop.slug,
+      status: loop.status,
+      purpose: loop.purpose,
+      trigger: loop.trigger,
+      body: loop.body,
+      autonomy_level: loop.autonomy_level,
+      budget: loop.budget,
+      guardrails: loop.guardrails,
+      state: loop.state,
+      last_error: loop.last_error,
+      next_tick_at: loop.next_tick_at,
+      last_tick_at: loop.last_tick_at,
+      metadata: loop.metadata
     }
   end
 
@@ -423,6 +450,7 @@ defmodule HydraAgentWeb.RunController do
     %{
       run: run_json(trace.run),
       mission: trace.mission && mission_json(trace.mission),
+      loop: trace.loop && loop_json(trace.loop),
       parent_run: trace.parent_run && run_ref_json(trace.parent_run),
       child_runs: Enum.map(trace.child_runs, &run_ref_json/1),
       steps: Enum.map(trace.steps, &step_json/1),

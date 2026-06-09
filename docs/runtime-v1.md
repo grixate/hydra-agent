@@ -9,6 +9,9 @@ inspectable, policy-governed agents.
 - **Workspace**: the security and knowledge boundary for agents, runs, graph data, providers, and policies.
 - **Agent profile**: a specialized worker or supervisor with its own role, prompt, model route, skills, memory scopes, knowledge scopes, and capability profile.
 - **Run**: the durable unit of autonomous work. Runs contain steps, approvals, outputs, errors, tool summaries, and recovery state.
+- **Loop**: a reusable governed operating program that triggers on demand or on
+  cron, asks an agent for a strict decision, delegates durable runs, optionally
+  verifies the decision, persists loop state, and stops under guardrails.
 - **Run event**: append-only timeline entries for run and step changes. These are the control-plane audit trail.
 - **Conversation**: channel-specific interaction history, optionally linked to a run.
 - **Room**: a workspace-scoped shared transcript where users can talk to one or
@@ -186,6 +189,39 @@ config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
 
 Without that configuration, Hydra intentionally rejects unsupported timezone
 names instead of silently evaluating schedules as UTC.
+
+## Governed Loops
+
+Loops are Hydra's first-class unit for recurring or long-running agent work.
+They sit above missions and runs without replacing either one: the loop is the
+reusable operating program, a mission is the operator-facing objective, and each
+tick or delegated task is a durable run.
+
+V1 loop triggers support `manual` and `cron`. Cron loops use the same
+fail-closed timezone behavior as Automations. A loop tick acquires a database
+lease, creates a loop-linked run, records `loop.tick.started`, asks the
+supervisor agent for strict JSON, and then applies one of these decisions:
+`no_work`, `dispatch_runs`, `verify_runs`, `request_attention`, or `pause_loop`.
+
+Loop decisions include a summary, progress fingerprint, state patch, and
+optional delegated run specs. Delegated work becomes child runs with
+`lineage_type: delegated`, `parent_run_id` set to the tick run, and `loop_id`
+preserved for audit, trace, and cost reporting. If a verifier agent is
+configured, Hydra asks it to approve the decision before committing loop state.
+
+Loops enforce guardrails before or during each tick:
+`max_iterations_per_tick`, `max_child_runs_per_tick`,
+`max_consecutive_no_progress`, `max_runtime_seconds`, `token_limit`, and
+`cost_limit`. Repeated no-progress fingerprints block the loop with an
+operator-visible stop reason. Budget checks use usage records linked through
+loop runs, and loop model calls use the `loop` usage category so the cost of
+managing the loop is visible.
+
+The loop worker scans active due loops, respects leases, and never bypasses the
+existing run, tool-policy, approval, safety, usage, or audit paths. Standard
+neutral recipes seed runtime doctor, memory curation, skill improvement,
+research watch, and handoff digest loops; deployment-specific workflows should
+remain recipes, skills, or agent packs rather than core runtime concepts.
 
 ## Gateways
 

@@ -3,7 +3,8 @@ defmodule HydraAgent.Redaction do
   Small recursive redaction helpers for audit, safety, and trace payloads.
   """
 
-  @sensitive_key_fragments ~w(secret token api_key apikey key password passphrase authorization bearer credential)
+  @sensitive_key_exact ~w(key api_key apikey secret token password passphrase authorization bearer credential)
+  @sensitive_key_fragments ~w(secret token password passphrase authorization bearer credential)
   @max_string_bytes 500
 
   def redact(value), do: do_redact(value)
@@ -28,6 +29,9 @@ defmodule HydraAgent.Redaction do
 
   defp sensitive_key?(key) do
     key = key |> to_string() |> String.downcase()
-    Enum.any?(@sensitive_key_fragments, &String.contains?(key, &1))
+    normalized = String.replace(key, ~r/[^a-z0-9]/, "")
+
+    key in @sensitive_key_exact or normalized in @sensitive_key_exact or
+      Enum.any?(@sensitive_key_fragments, &String.contains?(normalized, &1))
   end
 end

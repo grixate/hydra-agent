@@ -42,12 +42,25 @@ defmodule HydraAgent.Connectors.Account do
     ])
     |> validate_required([:workspace_id, :provider, :slug, :display_name, :status])
     |> validate_format(:slug, ~r/^[a-z0-9][a-z0-9-]*$/)
-    |> validate_inclusion(:provider, @providers)
+    |> validate_provider()
     |> validate_inclusion(:status, @statuses)
     |> validate_env_ref(:credential_env)
     |> validate_env_ref(:refresh_env)
     |> assoc_constraint(:workspace)
     |> unique_constraint([:workspace_id, :slug])
+  end
+
+  defp validate_provider(changeset) do
+    validate_change(changeset, :provider, fn :provider, provider ->
+      metadata = get_field(changeset, :metadata) || %{}
+      allowed = @providers ++ List.wrap(metadata["plugin_allowed_providers"])
+
+      if provider in allowed do
+        []
+      else
+        [provider: "is invalid"]
+      end
+    end)
   end
 
   defp validate_env_ref(changeset, field) do

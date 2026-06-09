@@ -1,0 +1,11 @@
+{
+  "name": "hydra-browser-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hydra browser automation worker",
+  "main": "server.js",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "playwright": "1.60.0"
+  }
+}

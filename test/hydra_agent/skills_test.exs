@@ -608,6 +608,115 @@ defmodule HydraAgent.SkillsTest do
     assert skill.required_tools == ["knowledge_read"]
   end
 
+  test "evolve_due auto-activates safe room learning and records the room event" do
+    workspace = workspace_fixture(%{slug: "skills-auto-evolve-room"})
+    coordinator = agent_fixture(workspace, %{slug: "skills-auto-evolve-coordinator"})
+
+    {:ok, room} =
+      Rooms.create_room(%{
+        workspace_id: workspace.id,
+        coordinator_agent_id: coordinator.id,
+        title: "Research Room",
+        slug: "research-room"
+      })
+
+    for {author_type, content} <- [
+          {"user", "Compare these research sources"},
+          {"agent", "I will inspect source notes"},
+          {"agent", "The strongest source is the primary paper"},
+          {"system", "Research comparison completed"},
+          {"user", "Turn that into a reusable method"},
+          {"agent", "Reusable method captured with source checks"}
+        ] do
+      {:ok, _message} =
+        %Message{}
+        |> Message.changeset(%{
+          workspace_id: workspace.id,
+          room_id: room.id,
+          agent_id: if(author_type == "agent", do: coordinator.id),
+          author_type: author_type,
+          source_channel: "telegram",
+          content: content,
+          metadata: %{"tool_name" => "knowledge_read"}
+        })
+        |> Repo.insert()
+    end
+
+    assert {:ok, summary} = Skills.evolve_due(workspace.id, minimum_message_count: 4)
+    assert summary.auto_activated == 1
+    assert summary.drafted == 0
+
+    room = Rooms.get_room!(room.id)
+    messages = Rooms.list_messages(room, limit: 20)
+    assert Enum.any?(messages, &(&1.content =~ "Hydra auto-activated"))
+  end
+
+  test "evolve_due drafts unsafe room learning instead of auto-activating" do
+    workspace = workspace_fixture(%{slug: "skills-auto-evolve-unsafe"})
+    coordinator = agent_fixture(workspace, %{slug: "skills-auto-evolve-unsafe-agent"})
+
+    {:ok, room} =
+      Rooms.create_room(%{
+        workspace_id: workspace.id,
+        coordinator_agent_id: coordinator.id,
+        title: "Delivery Room",
+        slug: "delivery-room"
+      })
+
+    for content <- [
+          "Draft and send a message",
+          "I will prepare the delivery",
+          "Message is queued",
+          "Delivery complete"
+        ] do
+      {:ok, _message} =
+        %Message{}
+        |> Message.changeset(%{
+          workspace_id: workspace.id,
+          room_id: room.id,
+          agent_id: coordinator.id,
+          author_type: "agent",
+          source_channel: "telegram",
+          content: content,
+          metadata: %{"tool_name" => "file_write"}
+        })
+        |> Repo.insert()
+    end
+
+    assert {:ok, summary} = Skills.evolve_due(workspace.id, minimum_message_count: 4)
+    assert summary.auto_activated == 0
+    assert summary.blocked == 1
+
+    [result] = summary.results
+    assert result["policy_decision"] == "drafted_for_review"
+    assert "safe_skill" in result["blocked_reasons"]
+  end
+
+  test "restores skill from a previous version" do
+    workspace = workspace_fixture(%{slug: "skills-version-restore"})
+
+    {:ok, skill} =
+      Skills.create_skill(%{
+        workspace_id: workspace.id,
+        name: "Restore Skill",
+        slug: "restore-skill",
+        description: "Original description",
+        instructions: "Original instructions",
+        required_tools: ["knowledge_read"]
+      })
+
+    assert {:ok, changed} =
+             Skills.update_skill(skill, %{
+               description: "Changed description",
+               instructions: "Changed instructions"
+             })
+
+    assert {:ok, restored} = Skills.restore_skill_version(changed, 1, %{"actor" => "test"})
+    assert restored.description == "Original description"
+    assert restored.instructions == "Original instructions"
+    assert restored.provenance["restored_from_version"] == 1
+  end
+
   test "generated eval suites include real examples from source conversations" do
     workspace = workspace_fixture(%{slug: "skills-real-example-evals"})
     agent = agent_fixture(workspace, %{slug: "skills-real-example-agent"})

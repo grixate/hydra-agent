@@ -1,5 +1,13 @@
 # Hydra Agent Management Interface Plan
 
+This document describes a separate first-party management client app. It is not
+a runtime-core spec and it is not a plugin manifest. Hydra core should remain a
+headless runtime with API, CLI, chat adapters, policies, agents, runs, memory,
+knowledge, tools, MCP, connectors, and plugins. The management interface should
+consume Hydra's API and plugin client contract, then render plugin-aware setup
+and launch controls without requiring the management UI itself to be installed
+as a plugin.
+
 Hydra Agent should feel like a living operations cockpit for intelligent
 workers, not a blank chat app or a decorative graph canvas. The UI should answer
 four questions at all times:

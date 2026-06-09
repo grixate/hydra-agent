@@ -63,7 +63,9 @@ defmodule HydraAgent.Skills.Skill do
 
   defp validate_known_tools(changeset) do
     validate_change(changeset, :required_tools, fn :required_tools, tools ->
-      unknown = tools -- Registry.names()
+      provenance = get_field(changeset, :provenance) || %{}
+      allowed = Registry.names() ++ List.wrap(provenance["plugin_allowed_tools"])
+      unknown = tools -- allowed
 
       if unknown == [],
         do: [],

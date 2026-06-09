@@ -1,0 +1,9 @@
+[Unit]
+Description=Hydra Agent production backup
+Documentation=docs/production-runbooks.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/hydra-agent
+EnvironmentFile=/opt/hydra-agent/.env
+ExecStart=/opt/hydra-agent/scripts/prod-backup.sh

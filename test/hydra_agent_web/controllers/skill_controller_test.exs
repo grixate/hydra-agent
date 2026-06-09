@@ -132,6 +132,19 @@ defmodule HydraAgentWeb.SkillControllerTest do
 
     conn = post(build_conn(), ~p"/api/v1/skill_improvement_proposals/#{prune_id}/reject", %{})
     assert %{"data" => %{"status" => "rejected"}} = json_response(conn, 200)
+
+    conn =
+      post(build_conn(), ~p"/api/v1/skills/#{skill_id}/restore_version", %{
+        version: 1,
+        actor: "controller-test"
+      })
+
+    assert %{
+             "data" => %{
+               "id" => ^skill_id,
+               "provenance" => %{"restored_from_version" => 1}
+             }
+           } = json_response(conn, 200)
   end
 
   test "conversation, code skill, directory import, and experiment APIs", %{conn: conn} do
@@ -248,5 +261,47 @@ defmodule HydraAgentWeb.SkillControllerTest do
 
     conn = get(build_conn(), ~p"/api/v1/workspaces/#{workspace.id}/skills/experiments")
     assert %{"data" => [%{"id" => _id} | _rest]} = json_response(conn, 200)
+  end
+
+  test "workspace API runs safe skill evolution due pass", %{conn: conn} do
+    workspace = workspace_fixture(%{slug: "skill-controller-evolve-due"})
+    agent = agent_fixture(workspace, %{slug: "skill-controller-evolve-agent"})
+
+    {:ok, conversation} =
+      Runtime.create_conversation(%{
+        workspace_id: workspace.id,
+        agent_id: agent.id,
+        title: "Controller auto evolution",
+        channel: "telegram"
+      })
+
+    for {role, content, metadata} <- [
+          {"user", "Summarize source evidence", %{}},
+          {"assistant", "I will read approved notes", %{}},
+          {"tool", "read notes", %{"tool_name" => "knowledge_read"}},
+          {"assistant", "Evidence summary with citations", %{}},
+          {"user", "Make this reusable", %{}},
+          {"assistant", "Reusable evidence workflow captured", %{}}
+        ] do
+      {:ok, _turn} =
+        Runtime.append_turn(conversation, %{
+          role: role,
+          content: content,
+          metadata: metadata
+        })
+    end
+
+    conn =
+      post(conn, ~p"/api/v1/workspaces/#{workspace.id}/skills/evolve_due", %{
+        minimum_turn_count: 4
+      })
+
+    assert %{
+             "data" => %{
+               "auto_activated" => 1,
+               "drafted" => 0,
+               "results" => [%{"policy_decision" => "auto_activated"}]
+             }
+           } = json_response(conn, 201)
   end
 end

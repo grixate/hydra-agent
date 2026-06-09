@@ -1,0 +1,24 @@
+<main class="mx-auto max-w-2xl px-6 py-20">
+  <div class="space-y-3">
+    <p class="text-sm font-semibold uppercase tracking-wide text-red-600">
+      Configuration required
+    </p>
+    <h1 class="text-3xl font-semibold tracking-normal text-zinc-950">
+      Hydra admin auth is not configured
+    </h1>
+    <p class="text-sm leading-6 text-zinc-600">
+      Set the required admin environment variable before signing in.
+    </p>
+  </div>
+
+  <dl class="mt-8 grid gap-4 text-sm">
+    <div>
+      <dt class="font-medium text-zinc-700">Reason</dt>
+      <dd class="mt-1 text-zinc-950">{@error["reason"]}</dd>
+    </div>
+    <div>
+      <dt class="font-medium text-zinc-700">Missing env</dt>
+      <dd class="mt-1 font-mono text-zinc-950">{@error["env"]}</dd>
+    </div>
+  </dl>
+</main>

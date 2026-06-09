@@ -1,4 +1,21 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PHX_HOST: ${PHX_HOST:?set PHX_HOST}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - hydra_agent_caddy_data:/data
+      - hydra_agent_caddy_config:/config
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -15,14 +32,21 @@ services:
       retries: 10
 
   browser-worker:
-    image: mcr.microsoft.com/playwright:v1.44.0-jammy
+    build:
+      context: ./services/browser-worker
+      dockerfile: Dockerfile
+    image: hydra-browser-worker:prod
     restart: unless-stopped
-    working_dir: /worker
-    command: ["node", "server.js"]
+    init: true
+    shm_size: "1gb"
     environment:
       PORT: "4100"
-    volumes:
-      - ./services/browser-worker:/worker:ro
+      HYDRA_BROWSER_WORKER_TOKEN: ${HYDRA_BROWSER_WORKER_TOKEN:?set HYDRA_BROWSER_WORKER_TOKEN}
+      MAX_SESSIONS: ${HYDRA_BROWSER_WORKER_MAX_SESSIONS:-8}
+      SESSION_IDLE_MS: ${HYDRA_BROWSER_WORKER_SESSION_IDLE_MS:-900000}
+      MAX_BODY_BYTES: ${HYDRA_BROWSER_WORKER_MAX_BODY_BYTES:-1000000}
+      MAX_ACTION_TIMEOUT_MS: ${HYDRA_BROWSER_WORKER_MAX_ACTION_TIMEOUT_MS:-30000}
+      MAX_SCREENSHOT_BYTES: ${HYDRA_BROWSER_WORKER_MAX_SCREENSHOT_BYTES:-5000000}
     healthcheck:
       test:
         [
@@ -41,8 +65,8 @@ services:
         condition: service_healthy
       browser-worker:
         condition: service_healthy
-    ports:
-      - "${PORT:-4000}:4000"
+    expose:
+      - "4000"
     environment:
       PHX_SERVER: "true"
       PHX_HOST: ${PHX_HOST:?set PHX_HOST}
@@ -52,7 +76,14 @@ services:
       HYDRA_API_AUTH_REQUIRED: ${HYDRA_API_AUTH_REQUIRED:-true}
       HYDRA_API_TOKEN_ENV: HYDRA_API_TOKEN
       HYDRA_API_TOKEN: ${HYDRA_API_TOKEN:?set HYDRA_API_TOKEN}
+      HYDRA_BROWSER_AUTH_REQUIRED: ${HYDRA_BROWSER_AUTH_REQUIRED:-true}
+      HYDRA_ADMIN_USERNAME: ${HYDRA_ADMIN_USERNAME:?set HYDRA_ADMIN_USERNAME}
+      HYDRA_ADMIN_PASSWORD: ${HYDRA_ADMIN_PASSWORD:?set HYDRA_ADMIN_PASSWORD}
       HYDRA_BROWSER_WORKER_URL: http://browser-worker:4100/actions
+      HYDRA_BROWSER_WORKER_AUTH_REQUIRED: ${HYDRA_BROWSER_WORKER_AUTH_REQUIRED:-true}
+      HYDRA_BROWSER_WORKER_TOKEN_ENV: HYDRA_BROWSER_WORKER_TOKEN
+      HYDRA_BROWSER_WORKER_TOKEN: ${HYDRA_BROWSER_WORKER_TOKEN:?set HYDRA_BROWSER_WORKER_TOKEN}
+      HYDRA_BACKUP_CONFIGURED: ${HYDRA_BACKUP_CONFIGURED:-false}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       EMAIL_ACCESS_TOKEN: ${EMAIL_ACCESS_TOKEN:-}
@@ -61,6 +92,59 @@ services:
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
       X_ACCESS_TOKEN: ${X_ACCESS_TOKEN:-}
       LINKEDIN_ACCESS_TOKEN: ${LINKEDIN_ACCESS_TOKEN:-}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:4000/api/health >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  migrate:
+    build: .
+    profiles: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PHX_HOST: ${PHX_HOST:?set PHX_HOST}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE}
+      DATABASE_URL: ecto://hydra:${POSTGRES_PASSWORD}@postgres/hydra_agent
+      HYDRA_API_AUTH_REQUIRED: ${HYDRA_API_AUTH_REQUIRED:-true}
+      HYDRA_API_TOKEN_ENV: HYDRA_API_TOKEN
+      HYDRA_API_TOKEN: ${HYDRA_API_TOKEN:?set HYDRA_API_TOKEN}
+      HYDRA_BROWSER_AUTH_REQUIRED: ${HYDRA_BROWSER_AUTH_REQUIRED:-true}
+      HYDRA_ADMIN_USERNAME: ${HYDRA_ADMIN_USERNAME:?set HYDRA_ADMIN_USERNAME}
+      HYDRA_ADMIN_PASSWORD: ${HYDRA_ADMIN_PASSWORD:?set HYDRA_ADMIN_PASSWORD}
+    command: ["/app/bin/hydra_agent", "eval", "HydraAgent.Release.migrate"]
+
+  smoke:
+    build: .
+    profiles: ["smoke"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      browser-worker:
+        condition: service_healthy
+    environment:
+      PHX_HOST: ${PHX_HOST:?set PHX_HOST}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE}
+      DATABASE_URL: ecto://hydra:${POSTGRES_PASSWORD}@postgres/hydra_agent
+      HYDRA_API_AUTH_REQUIRED: ${HYDRA_API_AUTH_REQUIRED:-true}
+      HYDRA_API_TOKEN_ENV: HYDRA_API_TOKEN
+      HYDRA_API_TOKEN: ${HYDRA_API_TOKEN:?set HYDRA_API_TOKEN}
+      HYDRA_BROWSER_AUTH_REQUIRED: ${HYDRA_BROWSER_AUTH_REQUIRED:-true}
+      HYDRA_ADMIN_USERNAME: ${HYDRA_ADMIN_USERNAME:?set HYDRA_ADMIN_USERNAME}
+      HYDRA_ADMIN_PASSWORD: ${HYDRA_ADMIN_PASSWORD:?set HYDRA_ADMIN_PASSWORD}
+      HYDRA_BROWSER_WORKER_URL: http://browser-worker:4100/actions
+      HYDRA_BROWSER_WORKER_AUTH_REQUIRED: ${HYDRA_BROWSER_WORKER_AUTH_REQUIRED:-true}
+      HYDRA_BROWSER_WORKER_TOKEN_ENV: HYDRA_BROWSER_WORKER_TOKEN
+      HYDRA_BROWSER_WORKER_TOKEN: ${HYDRA_BROWSER_WORKER_TOKEN:?set HYDRA_BROWSER_WORKER_TOKEN}
+      HYDRA_BACKUP_CONFIGURED: ${HYDRA_BACKUP_CONFIGURED:-false}
+      HYDRA_SMOKE_WORKSPACE_ID: ${HYDRA_SMOKE_WORKSPACE_ID:-}
+      HYDRA_SMOKE_FAIL_ON_WARNING: ${HYDRA_SMOKE_FAIL_ON_WARNING:-false}
+    command: ["/app/bin/hydra_agent", "eval", "HydraAgent.Release.smoke"]
 
 volumes:
   hydra_agent_pg_prod:
+  hydra_agent_caddy_data:
+  hydra_agent_caddy_config:

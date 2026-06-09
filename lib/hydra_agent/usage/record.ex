@@ -2,7 +2,7 @@ defmodule HydraAgent.Usage.Record do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @categories ~w(chat planning eval embedding tool)
+  @categories ~w(chat planning eval embedding tool simulation loop)
   @statuses ~w(ok error)
 
   schema "usage_records" do

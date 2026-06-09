@@ -53,8 +53,7 @@ defmodule HydraAgent.Providers.OpenAICompatible.Stream do
       |> String.split("\n")
       |> Enum.map(&String.trim/1)
       |> Enum.filter(&String.starts_with?(&1, "data:"))
-      |> Enum.map(fn "data:" <> data -> String.trim_leading(data) end)
-      |> Enum.join("\n")
+      |> Enum.map_join("\n", fn "data:" <> data -> String.trim_leading(data) end)
 
     parse_data(state, data)
   end

@@ -1,0 +1,166 @@
+{
+  "plugin_version": 1,
+  "slug": "coding-agent",
+  "name": "Coding Agent",
+  "version": "0.1.0",
+  "description": "Optional coding-assistant pack with policy-gated workspace write capabilities.",
+  "package_type": "hybrid",
+  "trust_level": "external",
+  "permissions": {
+    "side_effect_classes": [
+      "read_only",
+      "workspace_write"
+    ],
+    "requires_approval": true,
+    "env_refs": [
+      "HYDRA_CODING_AGENT_URL"
+    ],
+    "api_scopes": [
+      "workspaces:read",
+      "agents:read",
+      "rooms:read",
+      "runs:read",
+      "tools:execute",
+      "plugins:read"
+    ]
+  },
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "default_branch_prefix": {
+        "type": "string"
+      },
+      "require_tests": {
+        "type": "boolean"
+      }
+    },
+    "required": []
+  },
+  "compatibility": {
+    "hydra_version": ">=0.1.0 <0.2.0"
+  },
+  "dependencies": [],
+  "capabilities": {
+    "tools": [
+      {
+        "name": "coding_agent_task",
+        "description": "Submit a coding task to an external coding-agent service.",
+        "side_effect_class": "workspace_write",
+        "approval_sensitive": true,
+        "parallel_safe": false,
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task"
+          ]
+        },
+        "output_schema": {
+          "type": "object"
+        },
+        "execution": {
+          "type": "webhook",
+          "url_env": "HYDRA_CODING_AGENT_URL"
+        }
+      }
+    ],
+    "tool_bundles": [
+      {
+        "name": "coding-agent-workspace",
+        "description": "Policy-gated coding assistant tools.",
+        "tools": [
+          "coding_agent_task"
+        ],
+        "side_effect_classes": [
+          "workspace_write"
+        ],
+        "requires_approval": true
+      }
+    ],
+    "agent_packs": [
+      {
+        "name": "Coding Assistant",
+        "slug": "coding-assistant",
+        "agent_pack_version": 1,
+        "role": "builder",
+        "description": "Plans and delegates coding tasks through plugin-gated tools.",
+        "model_route": {},
+        "tools": [],
+        "tool_bundles": [
+          "coding-agent-workspace"
+        ],
+        "skills": [
+          "coding-task-handoff"
+        ],
+        "memory_scopes": [
+          "workspace"
+        ],
+        "knowledge_scopes": [
+          "workspace"
+        ],
+        "permissions": {
+          "side_effect_classes": [
+            "workspace_write"
+          ],
+          "requires_approval": true
+        },
+        "autonomy": {
+          "level": "recommend"
+        },
+        "approval_policy": {
+          "mode": "required_for_sensitive"
+        }
+      }
+    ],
+    "skills": [
+      {
+        "name": "Coding Task Handoff",
+        "slug": "coding-task-handoff",
+        "description": "Prepare coding tasks with clear scope, constraints, tests, and rollback notes.",
+        "instructions": "Turn the user request into a concise implementation task with affected files, constraints, verification steps, and risk notes before invoking coding tools.",
+        "required_tools": [
+          "coding_agent_task"
+        ],
+        "memory_scopes": [
+          "workspace"
+        ],
+        "knowledge_scopes": [
+          "workspace"
+        ]
+      }
+    ],
+    "mcp_servers": [],
+    "connectors": [],
+    "room_channels": [],
+    "cli_commands": [
+      {
+        "name": "code_task",
+        "command": "/code_task",
+        "description": "Ask a room agent to prepare a coding handoff.",
+        "prompt": "Prepare a coding task handoff for this request."
+      }
+    ],
+    "client_surfaces": [
+      {
+        "name": "coding-agent",
+        "kind": "external_url",
+        "surface": "workspace",
+        "path": "/plugins/coding-agent",
+        "required_scopes": [
+          "workspaces:read",
+          "runs:read",
+          "tools:execute"
+        ],
+        "entrypoint": {
+          "type": "external_url",
+          "url_env": "HYDRA_CODING_AGENT_URL"
+        }
+      }
+    ],
+    "migrations": []
+  }
+}

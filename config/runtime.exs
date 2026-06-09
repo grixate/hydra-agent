@@ -58,11 +58,33 @@ if config_env() == :prod do
   config :hydra_agent, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   api_token_env = System.get_env("HYDRA_API_TOKEN_ENV") || "HYDRA_API_TOKEN"
-  api_auth_required? = System.get_env("HYDRA_API_AUTH_REQUIRED") in ~w(true 1)
+  api_auth_disabled? = System.get_env("HYDRA_API_AUTH_REQUIRED") in ~w(false 0)
+  browser_auth_disabled? = System.get_env("HYDRA_BROWSER_AUTH_REQUIRED") in ~w(false 0)
+
+  browser_worker_token_env =
+    System.get_env("HYDRA_BROWSER_WORKER_TOKEN_ENV") || "HYDRA_BROWSER_WORKER_TOKEN"
+
+  browser_worker_auth_disabled? =
+    System.get_env("HYDRA_BROWSER_WORKER_AUTH_REQUIRED") in ~w(false 0)
 
   config :hydra_agent, :api_auth,
-    enabled?: api_auth_required? or is_binary(System.get_env("HYDRA_API_TOKEN_ENV")),
+    enabled?: not api_auth_disabled?,
     token_env: api_token_env
+
+  config :hydra_agent, :browser_worker,
+    auth_required?: not browser_worker_auth_disabled?,
+    token_env: browser_worker_token_env
+
+  config :hydra_agent, :browser_auth,
+    enabled?: not browser_auth_disabled?,
+    username_env: System.get_env("HYDRA_ADMIN_USERNAME_ENV") || "HYDRA_ADMIN_USERNAME",
+    password_env: System.get_env("HYDRA_ADMIN_PASSWORD_ENV") || "HYDRA_ADMIN_PASSWORD",
+    session_ttl_seconds:
+      String.to_integer(System.get_env("HYDRA_ADMIN_SESSION_TTL_SECONDS") || "28800"),
+    max_failed_attempts:
+      String.to_integer(System.get_env("HYDRA_ADMIN_MAX_FAILED_ATTEMPTS") || "5"),
+    rate_limit_window_seconds:
+      String.to_integer(System.get_env("HYDRA_ADMIN_RATE_LIMIT_WINDOW_SECONDS") || "300")
 
   config :hydra_agent, HydraAgentWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],

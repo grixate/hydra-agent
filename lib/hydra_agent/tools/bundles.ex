@@ -8,6 +8,7 @@ defmodule HydraAgent.Tools.Bundles do
   """
 
   alias HydraAgent.Tools.Registry
+  alias HydraAgent.Plugins
 
   @bundles [
     %{
@@ -107,13 +108,27 @@ defmodule HydraAgent.Tools.Bundles do
     Enum.map(@bundles, &normalize_bundle/1)
   end
 
+  def all(nil), do: all()
+
+  def all(workspace_id) do
+    all() ++ Plugins.enabled_tool_bundle_specs(workspace_id)
+  end
+
   def names, do: Enum.map(all(), & &1.name)
+
+  def names(workspace_id), do: Enum.map(all(workspace_id), & &1.name)
 
   def get(name) when is_binary(name) do
     Enum.find(all(), &(&1.name == name))
   end
 
   def get(_name), do: nil
+
+  def get(name, workspace_id) when is_binary(name) do
+    get(name) || Enum.find(Plugins.enabled_tool_bundle_specs(workspace_id), &(&1.name == name))
+  end
+
+  def get(name, _workspace_id), do: get(name)
 
   def expand(names) when is_list(names) do
     names = Enum.map(names, &to_string/1)
@@ -136,6 +151,31 @@ defmodule HydraAgent.Tools.Bundles do
   end
 
   def expand(_names), do: {:error, ["tool_bundles_must_be_a_list"]}
+
+  def expand(names, nil), do: expand(names)
+
+  def expand(names, workspace_id) when is_list(names) do
+    names = Enum.map(names, &to_string/1)
+    known_names = names(workspace_id)
+    unknown = names -- known_names
+
+    if unknown == [] do
+      selected = Enum.map(names, &get(&1, workspace_id))
+
+      {:ok,
+       %{
+         "tool_bundles" => names,
+         "allowed_tools" => selected |> Enum.flat_map(& &1.tools) |> Enum.uniq(),
+         "side_effect_classes" =>
+           selected |> Enum.flat_map(& &1.side_effect_classes) |> Enum.uniq(),
+         "requires_approval" => Enum.any?(selected, & &1.requires_approval)
+       }}
+    else
+      {:error, unknown}
+    end
+  end
+
+  def expand(names, _workspace_id), do: expand(names)
 
   defp normalize_bundle(bundle) do
     specs =

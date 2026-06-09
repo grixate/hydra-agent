@@ -84,6 +84,12 @@ defmodule HydraAgentWeb.SkillDetailLive do
     |> handle_skill_result(socket, "Skill archived")
   end
 
+  def handle_event("restore-version", %{"version" => version}, socket) do
+    socket.assigns.skill
+    |> Skills.restore_skill_version(version, %{"actor" => "skill_detail"})
+    |> handle_skill_result(socket, "Skill version restored")
+  end
+
   def handle_event("edit-skill", _params, socket) do
     {:noreply,
      socket
@@ -1159,9 +1165,19 @@ defmodule HydraAgentWeb.SkillDetailLive do
                   {version.status} / recorded {timestamp(version.inserted_at)}
                 </p>
               </div>
-              <span class="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600">
-                {length(version.snapshot["required_tools"] || [])} tools
-              </span>
+              <div class="flex items-center gap-2">
+                <span class="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600">
+                  {length(version.snapshot["required_tools"] || [])} tools
+                </span>
+                <button
+                  type="button"
+                  phx-click="restore-version"
+                  phx-value-version={version.version}
+                  class="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-700 transition hover:border-teal-300"
+                >
+                  Restore
+                </button>
+              </div>
             </div>
             <p class="mt-3 line-clamp-2 text-sm text-zinc-600">
               {version.snapshot["description"] || "no description captured"}

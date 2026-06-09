@@ -2,7 +2,7 @@ defmodule HydraAgent.Skills.SkillVersion do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @change_kinds ~w(created testing active deprecated archived updated)
+  @change_kinds ~w(created testing active deprecated archived updated restored)
 
   schema "skill_versions" do
     field :version, :integer

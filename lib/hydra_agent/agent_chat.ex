@@ -13,6 +13,7 @@ defmodule HydraAgent.AgentChat do
 
     with {:ok, user_turn} <-
            Runtime.append_turn(conversation, %{
+             run_id: Keyword.get(opts, :run_id),
              role: "user",
              kind: "message",
              content: content,
@@ -27,6 +28,7 @@ defmodule HydraAgent.AgentChat do
          {:ok, provider_response} <- Providers.chat(agent, request),
          {:ok, assistant_turn} <-
            Runtime.append_turn(conversation, %{
+             run_id: Keyword.get(opts, :run_id),
              role: "assistant",
              kind: "message",
              content: get_in(provider_response, ["message", "content"]) || "",
@@ -41,6 +43,7 @@ defmodule HydraAgent.AgentChat do
         %{
           workspace_id: conversation.workspace_id,
           agent_id: agent.id,
+          run_id: Keyword.get(opts, :run_id),
           conversation_id: conversation.id,
           turn_id: assistant_turn.id
         },
@@ -63,6 +66,7 @@ defmodule HydraAgent.AgentChat do
           %{
             workspace_id: conversation.workspace_id,
             agent_id: agent.id,
+            run_id: Keyword.get(opts, :run_id),
             conversation_id: conversation.id
           },
           error,
@@ -85,6 +89,7 @@ defmodule HydraAgent.AgentChat do
 
     with {:ok, user_turn} <-
            Runtime.append_turn(conversation, %{
+             run_id: Keyword.get(opts, :run_id),
              role: "user",
              kind: "message",
              content: content,
@@ -104,6 +109,7 @@ defmodule HydraAgent.AgentChat do
            end),
          {:ok, assistant_turn} <-
            Runtime.append_turn(conversation, %{
+             run_id: Keyword.get(opts, :run_id),
              role: "assistant",
              kind: "message",
              content: get_in(provider_response, ["message", "content"]) || "",
@@ -119,6 +125,7 @@ defmodule HydraAgent.AgentChat do
         %{
           workspace_id: conversation.workspace_id,
           agent_id: agent.id,
+          run_id: Keyword.get(opts, :run_id),
           conversation_id: conversation.id,
           turn_id: assistant_turn.id
         },
@@ -155,6 +162,7 @@ defmodule HydraAgent.AgentChat do
           %{
             workspace_id: conversation.workspace_id,
             agent_id: agent.id,
+            run_id: Keyword.get(opts, :run_id),
             conversation_id: conversation.id
           },
           error,

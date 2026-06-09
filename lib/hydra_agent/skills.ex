@@ -580,9 +580,8 @@ defmodule HydraAgent.Skills do
     with :ok <- validate_safe_experiment(candidates),
          report <- evaluate_candidates(candidates, examples),
          winner <- winner_candidate(report),
-         {:ok, experiment} <- create_experiment(skill, attrs, candidates, report, winner),
-         {:ok, experiment} <- maybe_propose_experiment_winner(experiment, skill, report, winner) do
-      {:ok, experiment}
+         {:ok, experiment} <- create_experiment(skill, attrs, candidates, report, winner) do
+      maybe_propose_experiment_winner(experiment, skill, report, winner)
     end
   end
 
@@ -729,6 +728,63 @@ defmodule HydraAgent.Skills do
     |> Repo.all()
   end
 
+  def restore_skill_version(%Skill{} = skill, version, attrs \\ %{}) do
+    attrs = stringify_keys(attrs)
+
+    with %SkillVersion{} = skill_version <- get_version(skill, version) do
+      snapshot = stringify_keys(skill_version.snapshot || %{})
+
+      Multi.new()
+      |> Multi.update(
+        :skill,
+        Skill.changeset(skill, %{
+          name: snapshot["name"] || skill.name,
+          slug: snapshot["slug"] || skill.slug,
+          description: snapshot["description"] || skill.description,
+          status: snapshot["status"] || skill.status,
+          instructions: snapshot["instructions"] || skill.instructions,
+          trigger_conditions: snapshot["trigger_conditions"] || %{},
+          required_tools: snapshot["required_tools"] || [],
+          memory_scopes: snapshot["memory_scopes"] || [],
+          knowledge_scopes: snapshot["knowledge_scopes"] || [],
+          evals: snapshot["evals"] || %{},
+          provenance:
+            Map.merge(snapshot["provenance"] || %{}, %{
+              "restored_from_version" => skill_version.version,
+              "restored_by" => attrs["actor"] || "operator",
+              "restored_at" => DateTime.to_iso8601(now())
+            })
+        })
+      )
+      |> Multi.run(:version, fn repo, %{skill: restored} ->
+        insert_version(repo, restored, "restored")
+      end)
+      |> Repo.transaction()
+      |> case do
+        {:ok, %{skill: restored}} -> {:ok, restored}
+        {:error, _operation, changeset, _changes} -> {:error, changeset}
+      end
+    else
+      nil -> {:error, %{"reason" => "skill_version_not_found", "version" => version}}
+      error -> error
+    end
+  end
+
+  def evolve_due(workspace_id, opts \\ []) do
+    workspace_id = normalize_id(workspace_id)
+    results = HydraAgent.Skills.LearningWorker.evolve_workspace(workspace_id, Map.new(opts))
+
+    {:ok,
+     %{
+       workspace_id: workspace_id,
+       auto_activated: Enum.count(results, &proposal_status?(&1, "auto_activated")),
+       drafted: Enum.count(results, &proposal_status?(&1, "draft")),
+       blocked: Enum.count(results, &blocked_proposal?/1),
+       skipped: Enum.count(results, &match?(%{"reason" => _reason}, &1)),
+       results: Enum.map(results, &evolution_result_json/1)
+     }}
+  end
+
   def activation_gate(%Skill{} = skill) do
     case eval_threshold(skill) do
       nil ->
@@ -736,9 +792,8 @@ defmodule HydraAgent.Skills do
 
       threshold ->
         with {:ok, suite} <- attached_eval_suite(skill),
-             {:ok, report} <- latest_eval_report(skill, suite),
-             :ok <- pass_rate_meets_threshold(report, threshold) do
-          :ok
+             {:ok, report} <- latest_eval_report(skill, suite) do
+          pass_rate_meets_threshold(report, threshold)
         end
     end
   end
@@ -802,36 +857,70 @@ defmodule HydraAgent.Skills do
 
   defp maybe_auto_activate_proposal(%ImprovementProposal{} = proposal) do
     proposal = Repo.preload(proposal, [:target_skill])
+    decision = auto_activation_decision(proposal)
 
     cond do
       proposal.status != "draft" ->
         {:ok, proposal}
 
-      auto_activation_allowed?(proposal) ->
+      decision["decision"] == "auto_activate" ->
         case approve_improvement_proposal(proposal, %{
                "status" => "auto_activated",
                "actor" => "skill_learning_worker",
-               "reason" => "safe skill passed autonomous activation policy"
+               "reason" => "safe skill passed autonomous activation policy",
+               "metadata" => decision
              }) do
           {:ok, %{proposal: proposal}} -> {:ok, proposal}
           {:error, _error} -> {:ok, proposal}
         end
 
       true ->
-        {:ok, proposal}
+        update_improvement_proposal(proposal, %{
+          "metadata" => Map.merge(proposal.metadata || %{}, decision)
+        })
     end
   end
 
-  defp auto_activation_allowed?(%ImprovementProposal{target_skill: %Skill{} = skill} = proposal) do
+  defp auto_activation_decision(%ImprovementProposal{target_skill: %Skill{} = skill} = proposal) do
     policy = skill_autonomy_policy(skill.workspace_id)
 
-    proposal.kind in ["create", "refine"] and policy["mode"] == "auto_activate_safe" and
-      safe_skill?(skill) and
-      proposal.confidence >= policy["minimum_confidence"] and
-      evaluation_passes?(proposal.evaluation_report || %{}, policy)
+    checks = %{
+      "safe_skill" => safe_skill?(skill),
+      "minimum_confidence" => proposal.confidence >= policy["minimum_confidence"],
+      "evaluation_passes" => evaluation_passes?(proposal.evaluation_report || %{}, policy),
+      "eligible_kind" => proposal.kind in ["create", "refine"],
+      "auto_mode" => policy["mode"] == "auto_activate_safe"
+    }
+
+    if Enum.all?(Map.values(checks)) do
+      %{
+        "policy_decision" => "auto_activated",
+        "decision" => "auto_activate",
+        "auto_activation_reason" => "safe read-only skill passed eval and confidence gates",
+        "policy_snapshot" => policy,
+        "policy_checks" => checks
+      }
+    else
+      %{
+        "policy_decision" => "drafted_for_review",
+        "decision" => "draft",
+        "blocked_reasons" =>
+          checks
+          |> Enum.reject(fn {_key, passed?} -> passed? end)
+          |> Enum.map(fn {key, _passed?} -> key end),
+        "policy_snapshot" => policy,
+        "policy_checks" => checks
+      }
+    end
   end
 
-  defp auto_activation_allowed?(_proposal), do: false
+  defp auto_activation_decision(_proposal) do
+    %{
+      "policy_decision" => "drafted_for_review",
+      "decision" => "draft",
+      "blocked_reasons" => ["proposal_missing_target_skill"]
+    }
+  end
 
   defp skill_autonomy_policy(workspace_id) do
     workspace = HydraAgent.Runtime.get_workspace!(workspace_id)
@@ -950,11 +1039,11 @@ defmodule HydraAgent.Skills do
   defp list_or_empty(_values), do: []
 
   defp approval_metadata(attrs) do
-    %{
+    Map.merge(attrs["metadata"] || %{}, %{
       "actor" => attrs["actor"] || "operator",
       "reason" => attrs["reason"] || "proposal review",
       "reviewed_at" => DateTime.to_iso8601(now())
-    }
+    })
   end
 
   defp eligible_learning_run(run, opts) do
@@ -1128,10 +1217,9 @@ defmodule HydraAgent.Skills do
       conversation.turns
       |> List.wrap()
       |> Enum.reject(&(&1.role == "system"))
-      |> Enum.map(fn turn ->
+      |> Enum.map_join("\n", fn turn ->
         "- #{turn.role}: #{summarize_text(turn.content, 220)}"
       end)
-      |> Enum.join("\n")
 
     """
     Reuse the successful pattern observed in conversation #{conversation.id}.
@@ -1165,11 +1253,10 @@ defmodule HydraAgent.Skills do
   defp room_proposal_instructions(room, messages) do
     transcript =
       messages
-      |> Enum.map(fn message ->
+      |> Enum.map_join("\n", fn message ->
         author = (message.agent && message.agent.name) || message.author_type
         "- #{author}: #{summarize_text(message.content, 220)}"
       end)
-      |> Enum.join("\n")
 
     """
     Reuse the group-chat coordination pattern observed in room #{room.id}.
@@ -2397,6 +2484,39 @@ defmodule HydraAgent.Skills do
 
   defp percent(value) when is_float(value), do: "#{Float.round(value * 100, 1)}%"
   defp percent(value), do: to_string(value)
+
+  defp get_version(%Skill{} = skill, version) do
+    SkillVersion
+    |> where([skill_version], skill_version.skill_id == ^skill.id)
+    |> where([skill_version], skill_version.version == ^normalize_id(version))
+    |> Repo.one()
+  end
+
+  defp proposal_status?(%ImprovementProposal{status: status}, expected), do: status == expected
+  defp proposal_status?(_result, _expected), do: false
+
+  defp blocked_proposal?(%ImprovementProposal{metadata: metadata}) do
+    (metadata || %{})["policy_decision"] == "drafted_for_review" and
+      ((metadata || %{})["blocked_reasons"] || []) != []
+  end
+
+  defp blocked_proposal?(_result), do: false
+
+  defp evolution_result_json(%ImprovementProposal{} = proposal) do
+    %{
+      "id" => proposal.id,
+      "kind" => proposal.kind,
+      "status" => proposal.status,
+      "target_skill_id" => proposal.target_skill_id,
+      "source_run_id" => proposal.source_run_id,
+      "source_conversation_id" => proposal.source_conversation_id,
+      "source_room_id" => proposal.source_room_id,
+      "policy_decision" => (proposal.metadata || %{})["policy_decision"],
+      "blocked_reasons" => (proposal.metadata || %{})["blocked_reasons"] || []
+    }
+  end
+
+  defp evolution_result_json(error), do: error
 
   defp insert_version(repo, skill, change_kind) do
     next_version =

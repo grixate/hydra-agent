@@ -1,0 +1,10 @@
+[Unit]
+Description=Hydra Agent doctor monitor
+Documentation=docs/production-runbooks.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/hydra-agent
+EnvironmentFile=/opt/hydra-agent/.env
+Environment=HYDRA_SMOKE_FAIL_ON_WARNING=true
+ExecStart=/bin/sh -c 'HYDRA_BASE_URL=https://$PHX_HOST /opt/hydra-agent/scripts/prod-doctor-check.sh'

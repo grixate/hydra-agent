@@ -24,6 +24,7 @@ defmodule HydraAgent.Runtime.Run do
 
     belongs_to :workspace, HydraAgent.Runtime.Workspace
     belongs_to :mission, HydraAgent.Runtime.Mission
+    belongs_to :loop, HydraAgent.Loops.Loop
     belongs_to :supervisor_agent, HydraAgent.Runtime.AgentProfile
     belongs_to :parent_run, HydraAgent.Runtime.Run
     has_many :child_runs, HydraAgent.Runtime.Run, foreign_key: :parent_run_id
@@ -39,6 +40,7 @@ defmodule HydraAgent.Runtime.Run do
     |> cast(attrs, [
       :workspace_id,
       :mission_id,
+      :loop_id,
       :supervisor_agent_id,
       :parent_run_id,
       :title,
@@ -63,6 +65,7 @@ defmodule HydraAgent.Runtime.Run do
     |> validate_number(:priority, greater_than_or_equal_to: 0, less_than_or_equal_to: 100)
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:mission)
+    |> assoc_constraint(:loop)
     |> assoc_constraint(:supervisor_agent)
     |> assoc_constraint(:parent_run)
   end

@@ -3,6 +3,13 @@ defmodule HydraAgentWeb.ConnectorController do
 
   alias HydraAgent.{Connectors, Secrets}
 
+  def specs(conn, %{"workspace_id" => workspace_id}) do
+    json(conn, %{
+      data: Connectors.provider_specs(workspace_id),
+      permission_presets: Connectors.permission_presets()
+    })
+  end
+
   def specs(conn, _params) do
     json(conn, %{
       data: Connectors.provider_specs(),
@@ -100,7 +107,7 @@ defmodule HydraAgentWeb.ConnectorController do
       config: account.config,
       capabilities: account.capabilities,
       readiness: Connectors.setup_readiness(account),
-      setup_guide: Connectors.provider_setup_guide(account.provider),
+      setup_guide: Connectors.provider_setup_guide(account.provider, account.workspace_id),
       permission_grants: Connectors.agent_permission_grants(account),
       last_health: account.last_health,
       last_error: account.last_error,

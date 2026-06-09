@@ -56,6 +56,35 @@ defmodule HydraAgent.Runtime.RunnerTest do
              ]
     end
 
+    test "redacts and truncates persisted event payloads without mutating step output" do
+      %{agent: agent, run: run} = runtime_fixture()
+      long_text = String.duplicate("a", 520)
+
+      run_step_fixture(run, %{
+        assigned_agent_id: agent.id,
+        input: %{
+          "token" => "super-secret-token",
+          "type_key" => "memory",
+          "message" => long_text
+        }
+      })
+
+      assert {:ok, completed_step} = Runner.execute_next_step(run, lease_owner: "redaction-test")
+
+      assert completed_step.output["input"]["token"] == "super-secret-token"
+      assert completed_step.output["input"]["type_key"] == "memory"
+
+      tool_event =
+        run.id
+        |> Runtime.list_run_events()
+        |> Enum.find(&(&1.event_type == "tool.executed"))
+
+      assert tool_event.payload["output"]["input"]["token"] == "[REDACTED]"
+      assert tool_event.payload["output"]["input"]["type_key"] == "memory"
+      assert String.ends_with?(tool_event.payload["output"]["input"]["message"], "...[TRUNCATED]")
+      assert byte_size(tool_event.payload["output"]["input"]["message"]) < byte_size(long_text)
+    end
+
     test "moves dangerous authorized steps to approval and records safety event" do
       workspace = workspace_fixture()
 
@@ -147,6 +176,68 @@ defmodule HydraAgent.Runtime.RunnerTest do
       assert "step.failed" in event_types(run.id)
       assert "run.failed" in event_types(run.id)
     end
+
+    test "heartbeats while a long-running tool is active" do
+      %{agent: agent, run: run} = runtime_fixture()
+
+      run_step_fixture(run, %{
+        assigned_agent_id: agent.id,
+        input: %{"sleep_ms" => 90}
+      })
+
+      assert {:ok, completed_step} =
+               Runner.execute_next_step(run,
+                 lease_owner: "heartbeat-test",
+                 heartbeat_interval_ms: 20
+               )
+
+      assert completed_step.status == "completed"
+      assert Enum.count(event_types(run.id), &(&1 == "step.heartbeat")) >= 2
+    end
+
+    test "fails and times out tools that exceed the requested timeout" do
+      %{agent: agent, run: run} = runtime_fixture()
+
+      run_step_fixture(run, %{
+        assigned_agent_id: agent.id,
+        input: %{"sleep_ms" => 120, "timeout_ms" => 20}
+      })
+
+      assert {:error, failed_step} =
+               Runner.execute_next_step(run,
+                 lease_owner: "timeout-test",
+                 heartbeat_interval_ms: 10
+               )
+
+      assert failed_step.status == "failed"
+      assert failed_step.error["reason"] == "tool_timeout"
+      assert Runtime.get_run!(run.id).status == "failed"
+    end
+
+    test "cancels an in-flight step when the parent run is canceled" do
+      %{agent: agent, run: run} = runtime_fixture()
+
+      run_step_fixture(run, %{
+        assigned_agent_id: agent.id,
+        input: %{"sleep_ms" => 300}
+      })
+
+      task =
+        Task.async(fn ->
+          Runner.execute_next_step(run,
+            lease_owner: "cancel-test",
+            heartbeat_interval_ms: 20
+          )
+        end)
+
+      Process.sleep(50)
+      {:ok, _run} = Runtime.cancel_run(Runtime.get_run!(run.id))
+
+      assert {:error, canceled_step} = Task.await(task, 1_000)
+      assert canceled_step.status == "canceled"
+      assert canceled_step.error == %{"reason" => "run_interrupted", "status" => "canceled"}
+      assert "step.canceled" in event_types(run.id)
+    end
   end
 
   describe "leases and recovery" do
@@ -201,7 +292,13 @@ defmodule HydraAgent.Runtime.RunnerTest do
       assert step_id == step.id
       failed_step = Runtime.get_run_step!(step.id)
       assert failed_step.error["reason"] == "lease_expired"
+      assert Runtime.get_run!(run.id).status == "failed"
+
+      assert [%{action: "run_step_lease_exhausted", run_step_id: ^step_id}] =
+               Safety.list_events(workspace.id)
+
       assert "step.failed" in event_types(run.id)
+      assert "run.failed" in event_types(run.id)
     end
   end
 

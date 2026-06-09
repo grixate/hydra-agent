@@ -2,7 +2,7 @@ defmodule HydraAgent.Runtime.RunEvent do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @event_types ~w(run.created run.started run.paused run.resumed run.canceled run.completed run.failed run.steered run.recovered step.planned step.leased step.heartbeat step.started step.blocked step.awaiting_approval step.approved step.rejected step.completed step.failed step.retrying tool.authorized tool.blocked tool.executed mcp.call.started mcp.call.completed mcp.call.failed)
+  @event_types ~w(run.created run.started run.paused run.resumed run.canceled run.completed run.failed run.steered run.recovered step.planned step.leased step.heartbeat step.started step.blocked step.awaiting_approval step.approved step.rejected step.completed step.failed step.canceled step.retrying tool.authorized tool.blocked tool.executed mcp.call.started mcp.call.completed mcp.call.failed loop.tick.started loop.tick.completed loop.tick.blocked loop.verify.passed loop.verify.failed)
 
   schema "run_events" do
     field :event_type, :string

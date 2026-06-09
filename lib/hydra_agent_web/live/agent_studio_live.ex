@@ -1167,11 +1167,23 @@ defmodule HydraAgentWeb.AgentStudioLive do
   defp delivery_status_class(_status), do: "text-zinc-600"
 
   defp room_id(nil, []), do: nil
-  defp room_id(nil, [room | _rooms]), do: room.id
+
+  defp room_id(nil, rooms) do
+    case Enum.find(rooms, &(&1.slug == "daily-os")) do
+      nil -> rooms |> List.first() |> then(&(&1 && &1.id))
+      room -> room.id
+    end
+  end
 
   defp room_id(room_id, rooms) do
     if Enum.any?(rooms, &(&1.id == room_id)), do: room_id, else: room_id(nil, rooms)
   end
+
+  defp message_label(%{author_type: "agent", agent: %{name: name}}), do: name
+  defp message_label(%{author_type: "agent"}), do: "Agent"
+  defp message_label(%{author_type: "user"}), do: "You"
+  defp message_label(%{author_type: "system"}), do: "Hydra"
+  defp message_label(message), do: message.author_type || "Message"
 
   defp selected_workspace_id([], _param), do: nil
   defp selected_workspace_id([workspace | _workspaces], nil), do: workspace.id
@@ -1227,10 +1239,10 @@ defmodule HydraAgentWeb.AgentStudioLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <section id="agent-studio" class="space-y-8">
+    <section id="agent-studio" class="space-y-5">
       <ControlShell.header
-        active={:agents}
-        description="Prototype one agent with explicit sandbox, memory-proposal, or live durable modes."
+        active={:studio}
+        description="Run Hydra as a small agent team. Telegram is the default front door; the web room mirrors the same shared conversation."
         eyebrow="Agent Studio"
         title="Agent Studio"
         workspaces={@workspaces}
@@ -1240,19 +1252,19 @@ defmodule HydraAgentWeb.AgentStudioLive do
       <%= if @workspace_id do %>
         <section
           id="daily-os-setup"
-          class="rounded-lg border border-zinc-200 bg-white p-4"
+          class="hydra-panel rounded-lg px-5 py-4"
         >
-          <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
+          <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div class="min-w-0">
               <h2 class="text-base font-semibold text-zinc-950">Daily OS Setup</h2>
-              <p class="mt-1 text-sm text-zinc-500">
-                Create the agent room, starter roster, Telegram binding, and core automations.
+              <p class="mt-1 max-w-3xl text-sm text-zinc-600 md:truncate">
+                Shared room, specialist agents, Telegram binding, connector accounts, automation recipes, and budget guardrails.
               </p>
             </div>
             <button
               type="button"
               phx-click="setup-daily-os"
-              class="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white"
+              class="shrink-0 whitespace-nowrap rounded-md bg-teal-700 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-800"
             >
               Set Up Daily OS
             </button>
@@ -1381,11 +1393,11 @@ defmodule HydraAgentWeb.AgentStudioLive do
           </div>
         </section>
 
-        <section class="grid gap-6 xl:grid-cols-[260px_1fr_360px]">
-          <aside class="rounded-lg border border-zinc-200 bg-white p-4">
+        <section class="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)_340px]">
+          <aside class="hydra-panel rounded-[var(--radius-5)] p-3">
             <div class="flex items-center justify-between gap-3">
-              <h2 class="text-base font-semibold text-zinc-950">Rooms</h2>
-              <span class="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">
+              <h2 class="px-1 text-base font-semibold text-zinc-950">Chats</h2>
+              <span class="rounded-full bg-stone-100 px-2 py-1 text-xs font-medium text-zinc-600">
                 {length(@rooms)}
               </span>
             </div>
@@ -1396,11 +1408,11 @@ defmodule HydraAgentWeb.AgentStudioLive do
                 phx-click="select-room"
                 phx-value-room_id={room.id}
                 class={[
-                  "block w-full rounded-md border px-3 py-2 text-left text-sm",
+                  "block w-full rounded-[var(--radius-3)] px-3 py-3 text-left text-sm transition",
                   room.id == @room_id &&
-                    "border-zinc-950 bg-zinc-950 text-white",
+                    "bg-[var(--bg-active)] text-[var(--accent)]",
                   room.id != @room_id &&
-                    "border-zinc-200 text-zinc-700 hover:border-zinc-300"
+                    "text-zinc-700 hover:bg-[var(--bg-hover)]"
                 ]}
               >
                 <span class="block truncate font-medium">{room.title}</span>
@@ -1411,36 +1423,42 @@ defmodule HydraAgentWeb.AgentStudioLive do
               </p>
             </div>
 
-            <.form for={%{}} as={:room} phx-submit="create-room" class="mt-5 space-y-3">
-              <input
-                name="room[title]"
-                class="block w-full rounded-md border-zinc-300 text-sm"
-                placeholder="Room title"
-              />
-              <input
-                name="room[slug]"
-                class="block w-full rounded-md border-zinc-300 text-sm"
-                placeholder="optional-slug"
-              />
-              <select
-                name="room[coordinator_agent_id]"
-                class="block w-full rounded-md border-zinc-300 text-sm"
-              >
-                <option value="">No coordinator</option>
-                <option :for={agent <- @agents} value={agent.id}>{agent.name}</option>
-              </select>
-              <.button class="w-full">Create Room</.button>
-            </.form>
+            <details class="mt-5 rounded-[var(--radius-4)] bg-[var(--bg-card-subtle)] p-3">
+              <summary class="cursor-pointer text-sm font-medium text-zinc-950">New chat</summary>
+              <.form for={%{}} as={:room} phx-submit="create-room" class="mt-3 space-y-3">
+                <input
+                  name="room[title]"
+                  class="block w-full rounded-md border-zinc-300 text-sm"
+                  placeholder="Room title"
+                />
+                <input
+                  name="room[slug]"
+                  class="block w-full rounded-md border-zinc-300 text-sm"
+                  placeholder="optional-slug"
+                />
+                <select
+                  name="room[coordinator_agent_id]"
+                  class="block w-full rounded-md border-zinc-300 text-sm"
+                >
+                  <option value="">No coordinator</option>
+                  <option :for={agent <- @agents} value={agent.id}>{agent.name}</option>
+                </select>
+                <.button class="w-full">Create Room</.button>
+              </.form>
+            </details>
           </aside>
 
-          <section id="agent-studio-room" class="rounded-lg border border-zinc-200 bg-white p-5">
-            <div class="flex items-start justify-between gap-4">
+          <section
+            id="agent-studio-room"
+            class="hydra-panel flex min-h-[32rem] min-w-0 flex-col overflow-hidden rounded-[var(--radius-5)] p-0"
+          >
+            <div class="flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] p-5">
               <div>
                 <h2 class="text-base font-semibold text-zinc-950">
-                  {if selected_room(assigns), do: selected_room(assigns).title, else: "Room Chat"}
+                  {if selected_room(assigns), do: selected_room(assigns).title, else: "Team chat"}
                 </h2>
                 <p class="mt-1 text-sm text-zinc-500">
-                  Shared transcript with mention routing and coordinator fallback.
+                  Message the whole team, mention a specialist, or let the coordinator route the work.
                 </p>
               </div>
               <a
@@ -1456,17 +1474,17 @@ defmodule HydraAgentWeb.AgentStudioLive do
               for={%{}}
               as={:room_filter}
               phx-change="filter-room-messages"
-              class="mt-4 grid gap-2 md:grid-cols-[1fr_120px_130px_130px]"
+              class="grid gap-2 px-5 pt-4 2xl:grid-cols-[minmax(0,1fr)_140px_140px_150px]"
             >
               <input
                 name="room_filter[query]"
                 value={filter_value(@room_filters, :query)}
-                class="rounded-md border-zinc-300 text-sm"
+                class="min-w-0 rounded-md border-zinc-300 text-sm"
                 placeholder="Search transcript"
               />
               <select
                 name="room_filter[author_type]"
-                class="rounded-md border-zinc-300 text-sm"
+                class="hidden min-w-0 rounded-md border-zinc-300 text-sm 2xl:block"
               >
                 <option value="">Any author</option>
                 <option value="user" selected={filter_value(@room_filters, :author_type) == "user"}>
@@ -1484,7 +1502,7 @@ defmodule HydraAgentWeb.AgentStudioLive do
               </select>
               <select
                 name="room_filter[source_channel]"
-                class="rounded-md border-zinc-300 text-sm"
+                class="hidden min-w-0 rounded-md border-zinc-300 text-sm 2xl:block"
               >
                 <option value="">Any channel</option>
                 <option
@@ -1508,7 +1526,7 @@ defmodule HydraAgentWeb.AgentStudioLive do
               </select>
               <select
                 name="room_filter[delivery_status]"
-                class="rounded-md border-zinc-300 text-sm"
+                class="hidden min-w-0 rounded-md border-zinc-300 text-sm 2xl:block"
               >
                 <option value="">Any delivery</option>
                 <option
@@ -1534,60 +1552,76 @@ defmodule HydraAgentWeb.AgentStudioLive do
 
             <div
               id="agent-studio-room-messages"
-              class="mt-5 min-h-[18rem] space-y-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3"
+              class="hydra-chat-scroll mx-5 mt-4 min-h-[12rem] flex-1 overflow-y-auto rounded-[var(--radius-5)] border border-stone-200 bg-stone-50/80 p-4"
             >
               <div
                 :for={message <- @room_messages}
                 id={"agent-studio-room-message-#{message.id}"}
                 class={[
-                  "rounded-lg border bg-white p-3",
-                  message.author_type == "agent" && "border-emerald-200",
-                  message.author_type == "user" && "border-zinc-200",
-                  message.author_type == "system" && "border-amber-200"
+                  "mb-3 flex",
+                  message.author_type == "user" && "justify-end",
+                  message.author_type != "user" && "justify-start"
                 ]}
               >
-                <div class="flex items-center justify-between gap-3 text-xs text-zinc-500">
-                  <span class="font-semibold uppercase tracking-[0.12em]">
-                    {message.author_type}
-                    <%= if message.agent do %>
-                      · {message.agent.name}
-                    <% end %>
-                  </span>
-                  <span>{message.source_channel}</span>
-                </div>
-                <p class="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-700">
-                  {message.content}
-                </p>
-                <div
-                  :if={message.deliveries != []}
-                  class="mt-2 flex flex-wrap gap-2 text-xs font-medium"
-                >
-                  <span
-                    :for={delivery <- message.deliveries}
-                    class={delivery_status_class(delivery.status)}
-                  >
-                    {delivery.provider}:{delivery.status}
-                  </span>
-                </div>
-                <div
-                  :if={message.metadata["proposal_status"] == "pending_multi_agent_response"}
-                  class="mt-3 flex items-center justify-between gap-3 rounded-md bg-amber-50 p-2"
-                >
-                  <p class="text-xs font-medium text-amber-900">
-                    {length(message.metadata["pending_agent_ids"] || [])} agents requested
+                <div class={[
+                  "max-w-[88%] rounded-lg border p-3",
+                  message.author_type == "user" && "border-teal-700 bg-teal-700 text-white",
+                  message.author_type == "agent" && "border-stone-200 bg-white",
+                  message.author_type == "system" && "border-stone-200 bg-stone-100 text-zinc-600"
+                ]}>
+                  <div class={[
+                    "flex items-center justify-between gap-3 text-xs",
+                    message.author_type == "user" && "text-white/75",
+                    message.author_type != "user" && "text-zinc-500"
+                  ]}>
+                    <span class="min-w-0 truncate font-semibold">
+                      {message_label(message)}
+                    </span>
+                    <span class="shrink-0">{message.source_channel}</span>
+                  </div>
+                  <p class={[
+                    "mt-2 whitespace-pre-wrap text-sm leading-6",
+                    message.author_type == "user" && "text-white",
+                    message.author_type != "user" && "text-zinc-700"
+                  ]}>
+                    {message.content}
                   </p>
-                  <button
-                    type="button"
-                    phx-click="approve-room-proposal"
-                    phx-value-message_id={message.id}
-                    class="rounded-md bg-amber-900 px-2 py-1 text-xs font-medium text-white"
+                  <div
+                    :if={message.deliveries != []}
+                    class="mt-2 flex flex-wrap gap-2 text-xs font-medium"
                   >
-                    Approve
-                  </button>
+                    <span
+                      :for={delivery <- message.deliveries}
+                      class={delivery_status_class(delivery.status)}
+                    >
+                      {delivery.provider}:{delivery.status}
+                    </span>
+                  </div>
+                  <div
+                    :if={message.metadata["proposal_status"] == "pending_multi_agent_response"}
+                    class="mt-3 flex items-center justify-between gap-3 rounded-md bg-amber-50 p-2"
+                  >
+                    <p class="text-xs font-medium text-amber-900">
+                      {length(message.metadata["pending_agent_ids"] || [])} agents requested
+                    </p>
+                    <button
+                      type="button"
+                      phx-click="approve-room-proposal"
+                      phx-value-message_id={message.id}
+                      class="rounded-md bg-amber-900 px-2 py-1 text-xs font-medium text-white"
+                    >
+                      Approve
+                    </button>
+                  </div>
                 </div>
               </div>
-              <p :if={@room_messages == []} class="p-4 text-sm text-zinc-500">
-                Start a room conversation or mention an agent with @handle.
+              <p
+                :if={@room_messages == []}
+                class="grid min-h-[12rem] place-items-center p-4 text-center text-sm text-zinc-500"
+              >
+                <span>
+                  Message the team or mention @chief, @research, @inbox, @draft, or @meetings.
+                </span>
               </p>
             </div>
 
@@ -1595,19 +1629,19 @@ defmodule HydraAgentWeb.AgentStudioLive do
               for={%{}}
               as={:room_message}
               phx-submit="send-room-message"
-              class="mt-4 flex gap-3"
+              class="mt-4 flex gap-3 border-t border-[var(--border-subtle)] p-5"
             >
               <input
                 name="room_message[content]"
-                class="min-w-0 flex-1 rounded-md border-zinc-300 text-sm"
+                class="min-w-0 flex-1 rounded-full border-zinc-300 text-sm"
                 placeholder="Message the room..."
               />
               <.button>Send</.button>
             </.form>
           </section>
 
-          <aside class="space-y-4">
-            <section class="rounded-lg border border-zinc-200 bg-white p-4">
+          <aside class="space-y-4 xl:col-span-2 2xl:col-span-1">
+            <section class="hydra-panel rounded-lg p-4">
               <h2 class="text-base font-semibold text-zinc-950">Room Members</h2>
               <div class="mt-4 space-y-2">
                 <div
@@ -1657,7 +1691,7 @@ defmodule HydraAgentWeb.AgentStudioLive do
               </.form>
             </section>
 
-            <section class="rounded-lg border border-zinc-200 bg-white p-4">
+            <section class="hydra-panel rounded-lg p-4">
               <h2 class="text-base font-semibold text-zinc-950">Telegram</h2>
               <div class="mt-4 space-y-2">
                 <div
@@ -1784,7 +1818,7 @@ defmodule HydraAgentWeb.AgentStudioLive do
               </.form>
             </section>
 
-            <section class="rounded-lg border border-zinc-200 bg-white p-4">
+            <section class="hydra-panel rounded-lg p-4">
               <h2 class="text-base font-semibold text-zinc-950">Delivery Receipts</h2>
               <div id="agent-studio-room-deliveries" class="mt-4 space-y-2">
                 <div

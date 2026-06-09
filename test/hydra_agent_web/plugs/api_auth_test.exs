@@ -22,15 +22,29 @@ defmodule HydraAgentWeb.Plugs.ApiAuthTest do
     :ok
   end
 
-  test "allows API requests when auth is disabled", %{conn: conn} do
+  test "health check remains public when auth is enabled", %{conn: conn} do
+    Application.put_env(:hydra_agent, :api_auth,
+      enabled?: true,
+      token_env: "HYDRA_TEST_API_TOKEN"
+    )
+
+    System.put_env("HYDRA_TEST_API_TOKEN", "secret-token")
+
+    conn = get(conn, ~p"/api/health")
+
+    assert %{"data" => %{"status" => "ok"}} = json_response(conn, 200)
+  end
+
+  test "allows protected API requests when auth is disabled", %{conn: conn} do
     Application.put_env(:hydra_agent, :api_auth,
       enabled?: false,
       token_env: "HYDRA_TEST_API_TOKEN"
     )
 
-    conn = get(conn, ~p"/api/health")
+    conn = get(conn, ~p"/api/v1/doctor")
 
-    assert %{"data" => %{"status" => "ok"}} = json_response(conn, 200)
+    assert %{"data" => %{"status" => status}} = json_response(conn, 200)
+    assert status in ["ok", "warning", "error"]
   end
 
   test "requires matching bearer token when auth is enabled", %{conn: conn} do
@@ -41,22 +55,23 @@ defmodule HydraAgentWeb.Plugs.ApiAuthTest do
 
     System.put_env("HYDRA_TEST_API_TOKEN", "secret-token")
 
-    conn = get(conn, ~p"/api/health")
+    conn = get(conn, ~p"/api/v1/doctor")
     assert %{"errors" => %{"reason" => "missing_bearer_token"}} = json_response(conn, 401)
 
     conn =
       build_conn()
       |> put_req_header("authorization", "Bearer wrong")
-      |> get(~p"/api/health")
+      |> get(~p"/api/v1/doctor")
 
     assert %{"errors" => %{"reason" => "invalid_bearer_token"}} = json_response(conn, 401)
 
     conn =
       build_conn()
       |> put_req_header("authorization", "Bearer secret-token")
-      |> get(~p"/api/health")
+      |> get(~p"/api/v1/doctor")
 
-    assert %{"data" => %{"status" => "ok"}} = json_response(conn, 200)
+    assert %{"data" => %{"status" => status}} = json_response(conn, 200)
+    assert status in ["ok", "warning", "error"]
   end
 
   test "fails closed when auth is enabled but the token env is missing", %{conn: conn} do
@@ -70,7 +85,7 @@ defmodule HydraAgentWeb.Plugs.ApiAuthTest do
     conn =
       conn
       |> put_req_header("authorization", "Bearer anything")
-      |> get(~p"/api/health")
+      |> get(~p"/api/v1/doctor")
 
     assert %{"errors" => %{"reason" => "missing_secret_env", "env" => "HYDRA_TEST_API_TOKEN"}} =
              json_response(conn, 503)
@@ -79,7 +94,7 @@ defmodule HydraAgentWeb.Plugs.ApiAuthTest do
   test "fails closed when enabled without a token env name", %{conn: conn} do
     Application.put_env(:hydra_agent, :api_auth, enabled?: true, token_env: nil)
 
-    conn = get(conn, ~p"/api/health")
+    conn = get(conn, ~p"/api/v1/doctor")
 
     assert %{"errors" => %{"reason" => "missing_api_auth_token_env"}} = json_response(conn, 503)
   end

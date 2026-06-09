@@ -8,7 +8,8 @@ defmodule HydraAgentWeb.Endpoint do
     store: :cookie,
     key: "_hydra_agent_key",
     signing_salt: "GaV96qT3",
-    same_site: "Lax"
+    same_site: "Lax",
+    secure: Mix.env() == :prod
   ]
 
   socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]

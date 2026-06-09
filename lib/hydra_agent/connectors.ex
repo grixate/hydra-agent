@@ -11,7 +11,7 @@ defmodule HydraAgent.Connectors do
 
   alias HydraAgent.Connectors.{Account, Action}
   alias HydraAgent.Runtime.AgentProfile
-  alias HydraAgent.{Knowledge, Repo, Secrets}
+  alias HydraAgent.{Knowledge, Plugins, Repo, Secrets}
 
   @provider_specs [
     %{
@@ -176,9 +176,22 @@ defmodule HydraAgent.Connectors do
 
   def provider_specs, do: @provider_specs
 
+  def provider_specs(workspace_id) do
+    @provider_specs ++
+      Enum.map(Plugins.enabled_connector_specs(workspace_id), &plugin_provider_spec/1)
+  end
+
   def provider_setup_guide(provider) do
     spec = provider_spec(provider) || %{setup: %{}}
+    provider_setup_guide_from_spec(provider, spec)
+  end
 
+  def provider_setup_guide(provider, workspace_id) do
+    spec = provider_spec(provider, workspace_id) || %{setup: %{}}
+    provider_setup_guide_from_spec(provider, spec)
+  end
+
+  defp provider_setup_guide_from_spec(provider, spec) do
     %{
       "provider" => provider,
       "label" => spec[:label] || provider,
@@ -240,7 +253,21 @@ defmodule HydraAgent.Connectors do
   def create_account(attrs) do
     attrs = stringify_keys(attrs)
     provider = attrs["provider"]
-    spec = provider_spec(provider)
+    spec = provider_spec(provider, attrs["workspace_id"])
+
+    attrs =
+      case spec && spec[:plugin] do
+        nil ->
+          attrs
+
+        _plugin ->
+          metadata =
+            attrs
+            |> Map.get("metadata", %{})
+            |> Map.merge(%{"plugin_allowed_providers" => [provider]})
+
+          Map.put(attrs, "metadata", metadata)
+      end
 
     attrs =
       attrs
@@ -251,7 +278,12 @@ defmodule HydraAgent.Connectors do
   end
 
   def setup_readiness(%Account{} = account) do
-    spec = provider_spec(account.provider) || %{setup: %{config_fields: [], credential_env: nil}}
+    spec =
+      provider_spec(account.provider, account.workspace_id) ||
+        %{
+          setup: %{config_fields: [], credential_env: nil}
+        }
+
     credential_env = account.credential_env || get_in(spec, [:setup, :credential_env])
     config_fields = get_in(spec, [:setup, :config_fields]) || []
     missing_required_config = missing_required_config(account)
@@ -284,7 +316,7 @@ defmodule HydraAgent.Connectors do
       "missing_required_config" => missing_required_config,
       "missing_recommended_config" => missing_recommended_config,
       "findings" => findings,
-      "setup_guide" => provider_setup_guide(account.provider)
+      "setup_guide" => provider_setup_guide(account.provider, account.workspace_id)
     }
   end
 
@@ -1084,7 +1116,33 @@ defmodule HydraAgent.Connectors do
     end
   end
 
-  defp provider_spec(provider), do: Enum.find(@provider_specs, &(&1.provider == provider))
+  defp provider_spec(provider, workspace_id \\ nil)
+
+  defp provider_spec(provider, nil), do: Enum.find(@provider_specs, &(&1.provider == provider))
+
+  defp provider_spec(provider, workspace_id) do
+    Enum.find(provider_specs(workspace_id), &(&1.provider == provider))
+  end
+
+  defp plugin_provider_spec(spec) do
+    spec = stringify_keys(spec)
+
+    %{
+      provider: spec["provider"] || spec["name"],
+      label: spec["label"] || spec["name"],
+      capabilities: spec["capabilities"] || [],
+      required_env: spec["required_env"],
+      write_actions: spec["write_actions"] || [],
+      setup: %{
+        credential_env: get_in(spec, ["setup", "credential_env"]) || spec["credential_env"],
+        scopes: get_in(spec, ["setup", "scopes"]) || [],
+        config_fields: get_in(spec, ["setup", "config_fields"]) || [],
+        guide: get_in(spec, ["setup", "guide"]) || [],
+        config_help: get_in(spec, ["setup", "config_help"]) || %{}
+      },
+      plugin: spec["plugin"]
+    }
+  end
 
   defp missing_required_config(%Account{} = account) do
     account.provider

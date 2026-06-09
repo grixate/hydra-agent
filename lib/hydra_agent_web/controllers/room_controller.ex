@@ -3,6 +3,10 @@ defmodule HydraAgentWeb.RoomController do
 
   alias HydraAgent.{Rooms, Secrets}
 
+  def channel_specs(conn, %{"workspace_id" => workspace_id}) do
+    json(conn, %{data: Rooms.room_channel_specs(workspace_id)})
+  end
+
   def index(conn, %{"workspace_id" => workspace_id}) do
     rooms = Rooms.list_rooms(workspace_id)
     json(conn, %{data: Enum.map(rooms, &room_json/1)})

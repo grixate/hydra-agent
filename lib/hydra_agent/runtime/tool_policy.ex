@@ -40,7 +40,7 @@ defmodule HydraAgent.Runtime.ToolPolicy do
       :metadata
     ])
     |> validate_required([:workspace_id, :scope])
-    |> validate_allowed_values(:allowed_tools, Registry.names())
+    |> validate_allowed_tools()
     |> validate_allowed_values(:side_effect_classes, Autonomy.side_effect_classes())
     |> validate_shell_env_allowlist()
     |> validate_known_bundle_expansion()
@@ -56,6 +56,18 @@ defmodule HydraAgent.Runtime.ToolPolicy do
       if unknown == [],
         do: [],
         else: [{field, "contains unknown values: #{Enum.join(unknown, ", ")}"}]
+    end)
+  end
+
+  defp validate_allowed_tools(changeset) do
+    validate_change(changeset, :allowed_tools, fn :allowed_tools, tools ->
+      metadata = get_field(changeset, :metadata) || %{}
+      allowed = Registry.names() ++ List.wrap(metadata["plugin_allowed_tools"])
+      unknown = tools -- allowed
+
+      if unknown == [],
+        do: [],
+        else: [allowed_tools: "contains unknown values: #{Enum.join(unknown, ", ")}"]
     end)
   end
 

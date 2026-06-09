@@ -44,7 +44,7 @@ defmodule HydraAgent.Rooms.ChannelBinding do
     ])
     |> validate_required([:workspace_id, :room_id, :provider, :slug, :status, :external_chat_id])
     |> validate_format(:slug, ~r/^[a-z0-9][a-z0-9-]*$/)
-    |> validate_inclusion(:provider, @providers)
+    |> validate_provider()
     |> validate_inclusion(:status, @statuses)
     |> validate_env_ref(:token_env)
     |> validate_env_ref(:secret_env)
@@ -52,6 +52,19 @@ defmodule HydraAgent.Rooms.ChannelBinding do
     |> assoc_constraint(:room)
     |> unique_constraint(:slug)
     |> unique_constraint([:provider, :external_chat_id])
+  end
+
+  defp validate_provider(changeset) do
+    validate_change(changeset, :provider, fn :provider, provider ->
+      metadata = get_field(changeset, :metadata) || %{}
+      allowed = @providers ++ List.wrap(metadata["plugin_allowed_providers"])
+
+      if provider in allowed do
+        []
+      else
+        [provider: "is invalid"]
+      end
+    end)
   end
 
   defp validate_env_ref(changeset, field) do

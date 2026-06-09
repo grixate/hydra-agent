@@ -10,7 +10,9 @@ defmodule HydraAgent.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      compilers: [:phoenix_live_view] ++ Mix.compilers()
+      test_coverage: [summary: [threshold: 70]],
+      compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      listeners: [Phoenix.CodeReloader]
     ]
   end
 
@@ -25,7 +27,7 @@ defmodule HydraAgent.MixProject do
   end
 
   def cli do
-    [preferred_envs: [test: :test, precommit: :test]]
+    [preferred_envs: [test: :test, precommit: :test, ci: :test]]
   end
 
   # Specifies which paths to compile per environment.
@@ -51,8 +53,13 @@ defmodule HydraAgent.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
+      {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
+      {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
       {:req, "~> 0.5"},
-      {:crontab, "~> 1.2"}
+      {:crontab, "~> 1.2"},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -67,8 +74,24 @@ defmodule HydraAgent.MixProject do
       setup: ["deps.get", "ecto.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
+      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
+      "assets.build": ["tailwind hydra_agent", "esbuild hydra_agent"],
+      "assets.deploy": [
+        "tailwind hydra_agent --minify",
+        "esbuild hydra_agent --minify",
+        "phx.digest"
+      ],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
+      ci: [
+        "format --check-formatted",
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "test --cover",
+        "credo --min-priority high",
+        "sobelow --config --exit",
+        "deps.audit"
+      ]
     ]
   end
 end

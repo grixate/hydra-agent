@@ -2,6 +2,7 @@ defmodule HydraAgentWeb.RunIndexLive do
   use HydraAgentWeb, :live_view
 
   alias HydraAgent.Runtime
+  alias HydraAgent.Loops
   alias HydraAgentWeb.ControlShell
 
   @impl true
@@ -23,7 +24,8 @@ defmodule HydraAgentWeb.RunIndexLive do
       |> assign(:filters, %{
         "q" => params["q"] || "",
         "status" => params["status"] || "all",
-        "mission_id" => params["mission_id"] || "all"
+        "mission_id" => params["mission_id"] || "all",
+        "loop_id" => params["loop_id"] || "all"
       })
       |> load_workspace_state()
 
@@ -38,12 +40,14 @@ defmodule HydraAgentWeb.RunIndexLive do
     socket
     |> assign(:runs, [])
     |> assign(:missions, [])
+    |> assign(:loops, [])
   end
 
   defp load_workspace_state(%{assigns: %{workspace_id: workspace_id, filters: filters}} = socket) do
     socket
     |> assign(:runs, Runtime.list_runs(workspace_id, filters))
     |> assign(:missions, Runtime.list_missions(workspace_id, limit: 500))
+    |> assign(:loops, Loops.list_loops(workspace_id, limit: 500))
   end
 
   defp selected_workspace_id([], _param), do: nil
@@ -78,6 +82,14 @@ defmodule HydraAgentWeb.RunIndexLive do
     end
   end
 
+  defp loop_title(run) do
+    if Ecto.assoc_loaded?(run.loop) and run.loop do
+      run.loop.name
+    else
+      "No loop"
+    end
+  end
+
   defp selected?(value, value), do: true
   defp selected?(_left, _right), do: false
 
@@ -100,7 +112,7 @@ defmodule HydraAgentWeb.RunIndexLive do
           <form
             method="get"
             action={~p"/control/runs"}
-            class="grid gap-3 md:grid-cols-[1fr_180px_220px_auto]"
+            class="grid gap-3 md:grid-cols-[1fr_160px_200px_200px_auto]"
           >
             <input type="hidden" name="workspace_id" value={@workspace_id} />
             <input
@@ -147,6 +159,18 @@ defmodule HydraAgentWeb.RunIndexLive do
                 {mission.title}
               </option>
             </select>
+            <select name="loop_id" class="rounded-md border border-zinc-200 px-3 py-2 text-sm">
+              <option value="all" selected={selected?(@filters["loop_id"], "all")}>
+                All loops
+              </option>
+              <option
+                :for={loop <- @loops}
+                value={loop.id}
+                selected={selected?(@filters["loop_id"], Integer.to_string(loop.id))}
+              >
+                {loop.name}
+              </option>
+            </select>
             <button class="rounded-md bg-zinc-950 px-4 py-2 text-sm font-medium text-white">
               Search
             </button>
@@ -154,9 +178,10 @@ defmodule HydraAgentWeb.RunIndexLive do
         </section>
 
         <section class="overflow-hidden rounded-lg border border-zinc-200 bg-white">
-          <div class="grid grid-cols-[1fr_220px_130px_130px_120px] bg-zinc-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+          <div class="grid grid-cols-[1fr_180px_180px_110px_110px_100px] bg-zinc-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
             <span>Run</span>
             <span>Mission</span>
+            <span>Loop</span>
             <span>Status</span>
             <span>Lineage</span>
             <span>Trace</span>
@@ -164,13 +189,14 @@ defmodule HydraAgentWeb.RunIndexLive do
           <div
             :for={run <- @runs}
             id={"run-index-row-#{run.id}"}
-            class="grid grid-cols-[1fr_220px_130px_130px_120px] items-center gap-3 border-t border-zinc-100 px-4 py-3 text-sm"
+            class="grid grid-cols-[1fr_180px_180px_110px_110px_100px] items-center gap-3 border-t border-zinc-100 px-4 py-3 text-sm"
           >
             <.link navigate={~p"/control/runs/#{run.id}"} class="min-w-0">
               <span class="block truncate font-medium text-zinc-950">{run.title}</span>
               <span class="block truncate text-xs text-zinc-500">{run.goal}</span>
             </.link>
             <span class="truncate text-zinc-600">{mission_title(run)}</span>
+            <span class="truncate text-zinc-600">{loop_title(run)}</span>
             <span class="text-zinc-600">{run.status}</span>
             <span class="text-zinc-600">{run.lineage_type}</span>
             <a

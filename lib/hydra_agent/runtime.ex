@@ -6,7 +6,7 @@ defmodule HydraAgent.Runtime do
   import Ecto.Query
 
   alias Ecto.Multi
-  alias HydraAgent.Repo
+  alias HydraAgent.{Plugins, Redaction, Repo, Safety}
   alias HydraAgent.Tools.Bundles
   alias HydraAgent.Tools.Registry, as: ToolRegistry
 
@@ -231,6 +231,7 @@ defmodule HydraAgent.Runtime do
 
   def create_tool_policy(attrs) do
     attrs = expand_tool_policy_bundles(attrs)
+    attrs = expand_plugin_policy_tools(attrs)
     %ToolPolicy{} |> ToolPolicy.changeset(attrs) |> Repo.insert()
   end
 
@@ -253,6 +254,8 @@ defmodule HydraAgent.Runtime do
   end
 
   def tool_bundles, do: Bundles.all()
+
+  def tool_bundles(workspace_id), do: Bundles.all(workspace_id)
 
   def create_conversation(attrs) do
     %Conversation{} |> Conversation.changeset(attrs) |> Repo.insert()
@@ -449,6 +452,7 @@ defmodule HydraAgent.Runtime do
           "title" => run.title,
           "autonomy_level" => run.autonomy_level,
           "mission_id" => run.mission_id,
+          "loop_id" => run.loop_id,
           "parent_run_id" => run.parent_run_id,
           "lineage_type" => run.lineage_type
         }
@@ -513,17 +517,26 @@ defmodule HydraAgent.Runtime do
     |> where([r], r.workspace_id == ^workspace_id)
     |> maybe_filter_run_status(opt(opts, :status))
     |> maybe_filter_run_mission(opt(opts, :mission_id))
+    |> maybe_filter_run_loop(opt(opts, :loop_id))
     |> maybe_filter_run_query(opt(opts, :q))
     |> order_by([r], desc: r.inserted_at)
     |> limit(^opt(opts, :limit, 100))
-    |> preload([:mission, :supervisor_agent, :steps, :events])
+    |> preload([:mission, :loop, :supervisor_agent, :steps, :events])
     |> Repo.all()
   end
 
   def get_run!(id) do
     Run
     |> Repo.get!(id)
-    |> Repo.preload([:mission, :parent_run, :child_runs, :supervisor_agent, :steps, :events])
+    |> Repo.preload([
+      :mission,
+      :loop,
+      :parent_run,
+      :child_runs,
+      :supervisor_agent,
+      :steps,
+      :events
+    ])
   end
 
   def get_run_for_workspace!(workspace_id, id) do
@@ -533,7 +546,15 @@ defmodule HydraAgent.Runtime do
       run.workspace_id == ^normalize_id(workspace_id) and run.id == ^normalize_id(id)
     )
     |> Repo.one!()
-    |> Repo.preload([:mission, :parent_run, :child_runs, :supervisor_agent, :steps, :events])
+    |> Repo.preload([
+      :mission,
+      :loop,
+      :parent_run,
+      :child_runs,
+      :supervisor_agent,
+      :steps,
+      :events
+    ])
   end
 
   def get_run_detail!(id) do
@@ -541,7 +562,9 @@ defmodule HydraAgent.Runtime do
     |> Repo.get!(id)
     |> Repo.preload(
       mission: [],
+      loop: [],
       parent_run: [],
+      loop: [],
       child_runs: from(run in Run, order_by: [desc: run.inserted_at]),
       supervisor_agent: [],
       steps: from(step in RunStep, order_by: [asc: step.index, asc: step.id]),
@@ -558,7 +581,9 @@ defmodule HydraAgent.Runtime do
     |> Repo.one!()
     |> Repo.preload(
       mission: [],
+      loop: [],
       parent_run: [],
+      loop: [],
       child_runs: from(run in Run, order_by: [desc: run.inserted_at]),
       supervisor_agent: [],
       steps: from(step in RunStep, order_by: [asc: step.index, asc: step.id]),
@@ -582,6 +607,7 @@ defmodule HydraAgent.Runtime do
     %{
       run: run,
       mission: if(Ecto.assoc_loaded?(run.mission), do: run.mission),
+      loop: if(Ecto.assoc_loaded?(run.loop), do: run.loop),
       parent_run: if(Ecto.assoc_loaded?(run.parent_run), do: run.parent_run),
       child_runs: if(Ecto.assoc_loaded?(run.child_runs), do: run.child_runs, else: []),
       steps: run.steps,
@@ -666,6 +692,8 @@ defmodule HydraAgent.Runtime do
   end
 
   def record_run_event(attrs) do
+    attrs = redact_run_event_payload(attrs)
+
     %RunEvent{}
     |> RunEvent.changeset(attrs)
     |> Repo.insert()
@@ -677,6 +705,10 @@ defmodule HydraAgent.Runtime do
       error ->
         error
     end
+  end
+
+  defp redact_run_event_payload(attrs) when is_map(attrs) do
+    Map.update(attrs, :payload, %{}, &Redaction.redact/1)
   end
 
   def step_status_counts(run_id) do
@@ -801,39 +833,52 @@ defmodule HydraAgent.Runtime do
 
   def heartbeat_step(%RunStep{} = step, lease_owner, opts \\ []) when is_binary(lease_owner) do
     lease_ms = Keyword.get(opts, :lease_ms, 60_000)
-    leased_until = DateTime.add(now(), lease_ms, :millisecond)
+    now = now()
+    leased_until = DateTime.add(now, lease_ms, :millisecond)
 
-    if step.lease_owner != lease_owner do
-      {:error, :lease_owner_mismatch}
-    else
-      step
-      |> RunStep.changeset(%{
-        "heartbeat_at" => now(),
-        "lease_expires_at" => leased_until
-      })
-      |> Repo.update()
-      |> case do
-        {:ok, updated_step} ->
-          run = step.run || Repo.get!(Run, updated_step.run_id)
+    case step.lease_owner do
+      ^lease_owner ->
+        {count, _rows} =
+          RunStep
+          |> where(
+            [leased_step],
+            leased_step.id == ^step.id and leased_step.status == "running" and
+              leased_step.lease_owner == ^lease_owner
+          )
+          |> Repo.update_all(
+            set: [
+              heartbeat_at: now,
+              lease_expires_at: leased_until,
+              updated_at: now
+            ]
+          )
 
-          record_run_event(%{
-            workspace_id: run.workspace_id,
-            run_id: run.id,
-            run_step_id: updated_step.id,
-            agent_id: updated_step.assigned_agent_id,
-            event_type: "step.heartbeat",
-            summary: "Step heartbeat recorded",
-            payload: %{
-              "lease_owner" => lease_owner,
-              "lease_expires_at" => DateTime.to_iso8601(leased_until)
-            }
-          })
+        case count do
+          1 ->
+            updated_step = get_run_step!(step.id)
+            run = step.run || Repo.get!(Run, updated_step.run_id)
 
-          {:ok, updated_step}
+            record_run_event(%{
+              workspace_id: run.workspace_id,
+              run_id: run.id,
+              run_step_id: updated_step.id,
+              agent_id: updated_step.assigned_agent_id,
+              event_type: "step.heartbeat",
+              summary: "Step heartbeat recorded",
+              payload: %{
+                "lease_owner" => lease_owner,
+                "lease_expires_at" => DateTime.to_iso8601(leased_until)
+              }
+            })
 
-        error ->
-          error
-      end
+            {:ok, updated_step}
+
+          _other ->
+            {:error, :lease_not_current}
+        end
+
+      _other ->
+        {:error, :lease_owner_mismatch}
     end
   end
 
@@ -880,6 +925,22 @@ defmodule HydraAgent.Runtime do
           "error" => error,
           "completed_at" => if(next_status == "failed", do: now(), else: nil)
         })
+
+      if next_status == "failed" do
+        fail_run(step.run, %{"result" => %{"error" => error}})
+
+        Safety.record_event(%{
+          workspace_id: step.run.workspace_id,
+          agent_id: step.assigned_agent_id,
+          run_id: step.run_id,
+          run_step_id: step.id,
+          category: "runtime",
+          severity: "critical",
+          action: "run_step_lease_exhausted",
+          summary: "Run step failed after expired lease recovery attempts",
+          metadata: %{"attempt_count" => step.attempt_count, "max_attempts" => max_attempts}
+        })
+      end
 
       record_run_event(%{
         workspace_id: step.run.workspace_id,
@@ -1154,6 +1215,11 @@ defmodule HydraAgent.Runtime do
   defp maybe_filter_run_mission(query, mission_id),
     do: where(query, [run], run.mission_id == ^normalize_id(mission_id))
 
+  defp maybe_filter_run_loop(query, loop_id) when loop_id in [nil, "", "all"], do: query
+
+  defp maybe_filter_run_loop(query, loop_id),
+    do: where(query, [run], run.loop_id == ^normalize_id(loop_id))
+
   defp maybe_filter_run_query(query, q) when q in [nil, ""], do: query
 
   defp maybe_filter_run_query(query, q) do
@@ -1246,7 +1312,7 @@ defmodule HydraAgent.Runtime do
     attrs = stringify_keys(attrs)
     bundle_names = List.wrap(attrs["tool_bundles"] || get_in(attrs, ["metadata", "tool_bundles"]))
 
-    case Bundles.expand(bundle_names) do
+    case Bundles.expand(bundle_names, attrs["workspace_id"]) do
       {:ok, %{"tool_bundles" => []}} ->
         attrs
 
@@ -1285,6 +1351,34 @@ defmodule HydraAgent.Runtime do
   end
 
   defp maybe_require_bundle_approval(attrs, _bundle_attrs), do: attrs
+
+  defp expand_plugin_policy_tools(attrs) do
+    attrs = stringify_keys(attrs)
+    workspace_id = attrs["workspace_id"]
+    allowed_tools = List.wrap(attrs["allowed_tools"])
+
+    if is_nil(workspace_id) do
+      attrs
+    else
+      plugin_tool_names =
+        workspace_id
+        |> Plugins.enabled_tool_specs()
+        |> Enum.map(& &1.name)
+
+      selected_plugin_tools = allowed_tools -- (allowed_tools -- plugin_tool_names)
+
+      if selected_plugin_tools == [] do
+        attrs
+      else
+        metadata =
+          attrs
+          |> Map.get("metadata", %{})
+          |> Map.merge(%{"plugin_allowed_tools" => selected_plugin_tools})
+
+        Map.put(attrs, "metadata", metadata)
+      end
+    end
+  end
 
   defp current_running_step(run_id, nil) do
     RunStep

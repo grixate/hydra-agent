@@ -4,7 +4,7 @@ defmodule HydraAgent.Budgets.Budget do
 
   @statuses ~w(active paused archived)
   @periods ~w(daily weekly monthly total)
-  @categories ~w(chat planning eval embedding tool)
+  @categories ~w(chat planning eval embedding tool simulation)
 
   schema "budgets" do
     field :name, :string

@@ -75,6 +75,8 @@ defmodule HydraAgentWeb.ControlLiveTest do
 
     view |> element("#control-cancel-run-#{run.id}") |> render_click()
     assert Runtime.get_run!(run.id).status == "canceled"
+
+    render(view)
   end
 
   test "approval buttons update awaiting steps", %{conn: conn} do
@@ -112,6 +114,8 @@ defmodule HydraAgentWeb.ControlLiveTest do
 
     view |> element("#control-reject-step-#{reject_step.id}") |> render_click()
     assert Runtime.get_run_step!(reject_step.id).status == "canceled"
+
+    render(view)
   end
 
   test "memory review buttons promote and reject pending proposals", %{conn: conn} do

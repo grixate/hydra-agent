@@ -60,6 +60,7 @@ defmodule HydraAgentWeb.RunDetailLiveTest do
 
     view |> element("#run-detail-cancel-run") |> render_click()
     assert Runtime.get_run!(run.id).status == "canceled"
+    render(view)
   end
 
   test "run detail approval controls update awaiting steps", %{conn: conn} do
@@ -91,6 +92,7 @@ defmodule HydraAgentWeb.RunDetailLiveTest do
 
     view |> element("#run-detail-reject-step-#{reject_step.id}") |> render_click()
     assert Runtime.get_run_step!(reject_step.id).status == "canceled"
+    render(view)
   end
 
   test "run detail can draft a proposed skill from the run", %{conn: conn} do
@@ -115,14 +117,14 @@ defmodule HydraAgentWeb.RunDetailLiveTest do
     {:ok, view, _html} = live(conn, ~p"/control/runs/#{run.id}")
 
     view |> element("#run-detail-draft-skill") |> render_click()
+    {redirect_path, _flash} = assert_redirect(view)
 
     [skill] = Skills.list_skills(workspace.id)
     assert skill.status == "proposed"
     assert skill.owner_agent_id == agent.id
     assert skill.source_run_id == run.id
     assert skill.instructions =~ "Read evidence"
-
-    assert_redirect(view, ~p"/control/skills/#{skill.id}?workspace_id=#{workspace.id}")
+    assert redirect_path == ~p"/control/skills/#{skill.id}?workspace_id=#{workspace.id}"
   end
 
   test "run detail can draft a memory proposal from the run", %{conn: conn} do
@@ -148,6 +150,7 @@ defmodule HydraAgentWeb.RunDetailLiveTest do
     {:ok, view, _html} = live(conn, ~p"/control/runs/#{run.id}")
 
     view |> element("#run-detail-draft-memory") |> render_click()
+    assert_redirect(view, ~p"/control/memory?workspace_id=#{workspace.id}")
 
     [proposal] = Memory.list_proposals(workspace.id)
     assert proposal.status == "draft"
@@ -155,8 +158,6 @@ defmodule HydraAgentWeb.RunDetailLiveTest do
     assert proposal.provenance["source"] == "run_detail"
     assert proposal.provenance["run_id"] == run.id
     assert proposal.body =~ "Inspect timeline: completed"
-
-    assert_redirect(view, ~p"/control/memory?workspace_id=#{workspace.id}")
   end
 
   test "control overview links to the run detail timeline", %{conn: conn} do

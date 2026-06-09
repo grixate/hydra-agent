@@ -1,0 +1,38 @@
+<main class="mx-auto max-w-md px-6 py-20">
+  <div class="space-y-2">
+    <p class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Hydra Admin</p>
+    <h1 class="text-3xl font-semibold tracking-normal text-zinc-950">Sign in to Hydra</h1>
+  </div>
+
+  <form method="post" action={~p"/login"} class="mt-8 space-y-5">
+    <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+    <input type="hidden" name="return_to" value={@return_to} />
+
+    <label class="block space-y-2">
+      <span class="text-sm font-medium text-zinc-700">Username</span>
+      <input
+        name="username"
+        value={@username}
+        autocomplete="username"
+        class="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+      />
+    </label>
+
+    <label class="block space-y-2">
+      <span class="text-sm font-medium text-zinc-700">Password</span>
+      <input
+        name="password"
+        type="password"
+        autocomplete="current-password"
+        class="block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-950 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+      />
+    </label>
+
+    <button
+      type="submit"
+      class="inline-flex h-10 items-center rounded-md bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm hover:bg-zinc-800"
+    >
+      Sign in
+    </button>
+  </form>
+</main>

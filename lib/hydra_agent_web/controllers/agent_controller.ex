@@ -1,7 +1,7 @@
 defmodule HydraAgentWeb.AgentController do
   use HydraAgentWeb, :controller
 
-  alias HydraAgent.{AgentChat, AgentPack, Runtime}
+  alias HydraAgent.{AgentChat, AgentPack, Plugins, Runtime}
 
   def index(conn, %{"workspace_id" => workspace_id}) do
     agents = Runtime.list_agents(workspace_id)
@@ -22,7 +22,17 @@ defmodule HydraAgentWeb.AgentController do
     json(conn, %{data: AgentPack.json_schema()})
   end
 
+  def starter_packs(conn, %{"workspace_id" => workspace_id}) do
+    packs = starter_pack_entries() ++ plugin_starter_pack_entries(workspace_id)
+    json(conn, %{data: packs})
+  end
+
   def starter_packs(conn, _params) do
+    packs = starter_pack_entries()
+    json(conn, %{data: packs})
+  end
+
+  defp starter_pack_entries do
     packs =
       AgentPack.builtin_packs()
       |> Enum.map(fn
@@ -37,7 +47,20 @@ defmodule HydraAgentWeb.AgentController do
           %{path: path, status: "invalid", errors: errors}
       end)
 
-    json(conn, %{data: packs})
+    packs
+  end
+
+  defp plugin_starter_pack_entries(workspace_id) do
+    workspace_id
+    |> Plugins.enabled_agent_packs()
+    |> Enum.map(fn pack ->
+      %{
+        path: "plugin:#{get_in(pack, ["plugin", "installation_id"])}",
+        status: "valid",
+        source: "plugin",
+        pack: starter_pack_json(pack)
+      }
+    end)
   end
 
   def create(conn, %{"workspace_id" => workspace_id, "agent_pack" => pack}) do
@@ -101,7 +124,7 @@ defmodule HydraAgentWeb.AgentController do
   end
 
   defp import_agent_pack(workspace_id, pack, mode) do
-    with {:ok, normalized} <- AgentPack.validate_details(pack),
+    with {:ok, normalized} <- AgentPack.validate_details(pack, workspace_id: workspace_id),
          {:ok, attrs} <- AgentPack.to_agent_attrs(normalized, workspace_id) do
       existing = Runtime.get_agent_by_slug(workspace_id, attrs.slug)
 

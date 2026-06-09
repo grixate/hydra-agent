@@ -1,0 +1,125 @@
+{
+  "plugin_version": 1,
+  "slug": "design-studio",
+  "name": "Design Studio",
+  "version": "0.1.0",
+  "description": "Optional design surface and design-assistant pack for product UI work.",
+  "package_type": "hybrid",
+  "trust_level": "external",
+  "permissions": {
+    "side_effect_classes": [
+      "read_only"
+    ],
+    "requires_approval": true,
+    "env_refs": [
+      "HYDRA_DESIGN_STUDIO_URL"
+    ],
+    "api_scopes": [
+      "workspaces:read",
+      "agents:read",
+      "rooms:read",
+      "runs:read",
+      "plugins:read"
+    ]
+  },
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "default_review_depth": {
+        "type": "string",
+        "enum": [
+          "quick",
+          "standard",
+          "deep"
+        ]
+      }
+    },
+    "required": []
+  },
+  "compatibility": {
+    "hydra_version": ">=0.1.0 <0.2.0"
+  },
+  "dependencies": [],
+  "capabilities": {
+    "tools": [],
+    "tool_bundles": [],
+    "agent_packs": [
+      {
+        "name": "Design Assistant",
+        "slug": "design-assistant",
+        "agent_pack_version": 1,
+        "role": "designer",
+        "description": "Helps critique and iterate interface concepts from workspace context.",
+        "model_route": {},
+        "tools": [],
+        "tool_bundles": [],
+        "skills": [
+          "design-review"
+        ],
+        "memory_scopes": [
+          "workspace"
+        ],
+        "knowledge_scopes": [
+          "workspace"
+        ],
+        "permissions": {
+          "side_effect_classes": [
+            "read_only"
+          ],
+          "requires_approval": true
+        },
+        "autonomy": {
+          "level": "recommend"
+        },
+        "approval_policy": {
+          "mode": "required_for_sensitive"
+        }
+      }
+    ],
+    "skills": [
+      {
+        "name": "Design Review",
+        "slug": "design-review",
+        "description": "Review interface proposals for clarity, fit, accessibility, and implementation risk.",
+        "instructions": "Assess the proposed interface against workspace goals, accessibility, visual hierarchy, and implementation cost. Return concrete recommendations.",
+        "required_tools": [],
+        "memory_scopes": [
+          "workspace"
+        ],
+        "knowledge_scopes": [
+          "workspace"
+        ]
+      }
+    ],
+    "mcp_servers": [],
+    "connectors": [],
+    "room_channels": [],
+    "cli_commands": [
+      {
+        "name": "design_review",
+        "command": "/design_review",
+        "description": "Ask a room agent to review a design proposal.",
+        "prompt": "Review this design proposal and suggest concrete improvements."
+      }
+    ],
+    "client_surfaces": [
+      {
+        "name": "design-studio",
+        "kind": "external_url",
+        "surface": "workspace",
+        "path": "/plugins/design-studio",
+        "required_scopes": [
+          "workspaces:read",
+          "agents:read",
+          "rooms:read",
+          "runs:read"
+        ],
+        "entrypoint": {
+          "type": "external_url",
+          "url_env": "HYDRA_DESIGN_STUDIO_URL"
+        }
+      }
+    ],
+    "migrations": []
+  }
+}

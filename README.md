@@ -3,13 +3,15 @@
 Hydra Agent is a clean runtime extraction from Hydra-X.
 
 The goal is not to preserve the old product-management workspace. The goal is a
-competitive, self-hosted agent runtime for teams: durable agents, transparent
-orchestration, least-privilege tools, per-agent model routing, and a flexible
-workspace knowledge graph.
+competitive, self-hosted agent runtime for teams: durable governed loops,
+transparent orchestration, least-privilege tools, per-agent model routing, and a
+flexible workspace knowledge graph.
 
 ## V1 Direction
 
 - **Runtime first**: workspaces, agents, conversations, runs, steps, providers, and policies are core.
+- **Governed loops**: reusable operating programs trigger, decide, delegate,
+  verify, persist state, and stop under explicit guardrails.
 - **Secure by default**: agent packs start read-only; dangerous side effects need explicit grants and approvals.
 - **Transparent orchestration**: supervisor/planner agents decompose work and delegate to specialized workers through durable run state.
 - **Flexible knowledge graph**: the useful parts of the Hydra-X product graph become a generic workspace graph for evidence, memories, artifacts, risks, tasks, and decisions.
@@ -31,6 +33,8 @@ The v1 runtime now includes:
 - Stream-capable agent chat path that broadcasts conversation deltas and persists final turns
 - Provider-backed run planning that turns supervisor output into durable, validated steps
 - Cron-backed scheduled automations that run through the normal agent chat path
+- Durable governed loops with manual or cron triggers, leases, guardrails,
+  reusable recipes, verifier hooks, loop-linked runs, and loop usage accounting
 - Eval suites, cases, runs, and results for measuring quality and regressions
 - Benchmark-style eval reports with pass rate, average score, duration, and failures
 - Env-backed webhook gateways for external triggers without raw DB secrets
@@ -62,6 +66,21 @@ mix test
 ```
 
 Use `mix precommit` before shipping changes.
+
+## Fresh VPS Install
+
+After pointing DNS at the server and cloning the repo, run:
+
+```bash
+scripts/install.sh
+```
+
+The installer creates a private `.env` with generated secrets, validates the
+production environment, runs migrations, starts Docker Compose, and runs smoke
+checks. It prints the setup URL and admin credentials.
+
+Open `/setup` in the browser to create the first workspace, choose a provider,
+and install starter agents/skills with least-privilege tool policies.
 
 If Docker is unavailable, `mix compile --warnings-as-errors` and the agent pack
 smoke command below still verify most non-database code paths:

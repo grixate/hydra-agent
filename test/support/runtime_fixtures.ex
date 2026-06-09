@@ -4,6 +4,7 @@ defmodule HydraAgent.RuntimeFixtures do
   """
 
   alias HydraAgent.Runtime
+  alias HydraAgent.Loops
 
   def workspace_fixture(attrs \\ %{}) do
     slug = Map.get(attrs, :slug) || Map.get(attrs, "slug") || unique_slug("workspace")
@@ -61,6 +62,31 @@ defmodule HydraAgent.RuntimeFixtures do
 
     {:ok, run} = Runtime.create_run(attrs)
     run
+  end
+
+  def loop_fixture(workspace, attrs \\ %{}) do
+    agent = Map.get(attrs, :supervisor_agent) || agent_fixture(workspace, %{role: "supervisor"})
+
+    attrs =
+      %{
+        workspace_id: workspace.id,
+        supervisor_agent_id: agent.id,
+        name: "Test Loop",
+        slug: unique_slug("loop"),
+        status: "active",
+        purpose: "Exercise governed loop behavior",
+        trigger: %{"type" => "manual"},
+        guardrails: %{
+          "max_iterations_per_tick" => 1,
+          "max_child_runs_per_tick" => 3,
+          "max_consecutive_no_progress" => 3,
+          "max_runtime_seconds" => 300
+        }
+      }
+      |> Map.merge(Map.drop(attrs, [:supervisor_agent]))
+
+    {:ok, loop} = Loops.create_loop(attrs)
+    loop
   end
 
   def run_step_fixture(run, attrs \\ %{}) do

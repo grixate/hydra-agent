@@ -50,9 +50,24 @@ defmodule HydraAgent.Skills.LearningWorker do
 
     workspace_ids = Runtime.list_workspace_ids()
 
+    workspace_ids
+    |> Enum.flat_map(&evolve_workspace(&1, state))
+  rescue
+    error ->
+      Logger.warning("skill learning worker skipped tick: #{Exception.message(error)}")
+      []
+  end
+
+  def evolve_workspace(workspace_id, state \\ %{}) do
+    state =
+      state
+      |> Map.put_new(:minimum_tool_count, 5)
+      |> Map.put_new(:minimum_turn_count, 4)
+      |> Map.put_new(:minimum_message_count, 4)
+
     run_results =
-      workspace_ids
-      |> Enum.flat_map(&eligible_runs(&1, state))
+      workspace_id
+      |> eligible_runs(state)
       |> Enum.map(fn run ->
         case Skills.propose_learning_from_run(run, minimum_tool_count: state.minimum_tool_count) do
           {:ok, proposal} -> proposal
@@ -61,8 +76,8 @@ defmodule HydraAgent.Skills.LearningWorker do
       end)
 
     conversation_results =
-      workspace_ids
-      |> Enum.flat_map(&eligible_conversations(&1, state))
+      workspace_id
+      |> eligible_conversations(state)
       |> Enum.map(fn conversation ->
         case Skills.propose_learning_from_conversation(conversation,
                minimum_turn_count: state.minimum_turn_count
@@ -73,14 +88,18 @@ defmodule HydraAgent.Skills.LearningWorker do
       end)
 
     room_results =
-      workspace_ids
-      |> Enum.flat_map(&eligible_rooms(&1, state))
+      workspace_id
+      |> eligible_rooms(state)
       |> Enum.map(fn room ->
         case Skills.propose_learning_from_room(room,
                minimum_message_count: state.minimum_message_count
              ) do
-          {:ok, proposal} -> proposal
-          {:error, error} -> error
+          {:ok, proposal} ->
+            notify_room_evolution(room, proposal)
+            proposal
+
+          {:error, error} ->
+            error
         end
       end)
 
@@ -89,6 +108,28 @@ defmodule HydraAgent.Skills.LearningWorker do
     error ->
       Logger.warning("skill learning worker skipped tick: #{Exception.message(error)}")
       []
+  end
+
+  defp notify_room_evolution(room, proposal) do
+    skill = proposal.target_skill_id && Skills.get_skill!(proposal.target_skill_id)
+    status = if proposal.status == "auto_activated", do: "auto-activated", else: "drafted"
+    name = (skill && skill.name) || "a skill"
+
+    Rooms.create_system_message(
+      room,
+      "Hydra #{status} #{name} from this room.",
+      %{
+        "event" => "skill_evolution",
+        "skill_id" => proposal.target_skill_id,
+        "proposal_id" => proposal.id,
+        "status" => proposal.status,
+        "policy_decision" => get_in(proposal.metadata || %{}, ["policy_decision"])
+      }
+    )
+  rescue
+    error ->
+      Logger.warning("room skill evolution notification skipped: #{Exception.message(error)}")
+      :ok
   end
 
   defp eligible_runs(workspace_id, state) do

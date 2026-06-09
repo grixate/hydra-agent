@@ -15,9 +15,13 @@ defmodule HydraAgent.Application do
       {Phoenix.PubSub, name: HydraAgent.PubSub},
       {Task.Supervisor, name: HydraAgent.TaskSupervisor},
       HydraAgent.Agent.Supervisor,
+      HydraAgent.Simulation.Supervisor,
+      {HydraAgent.Simulation.Reconciler,
+       enabled: Application.get_env(:hydra_agent, :simulation_reconciler_enabled, true)},
       HydraAgent.MCP.SessionSupervisor,
       HydraAgent.Runtime.RecoveryWorker,
       HydraAgent.Automations.Worker,
+      HydraAgent.Loops.Worker,
       HydraAgent.Skills.LearningWorker,
       # Start to serve requests, typically the last entry
       HydraAgentWeb.Endpoint

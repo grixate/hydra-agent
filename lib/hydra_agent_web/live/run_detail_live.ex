@@ -340,7 +340,7 @@ defmodule HydraAgentWeb.RunDetailLive do
         </:actions>
       </ControlShell.header>
 
-      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <div class="rounded-lg border border-zinc-200 bg-white p-4">
           <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Status</p>
           <p class="mt-3 text-2xl font-semibold text-zinc-950">{@run.status}</p>
@@ -380,6 +380,23 @@ defmodule HydraAgentWeb.RunDetailLive do
           <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Events</p>
           <p class="mt-3 text-2xl font-semibold text-zinc-950">{length(@timeline)}</p>
           <p class="mt-1 text-sm text-zinc-600">{length(@safety_events)} safety</p>
+        </div>
+        <div class="rounded-lg border border-zinc-200 bg-white p-4">
+          <p class="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Loop</p>
+          <%= if Ecto.assoc_loaded?(@run.loop) and @run.loop do %>
+            <.link
+              navigate={~p"/control/loops/#{@run.loop.id}?workspace_id=#{@run.workspace_id}"}
+              class="mt-3 block truncate text-lg font-semibold text-zinc-950 hover:text-[var(--accent)]"
+            >
+              {@run.loop.name}
+            </.link>
+            <p class="mt-1 text-sm text-zinc-600">
+              {get_in(@run.metadata || %{}, ["loop_stop_reason"]) || @run.loop.status}
+            </p>
+          <% else %>
+            <p class="mt-3 text-2xl font-semibold text-zinc-950">none</p>
+            <p class="mt-1 text-sm text-zinc-600">manual or mission run</p>
+          <% end %>
         </div>
       </div>
 

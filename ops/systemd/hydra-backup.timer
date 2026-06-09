@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Hydra Agent production backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+Unit=hydra-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -9,9 +9,22 @@ defmodule HydraAgent.Doctor do
 
   import Ecto.Query
 
-  alias HydraAgent.{AgentPack, Automations, Connectors, MCP, Providers, Repo, Runtime, Secrets}
+  alias HydraAgent.{
+    AgentPack,
+    Automations,
+    Browser,
+    Connectors,
+    MCP,
+    Providers,
+    Repo,
+    Runtime,
+    Secrets
+  }
+
   alias HydraAgent.Connectors.Account
+  alias HydraAgent.Runtime.{Run, RunStep}
   alias HydraAgent.Rooms.ChannelBinding
+  alias HydraAgent.Simulation.Simulation, as: SimulationRecord
   alias HydraAgent.Tools.Registry
 
   @processes [
@@ -19,6 +32,8 @@ defmodule HydraAgent.Doctor do
     HydraAgent.PubSub,
     HydraAgent.TaskSupervisor,
     HydraAgent.Agent.Supervisor,
+    HydraAgent.Simulation.Supervisor,
+    HydraAgent.Simulation.Reconciler,
     HydraAgent.Runtime.RecoveryWorker,
     HydraAgent.Automations.Worker
   ]
@@ -27,9 +42,14 @@ defmodule HydraAgent.Doctor do
     checks =
       []
       |> add_check(database_check())
+      |> add_check(migration_check())
+      |> add_check(browser_admin_auth_check())
+      |> add_check(api_auth_check())
+      |> add_check(backup_check())
       |> add_check(tool_registry_check())
       |> add_check(agent_pack_check(Keyword.get(opts, :agent_pack_glob, "agent_packs/*.json")))
       |> add_check(process_check())
+      |> add_check(runtime_pressure_check())
       |> add_check(browser_worker_check())
       |> maybe_add_provider_checks(Keyword.get(opts, :workspace_id))
       |> maybe_add_workspace_readiness_checks(Keyword.get(opts, :workspace_id))
@@ -73,6 +93,98 @@ defmodule HydraAgent.Doctor do
       check("database", "error", "Repository check crashed", %{
         "error" => Exception.message(error)
       })
+  end
+
+  defp migration_check do
+    if Keyword.get(Repo.config(), :pool) == Ecto.Adapters.SQL.Sandbox do
+      check("migrations", "ok", "Migration check skipped under SQL sandbox")
+    else
+      migration_status_check()
+    end
+  end
+
+  defp migration_status_check do
+    pending =
+      Repo
+      |> Ecto.Migrator.migrations()
+      |> Enum.filter(fn
+        {:down, _version, _name} -> true
+        _migration -> false
+      end)
+
+    case pending do
+      [] ->
+        check("migrations", "ok", "Database migrations are current")
+
+      pending ->
+        check("migrations", "error", "Database has pending migrations", %{
+          "pending" =>
+            Enum.map(pending, fn {:down, version, name} ->
+              %{"version" => version, "name" => name}
+            end)
+        })
+    end
+  rescue
+    error ->
+      check("migrations", "error", "Migration check failed", %{
+        "error" => Exception.message(error)
+      })
+  end
+
+  defp browser_admin_auth_check do
+    config = Application.get_env(:hydra_agent, :browser_auth, [])
+
+    if Keyword.get(config, :enabled?, false) do
+      username_env = Keyword.get(config, :username_env, "HYDRA_ADMIN_USERNAME")
+      password_env = Keyword.get(config, :password_env, "HYDRA_ADMIN_PASSWORD")
+
+      missing =
+        [username_env, password_env]
+        |> Enum.reject(fn env -> is_binary(env) and env != "" and not env_missing?(env) end)
+
+      case missing do
+        [] ->
+          check("browser_admin_auth", "ok", "Browser admin auth is configured", %{
+            "username_env" => username_env,
+            "password_env" => password_env
+          })
+
+        missing ->
+          check("browser_admin_auth", "error", "Browser admin auth is missing env values", %{
+            "missing_env" => missing
+          })
+      end
+    else
+      check("browser_admin_auth", "ok", "Browser admin auth is disabled")
+    end
+  end
+
+  defp api_auth_check do
+    config = Application.get_env(:hydra_agent, :api_auth, [])
+
+    if Keyword.get(config, :enabled?, false) do
+      token_env = Keyword.get(config, :token_env, "HYDRA_API_TOKEN")
+
+      if is_binary(token_env) and token_env != "" and not env_missing?(token_env) do
+        check("api_auth", "ok", "API bearer auth is configured", %{"token_env" => token_env})
+      else
+        check("api_auth", "error", "API bearer auth is missing env value", %{
+          "token_env" => token_env
+        })
+      end
+    else
+      check("api_auth", "ok", "API bearer auth is disabled")
+    end
+  end
+
+  defp backup_check do
+    if System.get_env("HYDRA_BACKUP_CONFIGURED") in ~w(true 1) do
+      check("backups", "ok", "Production backup marker is configured")
+    else
+      check("backups", "warning", "Production backup marker is not configured", %{
+        "env" => "HYDRA_BACKUP_CONFIGURED"
+      })
+    end
   end
 
   defp tool_registry_check do
@@ -150,6 +262,48 @@ defmodule HydraAgent.Doctor do
     end
   end
 
+  defp runtime_pressure_check do
+    now = DateTime.utc_now()
+
+    metadata = %{
+      "active_runs" => count_query(from(run in Run, where: run.status in ["planned", "running"])),
+      "awaiting_approval_steps" =>
+        count_query(from(step in RunStep, where: step.status == "awaiting_approval")),
+      "running_steps" => count_query(from(step in RunStep, where: step.status == "running")),
+      "stale_running_steps" =>
+        count_query(
+          from(step in RunStep,
+            where:
+              step.status == "running" and not is_nil(step.lease_expires_at) and
+                step.lease_expires_at < ^now
+          )
+        ),
+      "running_simulations" =>
+        count_query(from(simulation in SimulationRecord, where: simulation.status == "running")),
+      "stale_running_simulations" =>
+        count_query(
+          from(simulation in SimulationRecord,
+            where:
+              simulation.status == "running" and not is_nil(simulation.lease_expires_at) and
+                simulation.lease_expires_at < ^now
+          )
+        )
+    }
+
+    if metadata["stale_running_steps"] > 0 or metadata["stale_running_simulations"] > 0 do
+      check("runtime_pressure", "warning", "Runtime has stale leased work", metadata)
+    else
+      check("runtime_pressure", "ok", "Runtime pressure is within expected bounds", metadata)
+    end
+  rescue
+    error ->
+      check("runtime_pressure", "error", "Runtime pressure check failed", %{
+        "error" => Exception.message(error)
+      })
+  end
+
+  defp count_query(query), do: Repo.aggregate(query, :count)
+
   defp maybe_add_provider_checks(checks, nil), do: checks
 
   defp maybe_add_provider_checks(checks, workspace_id) do
@@ -185,13 +339,69 @@ defmodule HydraAgent.Doctor do
       url when is_binary(url) ->
         case URI.parse(url) do
           %URI{scheme: scheme, host: host} when scheme in ["http", "https"] and is_binary(host) ->
-            check("browser_worker", "ok", "Browser worker URL is configured", %{"url" => url})
+            if Browser.worker_auth_required?() and not Browser.worker_token_configured?() do
+              check(
+                "browser_worker",
+                "error",
+                "Browser worker action auth is missing env value",
+                %{
+                  "url" => url,
+                  "token_env" => Browser.worker_token_env()
+                }
+              )
+            else
+              check_browser_worker_health(url)
+            end
 
           _uri ->
             check("browser_worker", "warning", "Browser worker URL is invalid", %{"url" => url})
         end
     end
   end
+
+  defp check_browser_worker_health(url) do
+    health_url = browser_worker_health_url(url)
+
+    case Req.get(health_url,
+           headers: Browser.worker_auth_headers(),
+           receive_timeout: 2_000,
+           retry: false
+         ) do
+      {:ok, %{status: status, body: body}} when status in 200..299 ->
+        check("browser_worker", "ok", "Browser worker health check passed", %{
+          "url" => url,
+          "health_url" => health_url,
+          "status" => status,
+          "worker_status" => worker_status(body)
+        })
+
+      {:ok, %{status: status, body: body}} ->
+        check("browser_worker", "error", "Browser worker health check failed", %{
+          "url" => url,
+          "health_url" => health_url,
+          "status" => status,
+          "body" => body
+        })
+
+      {:error, error} ->
+        check("browser_worker", "error", "Browser worker health check failed", %{
+          "url" => url,
+          "health_url" => health_url,
+          "error" => inspect(error)
+        })
+    end
+  end
+
+  defp browser_worker_health_url(url) do
+    url
+    |> URI.parse()
+    |> Map.put(:path, "/health")
+    |> Map.put(:query, nil)
+    |> URI.to_string()
+  end
+
+  defp worker_status(%{"status" => status}), do: status
+  defp worker_status(_body), do: "unknown"
 
   defp maybe_add_workspace_readiness_checks(checks, nil), do: checks
 

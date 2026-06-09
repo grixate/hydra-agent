@@ -108,8 +108,11 @@ defmodule HydraAgent.AgentPack do
 
   def validate(_pack), do: {:error, ["agent pack must be a map"]}
 
-  def validate_details(pack) when is_map(pack) do
+  def validate_details(pack, opts \\ [])
+
+  def validate_details(pack, opts) when is_map(pack) do
     pack = stringify_keys(pack)
+    workspace_id = Keyword.get(opts, :workspace_id)
 
     []
     |> require_field_details(pack)
@@ -117,22 +120,22 @@ defmodule HydraAgent.AgentPack do
     |> validate_role_details(pack)
     |> validate_list_details(pack, "tools")
     |> validate_optional_list_details(pack, "tool_bundles")
-    |> validate_known_tools_details(pack)
-    |> validate_known_tool_bundles_details(pack)
+    |> validate_known_tools_details(pack, workspace_id)
+    |> validate_known_tool_bundles_details(pack, workspace_id)
     |> validate_list_details(pack, "skills")
     |> validate_list_details(pack, "memory_scopes")
     |> validate_list_details(pack, "knowledge_scopes")
     |> validate_autonomy_details(pack)
     |> validate_permissions_details(pack)
-    |> validate_bundle_permissions_details(pack)
+    |> validate_bundle_permissions_details(pack, workspace_id)
     |> validate_approval_policy_details(pack)
     |> case do
-      [] -> {:ok, normalize(pack)}
+      [] -> {:ok, normalize(pack, workspace_id)}
       details -> {:error, Enum.reverse(details)}
     end
   end
 
-  def validate_details(_pack) do
+  def validate_details(_pack, _opts) do
     {:error, [validation_error("agent_pack", "invalid_type", "agent pack must be a map")]}
   end
 
@@ -278,8 +281,10 @@ defmodule HydraAgent.AgentPack do
     end
   end
 
-  defp validate_known_tools_details(errors, %{"tools" => tools}) when is_list(tools) do
-    unknown = tools -- Registry.names()
+  defp validate_known_tools_details(errors, %{"tools" => tools}, workspace_id)
+       when is_list(tools) do
+    allowed = if workspace_id, do: Registry.names(workspace_id), else: Registry.names()
+    unknown = tools -- allowed
 
     if unknown == [],
       do: errors,
@@ -294,11 +299,12 @@ defmodule HydraAgent.AgentPack do
       ]
   end
 
-  defp validate_known_tools_details(errors, _pack), do: errors
+  defp validate_known_tools_details(errors, _pack, _workspace_id), do: errors
 
-  defp validate_known_tool_bundles_details(errors, %{"tool_bundles" => bundles})
+  defp validate_known_tool_bundles_details(errors, %{"tool_bundles" => bundles}, workspace_id)
        when is_list(bundles) do
-    unknown = bundles -- Bundles.names()
+    allowed = if workspace_id, do: Bundles.names(workspace_id), else: Bundles.names()
+    unknown = bundles -- allowed
 
     if unknown == [],
       do: errors,
@@ -313,7 +319,7 @@ defmodule HydraAgent.AgentPack do
       ]
   end
 
-  defp validate_known_tool_bundles_details(errors, _pack), do: errors
+  defp validate_known_tool_bundles_details(errors, _pack, _workspace_id), do: errors
 
   defp validate_autonomy_details(errors, %{"autonomy" => autonomy}) when is_map(autonomy) do
     autonomy = stringify_keys(autonomy)
@@ -380,12 +386,16 @@ defmodule HydraAgent.AgentPack do
     [validation_error("permissions", "not_a_map", "permissions must be a map") | errors]
   end
 
-  defp validate_bundle_permissions_details(errors, %{"permissions" => permissions} = pack)
+  defp validate_bundle_permissions_details(
+         errors,
+         %{"permissions" => permissions} = pack,
+         workspace_id
+       )
        when is_map(permissions) do
     permissions = stringify_keys(permissions)
     bundles = List.wrap(pack["tool_bundles"] || [])
 
-    case Bundles.expand(bundles) do
+    case Bundles.expand(bundles, workspace_id) do
       {:ok, %{"requires_approval" => true}} ->
         if permissions["requires_approval"] == false do
           [
@@ -406,7 +416,7 @@ defmodule HydraAgent.AgentPack do
     end
   end
 
-  defp validate_bundle_permissions_details(errors, _pack), do: errors
+  defp validate_bundle_permissions_details(errors, _pack, _workspace_id), do: errors
 
   defp validate_approval_policy_details(errors, %{"approval_policy" => policy})
        when is_map(policy) do
@@ -435,7 +445,7 @@ defmodule HydraAgent.AgentPack do
     ]
   end
 
-  defp normalize(pack) do
+  defp normalize(pack, workspace_id) do
     permissions =
       pack
       |> Map.get("permissions", %{})
@@ -445,15 +455,15 @@ defmodule HydraAgent.AgentPack do
 
     pack
     |> Map.put("permissions", permissions)
-    |> expand_tool_bundles()
+    |> expand_tool_bundles(workspace_id)
     |> Map.update!("autonomy", &stringify_keys/1)
     |> Map.update!("approval_policy", &stringify_keys/1)
   end
 
-  defp expand_tool_bundles(pack) do
+  defp expand_tool_bundles(pack, workspace_id) do
     bundles = List.wrap(pack["tool_bundles"] || [])
 
-    case Bundles.expand(bundles) do
+    case Bundles.expand(bundles, workspace_id) do
       {:ok,
        %{
          "allowed_tools" => tools,
