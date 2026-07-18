@@ -39,6 +39,10 @@ defmodule HydraAgent.Simulations.QuickEngineTest do
     assert completed.model_call_count == 0
     assert completed.result_summary["population_size"] == 40
     assert completed.result_summary["model_calls"] == 0
+    assert completed.budget_used["model_calls"] == 0
+    assert completed.budget_used["retrieval_requests"] == 0
+    assert completed.budget_used["pricing_status"] in ["partial", "unknown"]
+    assert completed.fallback_count == 0
     assert byte_size(completed.result_hash) == 64
     assert byte_size(completed.initial_state_hash) == 64
     assert byte_size(completed.final_state_hash) == 64

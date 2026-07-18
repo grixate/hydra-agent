@@ -567,6 +567,27 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     assert run =~ "Quick"
     assert run =~ "Run simulation"
     assert run =~ ~s(class="simulation-run-start")
+    assert run =~ "Run budget"
+    assert run =~ "Price unavailable"
+    assert run =~ "Estimated provider use"
+    assert run =~ "Available when every active route is priced"
+    assert run =~ "Model-call cap"
+    assert run =~ "Retrieval cap"
+    assert run =~ "Deterministic execution can continue"
+    assert run =~ "Automatic by default"
+    assert run =~ "No model calls"
+    refute run =~ "reservation ledger"
+
+    russian_run =
+      conn
+      |> recycle()
+      |> get("/simulations/#{simulation.id}/run?workspace_id=#{workspace.id}&locale=ru")
+      |> html_response(200)
+
+    assert russian_run =~ "Бюджет запуска"
+    assert russian_run =~ "Цена недоступна"
+    assert russian_run =~ "Ожидаемые расходы провайдера"
+    assert russian_run =~ "Без обращений к модели"
 
     results =
       conn
@@ -614,6 +635,11 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     record = Repo.one!(SimulationRunRecord)
     assert record.mode == "quick"
     assert record.model_call_count == 0
+    assert record.budget_plan_id
+    assert record.model_route_plan_id
+    assert record.budget_snapshot["hard_model_call_cap"] == 5
+    assert record.budget_snapshot["stage_caps"]["simulation"]["calls"] == 0
+    assert record.model_route_snapshot["simulation"]["status"] == "disabled"
 
     queued_page =
       conn
@@ -626,6 +652,13 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     assert queued_page =~ "0 / 3"
     assert queued_page =~ ~s(data-run-auto-refresh="true")
     assert queued_page =~ ~s(aria-busy="true")
+    assert queued_page =~ "Provider spend"
+    assert queued_page =~ "Unpriced · limits active"
+    assert queued_page =~ "Model decisions"
+    assert queued_page =~ "0 made · 0 left"
+    assert queued_page =~ "Fallbacks"
+    assert queued_page =~ "Current stage"
+    assert queued_page =~ "Queued"
     assert queued_page =~ "Cancel run"
 
     duplicate_start =
@@ -656,6 +689,7 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     assert completed_page =~ "3 / 3"
     assert completed_page =~ "hydra-quick/v1"
     assert completed_page =~ "Model decisions"
+    assert completed_page =~ "Complete"
     assert completed_page =~ "Run simulation"
     refute completed_page =~ ~s(data-run-auto-refresh="true")
     refute completed_page =~ "Cancel run"
@@ -682,6 +716,82 @@ defmodule HydraAgentWeb.SimulationControllerTest do
       })
 
     assert response(missing_cancel, 404)
+  end
+
+  test "model routes are editable by role before a run and lock after start", %{
+    conn: conn,
+    workspace: workspace,
+    general: general
+  } do
+    assert {:ok, provider} =
+             HydraAgent.Runtime.create_provider(%{
+               workspace_id: workspace.id,
+               name: "Local reasoning",
+               kind: "mock",
+               model: "local-structured-v1",
+               enabled: true,
+               metadata: %{
+                 "capabilities" => %{
+                   "structured_generation" => true,
+                   "local_execution" => true
+                 }
+               }
+             })
+
+    assert {:ok, simulation} =
+             HydraAgent.Simulations.create_simulation(workspace, nil, %{
+               "question" => "How might model routing affect a bounded simulation?",
+               "blueprint_id" => general.id,
+               "population_size" => 30,
+               "horizon" => "2 rounds"
+             })
+
+    configured =
+      post(conn, "/simulations/#{simulation.id}/run/configuration", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en",
+        "run_configuration" => %{
+          "model_routes" => %{
+            "build" => to_string(provider.id),
+            "simulation" => "none",
+            "report" => to_string(provider.id)
+          }
+        }
+      })
+
+    assert redirected_to(configured) ==
+             "/simulations/#{simulation.id}/run?locale=en&workspace_id=#{workspace.id}"
+
+    assert Phoenix.Flash.get(configured.assigns.flash, :info) ==
+             "Run settings saved. The next run will use this exact configuration."
+
+    route_plan = HydraAgent.Simulations.current_model_route_plan(simulation)
+    assert route_plan.resolved_routes["build"]["model"] == "local-structured-v1"
+    assert route_plan.resolved_routes["report"]["model"] == "local-structured-v1"
+
+    started =
+      conn
+      |> recycle()
+      |> post("/simulations/#{simulation.id}/run", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en"
+      })
+
+    locked =
+      conn
+      |> recycle()
+      |> post("/simulations/#{simulation.id}/run/configuration", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en",
+        "run_configuration" => %{
+          "model_routes" => %{"build" => "automatic", "report" => "automatic"}
+        }
+      })
+
+    assert redirected_to(locked) == redirected_to(started)
+
+    assert Phoenix.Flash.get(locked.assigns.flash, :error) ==
+             "Run settings stay locked while a simulation is active."
   end
 
   test "duplicate and archive remain workspace-scoped and preserve history", %{

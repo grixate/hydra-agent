@@ -21,6 +21,10 @@ defmodule HydraAgent.Simulations.SimulationRunRecord do
     field :result_hash, :string
     field :result_summary, :map, default: %{}
     field :failure, :map, default: %{}
+    field :model_route_snapshot, :map, default: %{}
+    field :budget_snapshot, :map, default: %{}
+    field :budget_used, :map, default: %{}
+    field :fallback_count, :integer, default: 0
     field :started_at, :utc_datetime_usec
     field :completed_at, :utc_datetime_usec
 
@@ -31,10 +35,13 @@ defmodule HydraAgent.Simulations.SimulationRunRecord do
     belongs_to :context_pack, HydraAgent.Simulations.ContextPack
     belongs_to :population_model, HydraAgent.Simulations.PopulationModel
     belongs_to :simulation_script, HydraAgent.Simulations.SimulationScript
+    belongs_to :model_route_plan, HydraAgent.Simulations.ModelRoutePlan
+    belongs_to :budget_plan, HydraAgent.Simulations.BudgetPlan
     belongs_to :created_by_user, HydraAgent.Accounts.User
 
     has_many :snapshots, HydraAgent.Simulations.RunSnapshot
     has_many :resource_transactions, HydraAgent.Simulations.ResourceTransaction
+    has_many :budget_reservations, HydraAgent.Simulations.BudgetReservation
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -51,6 +58,8 @@ defmodule HydraAgent.Simulations.SimulationRunRecord do
       :context_pack_id,
       :population_model_id,
       :simulation_script_id,
+      :model_route_plan_id,
+      :budget_plan_id,
       :created_by_user_id,
       :mode,
       :seed,
@@ -68,6 +77,10 @@ defmodule HydraAgent.Simulations.SimulationRunRecord do
       :result_hash,
       :result_summary,
       :failure,
+      :model_route_snapshot,
+      :budget_snapshot,
+      :budget_used,
+      :fallback_count,
       :started_at,
       :completed_at
     ])
@@ -79,6 +92,8 @@ defmodule HydraAgent.Simulations.SimulationRunRecord do
       :context_pack_id,
       :population_model_id,
       :simulation_script_id,
+      :model_route_plan_id,
+      :budget_plan_id,
       :mode,
       :seed,
       :engine_version,
@@ -89,7 +104,11 @@ defmodule HydraAgent.Simulations.SimulationRunRecord do
       :current_round,
       :last_event_sequence,
       :model_call_count,
-      :recovery_count
+      :recovery_count,
+      :model_route_snapshot,
+      :budget_snapshot,
+      :budget_used,
+      :fallback_count
     ])
     |> validate_inclusion(:mode, ["quick"])
     |> validate_number(:seed, greater_than_or_equal_to: 0)
@@ -100,6 +119,7 @@ defmodule HydraAgent.Simulations.SimulationRunRecord do
     |> validate_number(:last_event_sequence, greater_than_or_equal_to: 0)
     |> validate_number(:model_call_count, equal_to: 0)
     |> validate_number(:recovery_count, greater_than_or_equal_to: 0)
+    |> validate_number(:fallback_count, greater_than_or_equal_to: 0)
     |> validate_hash(:pack_hash)
     |> validate_optional_hash(:initial_state_hash)
     |> validate_optional_hash(:final_state_hash)
@@ -111,6 +131,8 @@ defmodule HydraAgent.Simulations.SimulationRunRecord do
     |> foreign_key_constraint(:context_pack_id)
     |> foreign_key_constraint(:population_model_id)
     |> foreign_key_constraint(:simulation_script_id)
+    |> foreign_key_constraint(:model_route_plan_id)
+    |> foreign_key_constraint(:budget_plan_id)
     |> foreign_key_constraint(:created_by_user_id)
     |> unique_constraint(:run_id)
     |> check_constraint(:mode, name: :simulation_run_records_bounds_check)

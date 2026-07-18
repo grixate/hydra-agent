@@ -137,6 +137,154 @@
         </details>
       </section>
 
+      <section
+        :if={@budget_plan}
+        class="simulation-budget-card"
+        aria-labelledby="run-budget-title"
+      >
+        <header>
+          <div>
+            <p class="blueprint-eyebrow">{t(@locale, :budget_label)}</p>
+            <h3 id="run-budget-title">{t(@locale, :budget_title)}</h3>
+            <p>{t(@locale, :budget_lede)}</p>
+          </div>
+          <span>{t(@locale, budget_preset_key(@budget_plan))}</span>
+        </header>
+
+        <p class="simulation-budget-estimate">
+          <span>{t(@locale, :budget_estimated_range)}</span>
+          <strong>{budget_estimate_label(@locale, @budget_plan)}</strong>
+        </p>
+
+        <dl class="simulation-budget-strip">
+          <div>
+            <dt>{t(@locale, :budget_hard_max)}</dt>
+            <dd>{budget_cost_label(@locale, @budget_plan)}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :budget_model_calls)}</dt>
+            <dd>{@budget_plan.hard_model_call_cap}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :budget_retrievals)}</dt>
+            <dd>{@budget_plan.hard_retrieval_request_cap}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :budget_runtime)}</dt>
+            <dd>{budget_runtime_band_label(@locale, @budget_plan)}</dd>
+          </div>
+        </dl>
+
+        <dl :if={@latest_run} class="simulation-budget-strip is-live" aria-live="polite">
+          <div>
+            <dt>{t(@locale, :budget_used_remaining)}</dt>
+            <dd>{budget_cost_progress_label(@locale, @budget_plan, @budget_summary)}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :budget_decisions_remaining)}</dt>
+            <dd>{budget_decision_progress_label(@locale, @budget_plan, @budget_summary)}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :budget_fallbacks)}</dt>
+            <dd>{@budget_summary["fallbacks"]}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :budget_current_stage)}</dt>
+            <dd>{budget_stage_label(@locale, @latest_run)}</dd>
+          </div>
+        </dl>
+
+        <p :if={@budget_plan.pricing_status != "known"} class="simulation-budget-note">
+          {t(@locale, :budget_price_unknown_note)}
+        </p>
+        <p class="simulation-budget-note is-safe">
+          <span aria-hidden="true">✓</span> {t(@locale, :budget_fallback_note)}
+        </p>
+
+        <details class="simulation-route-details">
+          <summary>
+            <span>
+              <strong>{t(@locale, :models_title)}</strong>
+              <small>{t(@locale, :models_summary)}</small>
+            </span>
+          </summary>
+
+          <form
+            :if={@can_edit && !run_active?(@latest_run)}
+            action={"/simulations/#{@simulation.id}/run/configuration?workspace_id=#{@workspace.id}&locale=#{@locale}"}
+            method="post"
+            class="simulation-route-form"
+          >
+            <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+            <label>
+              <span>{t(@locale, :model_build)}</span>
+              <select name="run_configuration[model_routes][build]">
+                <option
+                  value="automatic"
+                  selected={model_route_selection(@model_route_plan, "build") == "automatic"}
+                >
+                  {t(@locale, :model_automatic)}
+                </option>
+                <option
+                  :for={provider <- @available_model_routes}
+                  value={provider["id"]}
+                  selected={model_route_selection(@model_route_plan, "build") == provider["id"]}
+                >
+                  {provider_option_label(provider)}
+                </option>
+              </select>
+            </label>
+            <div class="simulation-route-fixed">
+              <span>{t(@locale, :model_simulation)}</span>
+              <strong>
+                {model_route_label(@locale, @model_route_plan.resolved_routes["simulation"])}
+              </strong>
+              <input
+                type="hidden"
+                name="run_configuration[model_routes][simulation]"
+                value="none"
+              />
+            </div>
+            <label>
+              <span>{t(@locale, :model_report)}</span>
+              <select name="run_configuration[model_routes][report]">
+                <option
+                  value="automatic"
+                  selected={model_route_selection(@model_route_plan, "report") == "automatic"}
+                >
+                  {t(@locale, :model_automatic)}
+                </option>
+                <option
+                  :for={provider <- @available_model_routes}
+                  value={provider["id"]}
+                  selected={model_route_selection(@model_route_plan, "report") == provider["id"]}
+                >
+                  {provider_option_label(provider)}
+                </option>
+              </select>
+            </label>
+            <button type="submit">{t(@locale, :run_configuration_save)}</button>
+          </form>
+
+          <dl :if={!@can_edit || run_active?(@latest_run)} class="simulation-route-readonly">
+            <div>
+              <dt>{t(@locale, :model_build)}</dt>
+              <dd>{model_route_label(@locale, @model_route_plan.resolved_routes["build"])}</dd>
+            </div>
+            <div>
+              <dt>{t(@locale, :model_simulation)}</dt>
+              <dd>
+                {model_route_label(@locale, @model_route_plan.resolved_routes["simulation"])}
+              </dd>
+            </div>
+            <div>
+              <dt>{t(@locale, :model_report)}</dt>
+              <dd>{model_route_label(@locale, @model_route_plan.resolved_routes["report"])}</dd>
+            </div>
+          </dl>
+        </details>
+      </section>
+
       <section class="simulation-ready-summary" aria-label={t(@locale, :ready_summary)}>
         <header>
           <p class="blueprint-eyebrow">{t(@locale, :ready_summary)}</p>
@@ -185,7 +333,7 @@
           </div>
           <div>
             <dt>{t(@locale, :max_cost)}</dt>
-            <dd>{t(@locale, :not_estimated)}</dd>
+            <dd>{budget_cost_label(@locale, @budget_plan)}</dd>
           </div>
           <div>
             <dt>{t(@locale, :max_decisions)}</dt>

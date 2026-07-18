@@ -13,6 +13,8 @@ defmodule HydraAgent.Simulations do
   alias HydraAgent.Simulations.{
     Blueprint,
     Blueprints,
+    BudgetPlan,
+    BudgetPlanBuilder,
     BuildStage,
     ContentHash,
     ContextBuilder,
@@ -20,6 +22,8 @@ defmodule HydraAgent.Simulations do
     ContextResearchRun,
     InputContract,
     JsonSchema,
+    ModelRoutePlan,
+    ModelRouter,
     PersonaProjection,
     PersonaRenderer,
     PopulationBuilder,
@@ -27,6 +31,7 @@ defmodule HydraAgent.Simulations do
     PopulationImporter,
     PopulationModel,
     PopulationValidator,
+    PriceRegistry,
     ScriptBuilder,
     ScriptExporter,
     ScriptPreview,
@@ -181,6 +186,8 @@ defmodule HydraAgent.Simulations do
     version = simulation.active_version
     population_model = simulation.active_population_model
     script = simulation.active_script && simulation.active_script.script
+    budget_plan = current_budget_plan(simulation)
+    route_plan = current_model_route_plan(simulation)
 
     %{
       population_size: version.population_size,
@@ -190,8 +197,20 @@ defmodule HydraAgent.Simulations do
       resources: script && length(script["resources"] || []),
       scheduled_events: script && length(script["events"] || []),
       execution_mode: version.execution_mode,
-      maximum_provider_cost: nil,
-      maximum_model_decisions: if(version.execution_mode == "quick", do: 0, else: nil),
+      budget_preset: budget_plan && budget_plan.preset,
+      budget_pricing_status: budget_plan && budget_plan.pricing_status,
+      maximum_provider_cost: budget_plan && budget_plan.hard_cost_cap,
+      maximum_model_calls: budget_plan && budget_plan.hard_model_call_cap,
+      maximum_model_decisions:
+        budget_plan && get_in(budget_plan.stage_caps, ["simulation", "calls"]),
+      maximum_retrieval_requests: budget_plan && budget_plan.hard_retrieval_request_cap,
+      runtime_band: budget_plan && budget_plan.estimates["runtime_band_seconds"],
+      deterministic_after_exhaustion:
+        budget_plan &&
+          get_in(budget_plan.fallback_policy, [
+            "deterministic_completion_after_exhaustion"
+          ]),
+      model_routes: route_plan && route_plan.resolved_routes,
       script_status: simulation.active_script && simulation.active_script.status,
       preview_status:
         simulation.active_script && simulation.active_script.preview &&
@@ -214,6 +233,8 @@ defmodule HydraAgent.Simulations do
       |> require_ready(simulation.active_context_pack, "context_pack_missing")
       |> require_ready(simulation.active_population_model, "population_model_missing")
       |> require_ready(simulation.active_script, "simulation_script_missing")
+      |> require_ready(current_model_route_plan(simulation), "model_route_plan_missing")
+      |> require_ready(current_budget_plan(simulation), "budget_plan_missing")
       |> require_quick_mode(simulation.active_version)
       |> require_population_ready(simulation.active_population_model)
       |> require_script_ready(simulation.active_script)
@@ -225,7 +246,7 @@ defmodule HydraAgent.Simulations do
     SimulationRunRecord
     |> where([record], record.simulation_id == ^simulation.id)
     |> order_by([record], desc: record.inserted_at, desc: record.id)
-    |> preload([:run])
+    |> preload([:run, :budget_plan, :model_route_plan])
     |> Repo.all()
   end
 
@@ -233,6 +254,129 @@ defmodule HydraAgent.Simulations do
     simulation
     |> list_simulation_run_records()
     |> List.first()
+  end
+
+  def current_model_route_plan(%Simulation{} = simulation) do
+    case current_budget_plan(simulation) do
+      %BudgetPlan{} = budget_plan -> Repo.get(ModelRoutePlan, budget_plan.model_route_plan_id)
+      nil -> nil
+    end
+  end
+
+  def current_budget_plan(%Simulation{} = simulation) do
+    budget_plan_for_version(simulation.active_version_id)
+  end
+
+  def budget_plan_for_version(simulation_version_id) do
+    BudgetPlan
+    |> where([plan], plan.simulation_version_id == ^simulation_version_id)
+    |> order_by([plan], desc: plan.inserted_at, desc: plan.id)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  def available_model_routes(%Simulation{} = simulation),
+    do: ModelRouter.available_routes(simulation.workspace_id)
+
+  def configure_run(%Simulation{} = simulation, user, attrs) when is_map(attrs) do
+    if Accounts.workspace_authorized?(user, simulation.workspace_id, "researcher") do
+      attrs = stringify_keys(attrs)
+
+      Repo.transaction(fn ->
+        locked =
+          Simulation
+          |> where([current], current.id == ^simulation.id)
+          |> lock("FOR UPDATE")
+          |> Repo.one!()
+          |> Repo.preload(:active_version)
+
+        if active_quick_run?(Repo, locked.id) do
+          Repo.rollback(:run_already_active)
+        end
+
+        selection = attrs["model_routes"] || locked.active_version.model_routes
+
+        route_contract =
+          ModelRouter.build(
+            locked.workspace_id,
+            locked.active_version.execution_mode,
+            selection
+          )
+
+        route_plan =
+          ModelRoutePlan
+          |> where(
+            [plan],
+            plan.simulation_version_id == ^locked.active_version_id and
+              plan.content_hash == ^route_contract["content_hash"]
+          )
+          |> Repo.one()
+          |> case do
+            nil ->
+              insert_model_route_plan(Repo, locked, locked.active_version, route_contract)
+              |> case do
+                {:ok, plan} -> plan
+                {:error, changeset} -> Repo.rollback(changeset)
+              end
+
+            plan ->
+              plan
+          end
+
+        budget_contract =
+          BudgetPlanBuilder.build(
+            locked.workspace_id,
+            locked.active_version.budget_preset,
+            route_plan.resolved_routes
+          )
+
+        budget_plan =
+          BudgetPlan
+          |> where(
+            [plan],
+            plan.simulation_version_id == ^locked.active_version_id and
+              plan.content_hash == ^budget_contract["content_hash"]
+          )
+          |> Repo.one()
+          |> case do
+            nil ->
+              insert_budget_plan(
+                Repo,
+                locked,
+                locked.active_version,
+                route_plan,
+                budget_contract
+              )
+              |> case do
+                {:ok, plan} -> plan
+                {:error, changeset} -> Repo.rollback(changeset)
+              end
+
+            plan ->
+              plan
+          end
+
+        %{budget_plan: budget_plan, model_route_plan: route_plan}
+      end)
+      |> case do
+        {:ok, configuration} -> {:ok, configuration}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def create_price_entry(%Workspace{} = workspace, user, attrs) do
+    if Accounts.workspace_authorized?(user, workspace.id, "admin") do
+      attrs
+      |> stringify_keys()
+      |> Map.put("workspace_id", workspace.id)
+      |> Map.put("operator_override", true)
+      |> PriceRegistry.create_entry()
+    else
+      {:error, :forbidden}
+    end
   end
 
   def create_quick_run(%Simulation{} = simulation, user, opts \\ []) do
@@ -374,7 +518,7 @@ defmodule HydraAgent.Simulations do
   def get_simulation_run_record!(id) do
     SimulationRunRecord
     |> Repo.get!(id)
-    |> Repo.preload([:run, :simulation, :snapshots])
+    |> Repo.preload([:run, :simulation, :snapshots, :budget_plan, :model_route_plan])
   end
 
   def get_simulation_run_record(id) when is_binary(id) do
@@ -383,8 +527,17 @@ defmodule HydraAgent.Simulations do
     case Ecto.Type.cast(id_type, id) do
       {:ok, cast_id} ->
         case Repo.get(SimulationRunRecord, cast_id) do
-          nil -> nil
-          record -> Repo.preload(record, [:run, :simulation, :snapshots])
+          nil ->
+            nil
+
+          record ->
+            Repo.preload(record, [
+              :run,
+              :simulation,
+              :snapshots,
+              :budget_plan,
+              :model_route_plan
+            ])
         end
 
       :error ->
@@ -423,9 +576,13 @@ defmodule HydraAgent.Simulations do
           {:error, {:not_ready, reasons}}
       end
     end)
-    |> Multi.insert(:run, fn %{locked_simulation: locked} ->
+    |> Multi.run(:configuration, fn repo, %{locked_simulation: locked} ->
+      current_configuration(repo, locked.active_version_id)
+    end)
+    |> Multi.insert(:run, fn %{locked_simulation: locked, configuration: configuration} ->
       rounds = get_in(locked.active_script.script, ["clock", "count"])
-      pack_hash = simulation_pack_hash(locked, seed)
+      pack_hash = simulation_pack_hash(locked, seed, configuration)
+      budget_snapshot = BudgetPlanBuilder.snapshot(configuration.budget_plan)
 
       Run.changeset(%Run{}, %{
         workspace_id: locked.workspace_id,
@@ -433,7 +590,7 @@ defmodule HydraAgent.Simulations do
         goal: locked.question,
         status: "planned",
         autonomy_level: "recommend",
-        budget: %{"simulation_model_calls" => 0},
+        budget: budget_snapshot,
         plan: %{
           "kind" => "simulation",
           "mode" => "quick",
@@ -444,11 +601,13 @@ defmodule HydraAgent.Simulations do
           "kind" => "simulation",
           "simulation_id" => locked.id,
           "pack_hash" => pack_hash,
-          "engine_version" => SimulationRunRecord.engine_version()
+          "engine_version" => SimulationRunRecord.engine_version(),
+          "budget_plan_hash" => configuration.budget_plan.content_hash,
+          "model_route_plan_hash" => configuration.model_route_plan.content_hash
         }
       })
     end)
-    |> Multi.insert(:run_created_event, fn %{run: run} ->
+    |> Multi.insert(:run_created_event, fn %{run: run, configuration: configuration} ->
       RunEvent.changeset(%RunEvent{}, %{
         workspace_id: run.workspace_id,
         run_id: run.id,
@@ -458,13 +617,20 @@ defmodule HydraAgent.Simulations do
           "kind" => "simulation",
           "mode" => "quick",
           "pack_hash" => run.metadata["pack_hash"],
-          "model_call_cap" => 0
+          "model_call_cap" =>
+            get_in(configuration.budget_plan.stage_caps, ["simulation", "calls"]),
+          "budget_plan_hash" => configuration.budget_plan.content_hash,
+          "model_route_plan_hash" => configuration.model_route_plan.content_hash
         }
       })
     end)
-    |> Multi.insert(:record, fn %{locked_simulation: locked, run: run} ->
+    |> Multi.insert(:record, fn %{
+                                  locked_simulation: locked,
+                                  configuration: configuration,
+                                  run: run
+                                } ->
       rounds = get_in(locked.active_script.script, ["clock", "count"])
-      pack_hash = simulation_pack_hash(locked, seed)
+      pack_hash = simulation_pack_hash(locked, seed, configuration)
 
       SimulationRunRecord.changeset(%SimulationRunRecord{}, %{
         workspace_id: locked.workspace_id,
@@ -474,6 +640,8 @@ defmodule HydraAgent.Simulations do
         context_pack_id: locked.active_context_pack_id,
         population_model_id: locked.active_population_model_id,
         simulation_script_id: locked.active_script_id,
+        model_route_plan_id: configuration.model_route_plan.id,
+        budget_plan_id: configuration.budget_plan.id,
         created_by_user_id: user && user.id,
         mode: "quick",
         seed: seed,
@@ -486,6 +654,16 @@ defmodule HydraAgent.Simulations do
         last_event_sequence: 0,
         model_call_count: 0,
         recovery_count: 0,
+        model_route_snapshot: configuration.model_route_plan.resolved_routes,
+        budget_snapshot: BudgetPlanBuilder.snapshot(configuration.budget_plan),
+        budget_used: %{
+          "currency" => configuration.budget_plan.currency,
+          "model_calls" => 0,
+          "input_tokens" => 0,
+          "output_tokens" => 0,
+          "cost" => if(configuration.budget_plan.pricing_status == "known", do: "0", else: nil)
+        },
+        fallback_count: 0,
         result_summary: %{},
         failure: %{}
       })
@@ -518,22 +696,45 @@ defmodule HydraAgent.Simulations do
     |> Repo.transaction()
     |> case do
       {:ok, %{record: record}} ->
-        {:ok, Repo.preload(record, [:run, :simulation])}
+        {:ok, Repo.preload(record, [:run, :simulation, :budget_plan, :model_route_plan])}
 
       {:error, _operation, reason, _changes} ->
         {:error, reason}
     end
   end
 
-  defp simulation_pack_hash(simulation, seed) do
+  defp simulation_pack_hash(simulation, seed, configuration) do
     ContentHash.digest(%{
       "simulation_version" => simulation.active_version.content_hash,
       "context_pack" => simulation.active_context_pack.content_hash,
       "population_model" => simulation.active_population_model.content_hash,
       "simulation_script" => simulation.active_script.content_hash,
+      "model_route_plan" => configuration.model_route_plan.content_hash,
+      "budget_plan" => configuration.budget_plan.content_hash,
       "seed" => seed,
       "engine_version" => SimulationRunRecord.engine_version()
     })
+  end
+
+  defp current_configuration(repo, simulation_version_id) do
+    budget_plan =
+      BudgetPlan
+      |> where([plan], plan.simulation_version_id == ^simulation_version_id)
+      |> order_by([plan], desc: plan.inserted_at, desc: plan.id)
+      |> limit(1)
+      |> lock("FOR SHARE")
+      |> repo.one()
+
+    model_route_plan =
+      budget_plan &&
+        ModelRoutePlan
+        |> where([plan], plan.id == ^budget_plan.model_route_plan_id)
+        |> lock("FOR SHARE")
+        |> repo.one()
+
+    if budget_plan && model_route_plan,
+      do: {:ok, %{budget_plan: budget_plan, model_route_plan: model_route_plan}},
+      else: {:error, :simulation_configuration_missing}
   end
 
   defp active_quick_run?(repo, simulation_id) do
@@ -928,7 +1129,7 @@ defmodule HydraAgent.Simulations do
     question = attrs |> Map.get("question", "") |> to_string() |> String.trim()
     locale = attrs["locale"] || "en"
     mode = attrs["execution_mode"] || "quick"
-    budget_preset = attrs["budget_preset"] || "quick"
+    budget_preset = attrs["budget_preset"] || default_budget_preset(mode)
     population_size = parse_integer(attrs["population_size"] || default_population(blueprint))
 
     cond do
@@ -1037,6 +1238,27 @@ defmodule HydraAgent.Simulations do
           content_hash: prepared["content_hash"]
         })
         |> repo.insert()
+      end)
+      |> Multi.run(:model_route_plan, fn repo, %{simulation: simulation, version: version} ->
+        contract =
+          ModelRouter.build(workspace.id, version.execution_mode, version.model_routes)
+
+        insert_model_route_plan(repo, simulation, version, contract)
+      end)
+      |> Multi.run(:budget_plan, fn repo,
+                                    %{
+                                      simulation: simulation,
+                                      version: version,
+                                      model_route_plan: route_plan
+                                    } ->
+        contract =
+          BudgetPlanBuilder.build(
+            workspace.id,
+            version.budget_preset,
+            route_plan.resolved_routes
+          )
+
+        insert_budget_plan(repo, simulation, version, route_plan, contract)
       end)
       |> Multi.run(:context_contract, fn _repo, %{version: version} ->
         with {:ok, contract} <- ContextBuilder.build(version),
@@ -1181,6 +1403,47 @@ defmodule HydraAgent.Simulations do
       {:error, _step, reason, _changes} ->
         {:error, reason}
     end
+  end
+
+  defp insert_model_route_plan(repo, simulation, version, contract) do
+    %ModelRoutePlan{}
+    |> ModelRoutePlan.changeset(%{
+      workspace_id: simulation.workspace_id,
+      simulation_id: simulation.id,
+      simulation_version_id: version.id,
+      selection: contract["selection"],
+      resolved_routes: contract["resolved_routes"],
+      capability_requirements: contract["capability_requirements"],
+      content_hash: contract["content_hash"]
+    })
+    |> repo.insert()
+  end
+
+  defp insert_budget_plan(repo, simulation, version, route_plan, contract) do
+    %BudgetPlan{}
+    |> BudgetPlan.changeset(%{
+      workspace_id: simulation.workspace_id,
+      simulation_id: simulation.id,
+      simulation_version_id: version.id,
+      model_route_plan_id: route_plan.id,
+      preset: contract["preset"],
+      currency: contract["currency"],
+      pricing_status: contract["pricing_status"],
+      hard_cost_cap: contract["hard_cost_cap"],
+      hard_input_token_cap: contract["hard_input_token_cap"],
+      hard_output_token_cap: contract["hard_output_token_cap"],
+      hard_model_call_cap: contract["hard_model_call_cap"],
+      hard_retrieval_request_cap: contract["hard_retrieval_request_cap"],
+      hard_runtime_seconds: contract["hard_runtime_seconds"],
+      max_concurrency: contract["max_concurrency"],
+      stage_caps: contract["stage_caps"],
+      price_registry_snapshot: contract["price_registry_snapshot"],
+      model_route_snapshot: contract["model_route_snapshot"],
+      estimates: contract["estimates"],
+      fallback_policy: contract["fallback_policy"],
+      content_hash: contract["content_hash"]
+    })
+    |> repo.insert()
   end
 
   defp insert_initial_stages(
@@ -2418,6 +2681,10 @@ defmodule HydraAgent.Simulations do
       _ -> nil
     end)
   end
+
+  defp default_budget_preset("balanced"), do: "standard"
+  defp default_budget_preset("deep"), do: "deep"
+  defp default_budget_preset(_mode), do: "quick"
 
   defp mode_enabled?("quick"), do: true
   defp mode_enabled?("balanced"), do: ProductFeatures.enabled?(:balanced_mode)

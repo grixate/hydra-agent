@@ -202,6 +202,7 @@ defmodule HydraAgentWeb.Router do
     get "/simulations/:id/script/export/:format", SimulationController, :export_script
 
     get "/simulations/:id/run", SimulationController, :run
+    post "/simulations/:id/run/configuration", SimulationController, :configure_run
     post "/simulations/:id/run", SimulationController, :start_quick_run
     post "/simulations/:id/run/:run_id/cancel", SimulationController, :cancel_quick_run
     get "/simulations/:id/results", SimulationController, :results

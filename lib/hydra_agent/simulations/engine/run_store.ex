@@ -7,6 +7,8 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
   alias HydraAgent.Runtime.{Run, RunEvent}
 
   alias HydraAgent.Simulations.{
+    BudgetGovernor,
+    BudgetPlan,
     ContentHash,
     PopulationCompiler,
     ResourceTransaction,
@@ -213,6 +215,7 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
             )
 
           completed_at = now()
+          budget = budget_usage(locked)
 
           updated =
             locked
@@ -223,6 +226,8 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
               final_state_hash: final_state_hash,
               result_hash: result_hash,
               result_summary: summary,
+              budget_used: budget.used,
+              fallback_count: budget.fallbacks,
               failure: %{},
               completed_at: completed_at
             })
@@ -288,10 +293,13 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
 
         insert_simulation_events!(locked, events)
         completed_at = now()
+        budget = budget_usage(locked)
 
         locked
         |> SimulationRunRecord.changeset(%{
           last_event_sequence: next_sequence,
+          budget_used: budget.used,
+          fallback_count: budget.fallbacks,
           failure: failure,
           completed_at: completed_at
         })
@@ -509,6 +517,26 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
     if snapshot.state_hash == state_hash,
       do: :ok,
       else: {:error, :snapshot_state_hash_mismatch}
+  end
+
+  defp budget_usage(record) do
+    plan = Repo.get!(BudgetPlan, record.budget_plan_id)
+
+    summary =
+      BudgetGovernor.summary(plan, simulation_run_record_id: record.id)
+
+    %{
+      fallbacks: summary["fallbacks"],
+      used: %{
+        "currency" => summary["currency"],
+        "pricing_status" => summary["pricing_status"],
+        "cost" => summary["used_cost"],
+        "input_tokens" => summary["input_tokens"],
+        "output_tokens" => summary["output_tokens"],
+        "model_calls" => summary["model_calls"],
+        "retrieval_requests" => summary["retrieval_requests"]
+      }
+    }
   end
 
   defp persist_initial(record, events, snapshot, next_sequence) do

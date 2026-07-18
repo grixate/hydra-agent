@@ -147,6 +147,121 @@ defmodule HydraAgentWeb.SimulationHTML do
   def run_seal_label(locale, nil, {:ok, _summary}), do: t(locale, :run_ready)
   def run_seal_label(locale, _run, _readiness), do: t(locale, :not_ready_to_run)
 
+  def budget_cost_label(locale, %{hard_cost_cap: nil}), do: t(locale, :budget_cost_unknown)
+
+  def budget_cost_label(_locale, %{hard_cost_cap: cost, currency: currency}) do
+    amount = cost |> Decimal.round(2) |> Decimal.to_string(:normal)
+    "#{currency} #{amount}"
+  end
+
+  def budget_cost_label(locale, _plan), do: t(locale, :budget_cost_unknown)
+
+  def budget_estimate_label(
+        _locale,
+        %{
+          pricing_status: "known",
+          currency: currency,
+          estimates: %{"minimum_cost" => minimum, "maximum_cost" => maximum}
+        }
+      )
+      when is_binary(minimum) and is_binary(maximum),
+      do: "#{money_label(currency, minimum)}–#{money_label(currency, maximum)}"
+
+  def budget_estimate_label(locale, _plan), do: t(locale, :budget_estimate_unknown)
+
+  def budget_cost_progress_label(
+        locale,
+        %{pricing_status: "known"},
+        %{"currency" => currency, "used_cost" => used, "remaining_cost" => remaining}
+      )
+      when is_binary(used) and is_binary(remaining) do
+    tx(locale, :budget_cost_progress,
+      used: money_label(currency, used),
+      remaining: money_label(currency, remaining)
+    )
+  end
+
+  def budget_cost_progress_label(locale, _plan, _summary),
+    do: t(locale, :budget_cost_unpriced_usage)
+
+  def budget_decision_progress_label(locale, plan, summary) do
+    cap = get_in(plan.stage_caps, ["simulation", "calls"]) || 0
+    used = get_in(summary, ["by_stage", "simulation", "calls"]) || 0
+
+    tx(locale, :budget_decision_progress,
+      used: used,
+      remaining: max(cap - used, 0)
+    )
+  end
+
+  def budget_runtime_band_label(
+        locale,
+        %{estimates: %{"runtime_band_seconds" => %{"minimum" => minimum, "maximum" => maximum}}}
+      )
+      when is_integer(minimum) and is_integer(maximum),
+      do: "#{duration_label(minimum, locale)}–#{duration_label(maximum, locale)}"
+
+  def budget_runtime_band_label(locale, plan),
+    do: runtime_label(plan.hard_runtime_seconds, locale)
+
+  def budget_stage_label(locale, %{run: %{status: "planned"}}),
+    do: t(locale, :budget_stage_queued)
+
+  def budget_stage_label(locale, %{run: %{status: "running"}} = run),
+    do: "#{t(locale, :budget_stage_simulation)} · #{run_progress(run)}"
+
+  def budget_stage_label(locale, %{run: %{status: "completed"}}),
+    do: t(locale, :budget_stage_complete)
+
+  def budget_stage_label(locale, %{run: %{status: "canceled"}}),
+    do: t(locale, :budget_stage_canceled)
+
+  def budget_stage_label(locale, _run), do: t(locale, :budget_stage_stopped)
+
+  def budget_preset_key(%{preset: preset}) when preset in ~w(quick balanced deep),
+    do: String.to_existing_atom("budget_preset_#{preset}")
+
+  def budget_preset_key(_plan), do: :budget_preset_quick
+
+  def model_route_selection(%{selection: selection}, role), do: selection[role] || "automatic"
+  def model_route_selection(_plan, _role), do: "automatic"
+
+  def model_route_label(locale, %{"status" => "disabled"}), do: t(locale, :model_route_none)
+
+  def model_route_label(locale, %{"status" => "unavailable"}),
+    do: t(locale, :model_route_unavailable)
+
+  def model_route_label(_locale, route) when is_map(route) do
+    [route["name"], route["model"]]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" · ")
+  end
+
+  def model_route_label(locale, _route), do: t(locale, :model_route_unavailable)
+
+  def provider_option_label(provider) do
+    [provider["name"], provider["model"], if(provider["local"], do: "Local")]
+    |> Enum.reject(&(&1 in [nil, false, ""]))
+    |> Enum.join(" · ")
+  end
+
+  def runtime_label(seconds, "ru") when is_integer(seconds), do: "до #{div(seconds, 60)} мин"
+
+  def runtime_label(seconds, _locale) when is_integer(seconds),
+    do: "up to #{div(seconds, 60)} min"
+
+  def runtime_label(_seconds, _locale), do: "—"
+
+  defp money_label(currency, value) do
+    amount = value |> Decimal.new() |> Decimal.round(2) |> Decimal.to_string(:normal)
+    "#{currency} #{amount}"
+  end
+
+  defp duration_label(seconds, "ru") when rem(seconds, 60) == 0, do: "#{div(seconds, 60)} мин"
+  defp duration_label(seconds, "ru"), do: "#{seconds} с"
+  defp duration_label(seconds, _locale) when rem(seconds, 60) == 0, do: "#{div(seconds, 60)} min"
+  defp duration_label(seconds, _locale), do: "#{seconds} sec"
+
   def grounding_key(class), do: String.to_existing_atom("context_grounding_#{class}")
 
   def context_source_status_key("pending"), do: :context_source_pending

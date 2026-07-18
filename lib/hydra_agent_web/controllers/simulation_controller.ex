@@ -110,6 +110,32 @@ defmodule HydraAgentWeb.SimulationController do
     end
   end
 
+  def configure_run(conn, params) do
+    configuration = params["run_configuration"] || %{}
+
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         {:ok, _configuration} <-
+           Simulations.configure_run(
+             simulation,
+             conn.assigns[:current_user],
+             configuration
+           ) do
+      conn
+      |> put_flash(:info, t(conn, :run_configuration_saved))
+      |> redirect(to: stage_path(simulation.id, :run, workspace.id, conn.assigns.locale))
+    else
+      {:error, :run_already_active} ->
+        conn
+        |> put_flash(:error, t(conn, :run_configuration_locked))
+        |> redirect(
+          to: stage_path(params["id"], :run, params["workspace_id"], conn.assigns.locale)
+        )
+
+      _reason ->
+        not_found(conn)
+    end
+  end
+
   def cancel_quick_run(conn, params) do
     with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
          %{} = record <- Simulations.get_simulation_run_record(params["run_id"]),
@@ -338,6 +364,10 @@ defmodule HydraAgentWeb.SimulationController do
       run_records =
         if stage == :run, do: Simulations.list_simulation_run_records(simulation), else: []
 
+      latest_run = List.first(run_records)
+      budget_plan = Simulations.current_budget_plan(simulation)
+      model_route_plan = Simulations.current_model_route_plan(simulation)
+
       render(conn, stage_template(stage),
         page_title: simulation.title,
         workspace: workspace,
@@ -355,7 +385,19 @@ defmodule HydraAgentWeb.SimulationController do
         ready_summary: Simulations.ready_summary(simulation),
         run_readiness: Simulations.run_readiness(simulation),
         run_records: run_records,
-        latest_run: List.first(run_records)
+        latest_run: latest_run,
+        budget_plan: budget_plan,
+        model_route_plan: model_route_plan,
+        available_model_routes: Simulations.available_model_routes(simulation),
+        budget_summary:
+          if(budget_plan,
+            do:
+              HydraAgent.Simulations.BudgetGovernor.summary(
+                budget_plan,
+                if(latest_run, do: [simulation_run_record_id: latest_run.id], else: [])
+              ),
+            else: nil
+          )
       )
     else
       _ -> not_found(conn)

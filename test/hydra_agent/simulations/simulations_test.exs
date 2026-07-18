@@ -10,6 +10,7 @@ defmodule HydraAgent.SimulationsTest do
 
   alias HydraAgent.Simulations.{
     Blueprints,
+    BudgetReservation,
     BuildStage,
     ContextPack,
     ContextResearchRun,
@@ -748,6 +749,15 @@ defmodule HydraAgent.SimulationsTest do
     assert refreshed.active_context_pack.version == 2
     assert refreshed.active_context_pack.status == "ready"
     assert refreshed.active_context_pack.research_metadata["provider_calls"] == 4
+
+    reservations =
+      BudgetReservation
+      |> where([reservation], reservation.stage == "research")
+      |> order_by([reservation], asc: reservation.id)
+      |> Repo.all()
+
+    assert length(reservations) == 4
+    assert Enum.all?(reservations, &(&1.kind == "retrieval" and &1.status == "completed"))
 
     assert Enum.all?(refreshed.active_context_pack.sources, fn source ->
              source["kind"] == "external_source" and

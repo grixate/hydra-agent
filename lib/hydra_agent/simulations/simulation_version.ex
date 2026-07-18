@@ -32,6 +32,8 @@ defmodule HydraAgent.Simulations.SimulationVersion do
     has_many :persona_projections, HydraAgent.Simulations.PersonaProjection
     has_many :scripts, HydraAgent.Simulations.SimulationScript
     has_many :script_previews, HydraAgent.Simulations.ScriptPreview
+    has_many :model_route_plans, HydraAgent.Simulations.ModelRoutePlan
+    has_many :budget_plans, HydraAgent.Simulations.BudgetPlan
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end

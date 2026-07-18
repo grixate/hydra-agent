@@ -11,10 +11,10 @@ entire epic or release is complete.
 
 ## Current status
 
-- Active epic: **Epic 7 — Balanced execution and decision provenance**
-- Completed epic: **Epic 6 — Quick engine and world economy**
-- Next vertical slice: selective bounded cognition, deterministic fallbacks,
-  durable Run Decisions, replay, and provider-independent budget enforcement
+- Active epic: **Epic 8 — Balanced hybrid cognition**
+- Completed epic: **Epic 7 — Budget Governor and model routing**
+- Next vertical slice: selective activation, bounded decision queues, policy
+  signatures, exact recorded-decision replay, and deterministic fallbacks
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
@@ -53,8 +53,8 @@ product behavior.
 | Representative Persona | `HydraAgent.Simulations.PersonaProjection`; legacy `sim_lab_personas` | Implemented as an immutable lazy projection of representative structured state. Persona count is never population size. |
 | Simulation Script | `HydraAgent.Simulations.SimulationScript`; legacy scenario events, executable rules, `ScenarioCompiler` | Implemented as a versioned typed declarative contract with semantic validation, exact upstream lineage, and no arbitrary execution. Legacy scenarios remain compatibility inputs. |
 | Observation Plan | Script observations; legacy snapshot metrics, outcome events, forecast inputs | Implemented inside Script V1 as explicit typed metrics and trace selection. A separately versioned Pack reference remains for the portable-Pack epic. |
-| Budget Plan | Runtime `budgets`, `usage_records`, SimLab cost fields | Reuse accounting and authorization primitives; add per-Pack/run hard-cap allocation and price snapshot. |
-| Model Route Plan | Provider configs, credential pools, agent model routes | Reuse provider-neutral adapters and credential references; add Build/Simulation/Report role plan. |
+| Budget Plan | Runtime `budgets`, `usage_records`, SimLab cost fields | Implemented as an immutable per-Simulation authorization envelope and price snapshot; neutral budgets and usage remain the general accounting primitives. |
+| Model Route Plan | Provider configs, credential pools, agent model routes | Implemented as immutable Build/Simulation/Report role selection and public resolution over the existing provider-neutral adapters. |
 | Simulation Pack | No equivalent; SimLab run `input_snapshot` is closest | Add immutable compiled reference object only after component versions exist. |
 | Preview Run | `HydraAgent.Simulations.ScriptPreview`; existing deterministic runner assets | Implemented as a separate immutable, exact-lineage two-round result with at most 12 representatives, zero model calls, safe errors, and a deterministic result hash. |
 | Run | neutral runtime `runs`; legacy `sim_lab_runs` | Neutral `runs` is the execution identity. A one-to-one simulation profile captures exact lineage and deterministic execution metadata; legacy records remain compatibility assets. |
@@ -76,7 +76,7 @@ product behavior.
 | Population fallback | `HydraAgent.Simulations.PopulationBuilder`; legacy `BehaviorCompiler` | A zero-provider deterministic general builder is active. Legacy behavior compilation remains isolated. |
 | Deterministic execution | `SimulationRunner`, `Simulator`, persisted input fingerprint | Reuse mechanisms after the general Script compiler defines stable semantics. |
 | Live progress | Phoenix PubSub and SimLab notifications | Add product-stage events without exposing queue or worker names. |
-| Cost and usage | `Usage`, `Budgets`, provider usage ledger | Route every generative stage and Balanced decision through the new Budget Governor. |
+| Cost and usage | `Usage`, `Budgets`, provider usage ledger | Immutable Budget Plans and atomic reservations are implemented; Context retrieval is governed now and every future generative stage must use the same boundary. |
 | Audit | runtime audit export and safety events | Blueprint, Simulation, Context, Population, and Persona-projection lineage now export with raw instructions, inputs, imported values, identifiers, and prose fingerprinted or omitted. Later epics add decisions, resources, analyses, and reports. |
 
 ### Route migration
@@ -171,6 +171,15 @@ converted by Epic 0.
   enforce Quick-only zero-model execution, bounded progress, immutable exact
   lineage, checksum/hash formats, closed ledger operations, and simulation-event
   sequencing. Legacy SimLab runs, events, and snapshots are not rewritten.
+- Epic 7: additive effective-dated `simulation_price_entries`, immutable
+  `simulation_model_route_plans`, immutable `simulation_budget_plans`, and
+  mutable-lifecycle/immutable-identity `simulation_budget_reservations`;
+  additive route, budget, usage, and fallback snapshots on Simulation Run
+  records. Database constraints and triggers enforce workspace/Simulation/
+  Version scope, plan immutability, reservation-to-Run scope, fixed request
+  envelopes, idempotency, non-negative usage, bounded configuration, and Run
+  references. Existing Versions and Runs receive conservative unknown-price
+  backfills without changing their execution history.
 
 ## Acceptance ledger
 
@@ -415,6 +424,56 @@ cancellation, terminal fencing, and specific creation errors. Architecture and
 operations are recorded in ADR 0003 and `docs/quick-engine.md`; the exact local
 benchmark is `docs/benchmarks/2026-07-18-blueprint-quick-engine-10k.json`.
 
+### Epic 7 — Budget Governor and model routing
+
+- [x] Effective-dated global and workspace price rows capture provider, model,
+  input, cached input, output, request minimum, currency, effective time, and
+  operator-override provenance.
+- [x] Every Simulation Version receives immutable, content-addressed Model Route
+  and Budget Plans; edits create a new next-Run configuration and lock while a
+  Run is active.
+- [x] Build, Simulation, and Report roles resolve automatically or explicitly
+  by capability. Quick forces zero Simulation model calls, local routes are
+  preferred for Simulation, and unusable remote credentials are excluded.
+- [x] Run snapshots contain exact public provider/model/capability/route-version
+  provenance without credentials or secret references.
+- [x] Quick, Balanced, and Deep plans enforce whole-plan token, model-call,
+  retrieval, runtime, concurrency, and per-stage call/token limits.
+- [x] A monetary cap is claimed only when every active price is known and
+  currencies are compatible. Unknown, partial, and mixed-currency pricing stay
+  explicit while non-monetary caps remain active.
+- [x] Atomic plan-row locking prevents concurrent oversubscription. Every
+  attempt is idempotent and records a reservation or audited rejection before
+  provider work begins.
+- [x] Completion records actual usage, returns unused capacity, and rejects
+  malformed, negative, or over-envelope provider usage without releasing the
+  conservative reservation.
+- [x] The deterministic fallback order is captured in each plan; exhaustion can
+  record and return a downgrade instead of failing the deterministic Run.
+- [x] Every automatic Context research lane and direct public-source request is
+  budgeted. Exhaustion or provider failure yields a partial Pack safely.
+- [x] Historical Runs retain their exact plan and price snapshot after later
+  price changes.
+- [x] The Run screen shows estimated or unavailable price, hard maximum, call
+  and retrieval caps, expected runtime, population/rounds, model routes, and
+  deterministic-completion posture before Run; it shows spend/remaining,
+  decisions, fallbacks, and stage after Run creation.
+- [x] English and Russian budget and route copy avoids reservation, credential,
+  provider-internal, worker, and queue terminology.
+
+Acceptance evidence: the focused 59-test Budget, Context, Quick-engine,
+Simulation-domain, and Run-controller suite passes with zero failures. It
+covers concurrent final-slot reservation, exact and unknown pricing, mixed
+currencies, malformed usage, provider overrun, every hard-cap family, explicit
+fallback, credential readiness, historical price snapshots, governed research,
+route configuration locking, final usage snapshots, and both locales.
+Architecture and operations are recorded in ADR 0004 and
+`docs/budget-governor.md`. The exact implementation worktree passed
+`mix precommit` on 2026-07-18: compilation with warnings as errors, dependency
+lock hygiene and audit, formatting, Sobelow with only the repository's reviewed
+low-confidence findings, and 664 ExUnit tests with zero failures (seed 70277,
+24.9 seconds). `mix assets.build` also passes.
+
 ## Baseline evidence
 
 The previous production-readiness pass recorded 543 tests, 75.04% line
@@ -561,6 +620,16 @@ viewport, the document width matched the viewport exactly, no horizontal
 overflow occurred, and the console remained free of warnings and errors. The
 temporary QA Simulation was archived afterward.
 
+Epic 7 Run-budget browser QA created and completed a real provider-free
+5,000-agent, 12-round Run. It inspected honest unknown-price behavior,
+estimated runtime, hard caps, the collapsed model-route editor, the active and
+completed budget-progress strips, exact Quick `0 made · 0 left` simulation
+decisions, and final usage persistence in English and Russian. At 1,280 px and
+390 px, document width matched viewport width exactly. The model disclosure had
+a visible 2 px keyboard-focus outline; the browser console reported no warnings
+or errors. The pass raised fragile micro-text sizes while preserving the quiet
+hierarchy, and archived its temporary QA Simulation afterward.
+
 The exact-worktree aggregate Quick-engine baseline is recorded in
 `docs/benchmarks/2026-07-18-quick-engine-10k.json`. On the recorded arm64
 environment, ten measured 10k-population runs after two warmups produced a
@@ -571,17 +640,17 @@ engine must earn its own 10k result.
 
 ## Known incompatibilities and open decisions
 
-- Context, Population, Script, and deterministic Quick execution are durable,
-  but no separately immutable Simulation Pack is claimed until Budget Plan and
-  Model Route Plan land.
+- Context, Population, Script, model routes, budgets, and deterministic Quick
+  execution are durable and captured by the Run Pack hash, but the portable
+  separately persisted Simulation Pack object belongs to Epic 11.
 - Normal Blueprint navigation is limited to Simulations, Blueprints, and
   Settings. Operations is role-gated to system administrators and workspace
   owners/administrators.
 - Current SimLab lifecycle and terminology are Decision Replay-oriented.
 - Legacy scenarios remain Decision Replay compatibility inputs; Blueprint
   Studio execution uses the general declarative Script and neutral Run profile.
-- Balanced and Deep execution contracts are not implemented under the new hard
-  Budget Plan.
+- Balanced and Deep have immutable hard Budget Plans, but their execution and
+  decision-provenance contracts are not implemented yet.
 - Exact replay currently covers deterministic saved inputs but not recorded
   model decisions.
 - Analysis Pack and claim-validated report regeneration are missing.

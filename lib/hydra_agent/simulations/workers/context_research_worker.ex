@@ -52,7 +52,11 @@ defmodule HydraAgent.Simulations.Workers.ContextResearchWorker do
   end
 
   defp execute(job, run, version) do
-    output = ContextResearch.run(version, provider(run.provider))
+    output =
+      ContextResearch.run(version, provider(run.provider),
+        budget_plan: Simulations.budget_plan_for_version(version.id),
+        attempt: job.attempt
+      )
 
     case Simulations.complete_context_research(run, output) do
       {:ok, _result} -> :ok
