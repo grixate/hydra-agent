@@ -23,7 +23,10 @@
     <div class="simulation-workbench-title">
       <div>
         <p class="blueprint-eyebrow">
-          {t(@locale, status_key(@simulation.status))} · v{@simulation.active_version.version}
+          {t(
+            @locale,
+            workbench_status_key(@stage, @simulation, @latest_run, @run_readiness)
+          )} · v{@simulation.active_version.version}
         </p>
         <h1>{@simulation.title}</h1>
         <p>{@simulation.question}</p>
@@ -56,11 +59,82 @@
     <% :run -> %>
       <section class="simulation-checkpoint-header">
         <div>
-          <p class="blueprint-eyebrow">03 · {t(@locale, :run)}</p>
-          <h2>{t(@locale, :not_ready_to_run)}</h2>
-          <p>{t(@locale, :not_ready_to_run_lede)}</p>
+          <p class="blueprint-eyebrow">02 · {t(@locale, :run)}</p>
+          <h2>{t(@locale, run_heading_key(@latest_run, @run_readiness))}</h2>
+          <p>{t(@locale, run_lede_key(@latest_run, @run_readiness))}</p>
         </div>
-        <span class="simulation-locked-seal" aria-hidden="true">◇</span>
+        <span
+          class={[
+            "simulation-locked-seal",
+            run_active?(@latest_run) && "is-progress"
+          ]}
+          aria-label={run_seal_label(@locale, @latest_run, @run_readiness)}
+        >
+          {run_seal_text(@latest_run)}
+        </span>
+      </section>
+
+      <section
+        :if={@latest_run}
+        class="simulation-run-record"
+        aria-label={t(@locale, :run_latest_record)}
+        aria-live="polite"
+        aria-busy={to_string(run_active?(@latest_run))}
+        data-run-auto-refresh={if run_active?(@latest_run), do: "true"}
+      >
+        <header>
+          <div>
+            <p class="blueprint-eyebrow">{t(@locale, :run_latest_record)}</p>
+            <strong>{t(@locale, run_status_key(@latest_run.run.status))}</strong>
+          </div>
+          <span>{t(@locale, mode_label(@latest_run.mode))}</span>
+        </header>
+        <div class="simulation-run-progress">
+          <div>
+            <span>{t(@locale, :run_progress)}</span>
+            <strong>{run_progress(@latest_run)}</strong>
+          </div>
+          <progress
+            aria-label={t(@locale, :run_progress)}
+            value={@latest_run.current_round}
+            max={@latest_run.rounds_planned}
+          >
+            {run_progress(@latest_run)}
+          </progress>
+        </div>
+        <details class="simulation-run-details">
+          <summary>{t(@locale, :run_details)}</summary>
+          <dl>
+            <div>
+              <dt>{t(@locale, :run_seed)}</dt>
+              <dd>{@latest_run.seed}</dd>
+            </div>
+            <div>
+              <dt>{t(@locale, :run_pack_hash)}</dt>
+              <dd>{short_hash(@latest_run.pack_hash)}</dd>
+            </div>
+            <div>
+              <dt>{t(@locale, :run_engine)}</dt>
+              <dd>{@latest_run.engine_version}</dd>
+            </div>
+            <div>
+              <dt>{t(@locale, :run_model_calls)}</dt>
+              <dd>{@latest_run.model_call_count}</dd>
+            </div>
+            <div>
+              <dt>{t(@locale, :run_recoveries)}</dt>
+              <dd>{@latest_run.recovery_count}</dd>
+            </div>
+            <div>
+              <dt>{t(@locale, :run_result_hash)}</dt>
+              <dd>
+                {if @latest_run.result_hash,
+                  do: short_hash(@latest_run.result_hash),
+                  else: t(@locale, :run_no_result)}
+              </dd>
+            </div>
+          </dl>
+        </details>
       </section>
 
       <section class="simulation-ready-summary" aria-label={t(@locale, :ready_summary)}>
@@ -129,7 +203,31 @@
           <a href={stage_path(@simulation.id, "script", @workspace.id, @locale)}>
             {t(@locale, :script_inspect)}
           </a>
-          <button type="button" disabled>{t(@locale, :run_simulation)}</button>
+          <form
+            :if={@can_edit && run_active?(@latest_run)}
+            action={"/simulations/#{@simulation.id}/run/#{@latest_run.id}/cancel?workspace_id=#{@workspace.id}&locale=#{@locale}"}
+            method="post"
+          >
+            <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+            <button class="simulation-run-cancel" type="submit">{t(@locale, :run_cancel)}</button>
+          </form>
+          <form
+            :if={@can_edit && !run_active?(@latest_run) && match?({:ok, _}, @run_readiness)}
+            action={"/simulations/#{@simulation.id}/run?workspace_id=#{@workspace.id}&locale=#{@locale}"}
+            method="post"
+          >
+            <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+            <button class="simulation-run-start" type="submit">
+              {t(@locale, :run_simulation)}
+            </button>
+          </form>
+          <button
+            :if={!@can_edit || (!run_active?(@latest_run) && !match?({:ok, _}, @run_readiness))}
+            type="button"
+            disabled
+          >
+            {t(@locale, :run_simulation)}
+          </button>
         </footer>
       </section>
     <% :results -> %>

@@ -64,5 +64,19 @@ document.addEventListener("change", event => {
   }
 })
 
+const activeRun = document.querySelector("[data-run-auto-refresh='true']")
+
+if (activeRun) {
+  const refresh = () => window.location.reload()
+
+  window.setTimeout(() => {
+    if (document.hidden) {
+      document.addEventListener("visibilitychange", refresh, {once: true})
+    } else {
+      refresh()
+    }
+  }, 2000)
+}
+
 liveSocket.connect()
 window.liveSocket = liveSocket

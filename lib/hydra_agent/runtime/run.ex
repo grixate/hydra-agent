@@ -32,6 +32,7 @@ defmodule HydraAgent.Runtime.Run do
     has_many :steps, HydraAgent.Runtime.RunStep
     has_many :events, HydraAgent.Runtime.RunEvent
     has_many :turns, HydraAgent.Runtime.Turn
+    has_one :simulation_run_record, HydraAgent.Simulations.SimulationRunRecord
 
     timestamps(type: :utc_datetime_usec)
   end

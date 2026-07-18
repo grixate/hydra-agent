@@ -176,9 +176,15 @@ defmodule HydraAgent.Simulations.ScriptBuilder do
   defp resource_definition(id) do
     %{
       "id" => id,
+      "label" => humanize_resource(id),
       "unit" => resource_unit(id),
       "precision" => 4,
-      "constraints" => %{"min" => 0.0, "max" => 1.0}
+      "constraints" => %{"min" => 0.0, "max" => 1.0},
+      "allow_negative" => false,
+      "mint_allowed" => true,
+      "burn_allowed" => true,
+      "visibility" => "participants",
+      "aggregation" => "sum"
     }
   end
 
@@ -328,6 +334,13 @@ defmodule HydraAgent.Simulations.ScriptBuilder do
   defp resource_unit("time"), do: "hours"
   defp resource_unit("budget"), do: "units"
   defp resource_unit(_id), do: "points"
+
+  defp humanize_resource(id),
+    do:
+      id
+      |> String.replace("_", " ")
+      |> String.split()
+      |> Enum.map_join(" ", &String.capitalize/1)
 
   defp normalized_confidence(value) when is_number(value), do: Float.round(value, 4)
   defp normalized_confidence(_value), do: 0.0

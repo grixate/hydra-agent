@@ -76,6 +76,62 @@ defmodule HydraAgentWeb.SimulationController do
   def results(conn, params), do: render_stage(conn, params, :results)
   def compare(conn, params), do: render_stage(conn, params, :compare)
 
+  def start_quick_run(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         {:ok, _record} <-
+           Simulations.create_quick_run(simulation, conn.assigns[:current_user]) do
+      conn
+      |> put_flash(:info, t(conn, :run_queued))
+      |> redirect(to: stage_path(simulation.id, :run, workspace.id, conn.assigns.locale))
+    else
+      {:error, :run_already_active} ->
+        conn
+        |> put_flash(:info, t(conn, :run_already_active))
+        |> redirect(
+          to: stage_path(params["id"], :run, params["workspace_id"], conn.assigns.locale)
+        )
+
+      {:error, reasons} when is_list(reasons) ->
+        conn
+        |> put_flash(:error, t(conn, :run_blocked))
+        |> redirect(
+          to: stage_path(params["id"], :run, params["workspace_id"], conn.assigns.locale)
+        )
+
+      {:error, {:not_ready, _reasons}} ->
+        conn
+        |> put_flash(:error, t(conn, :run_blocked))
+        |> redirect(
+          to: stage_path(params["id"], :run, params["workspace_id"], conn.assigns.locale)
+        )
+
+      _reason ->
+        not_found(conn)
+    end
+  end
+
+  def cancel_quick_run(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         %{} = record <- Simulations.get_simulation_run_record(params["run_id"]),
+         true <- record.simulation_id == simulation.id,
+         {:ok, _record} <-
+           Simulations.cancel_quick_run(record, conn.assigns[:current_user]) do
+      conn
+      |> put_flash(:info, t(conn, :run_canceled))
+      |> redirect(to: stage_path(simulation.id, :run, workspace.id, conn.assigns.locale))
+    else
+      {:error, {:terminal_fence, _status}} ->
+        conn
+        |> put_flash(:info, t(conn, :run_already_finished))
+        |> redirect(
+          to: stage_path(params["id"], :run, params["workspace_id"], conn.assigns.locale)
+        )
+
+      _reason ->
+        not_found(conn)
+    end
+  end
+
   def build_context(conn, params) do
     with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
          {:ok, _result} <-
@@ -279,6 +335,9 @@ defmodule HydraAgentWeb.SimulationController do
     with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "viewer") do
       stages = Simulations.list_build_stages(simulation)
 
+      run_records =
+        if stage == :run, do: Simulations.list_simulation_run_records(simulation), else: []
+
       render(conn, stage_template(stage),
         page_title: simulation.title,
         workspace: workspace,
@@ -293,7 +352,10 @@ defmodule HydraAgentWeb.SimulationController do
         context_research_run: Simulations.latest_context_research_run(simulation),
         context_research_configured:
           HydraAgent.SimLab.Research.Providers.web_search_configured?(),
-        ready_summary: Simulations.ready_summary(simulation)
+        ready_summary: Simulations.ready_summary(simulation),
+        run_readiness: Simulations.run_readiness(simulation),
+        run_records: run_records,
+        latest_run: List.first(run_records)
       )
     else
       _ -> not_found(conn)

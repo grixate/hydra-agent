@@ -2860,11 +2860,137 @@
   font-size: 21px;
 }
 
+.simulation-locked-seal.is-progress {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: -0.03em;
+}
+
 .simulation-ready-summary {
   border: 1px solid var(--sim-line-strong);
   border-radius: 12px;
   background: rgba(251, 251, 248, 0.55);
   overflow: hidden;
+}
+
+.simulation-run-record {
+  margin-bottom: 18px;
+  border: 1px solid var(--sim-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.simulation-run-record > header {
+  display: flex;
+  min-height: 66px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-run-record > header strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--sim-ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.simulation-run-record > header > span {
+  color: var(--sim-muted);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.simulation-run-progress {
+  display: grid;
+  gap: 12px;
+  padding: 20px 22px;
+}
+
+.simulation-run-progress > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.simulation-run-progress span,
+.simulation-run-details summary,
+.simulation-run-details dt {
+  color: var(--sim-muted);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.simulation-run-progress strong {
+  color: var(--sim-ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.simulation-run-progress progress {
+  width: 100%;
+  height: 5px;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  color: var(--sim-sage);
+  accent-color: var(--sim-sage);
+}
+
+.simulation-run-progress progress::-webkit-progress-bar {
+  background: var(--sim-line);
+}
+
+.simulation-run-progress progress::-webkit-progress-value {
+  background: var(--sim-sage);
+}
+
+.simulation-run-details {
+  border-top: 1px solid var(--sim-line);
+}
+
+.simulation-run-details summary {
+  padding: 16px 22px;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.simulation-run-details[open] summary {
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-run-details dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.simulation-run-details dl div {
+  min-width: 0;
+  padding: 18px 22px;
+  border-right: 1px solid var(--sim-line);
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-run-details dl div:nth-child(3n) {
+  border-right: 0;
+}
+
+.simulation-run-details dd {
+  margin: 7px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--sim-ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 16px;
 }
 
 .simulation-ready-summary > header {
@@ -2930,6 +3056,26 @@
   font: inherit;
   font-size: 10px;
   cursor: not-allowed;
+}
+
+.simulation-ready-summary footer form {
+  margin: 0;
+}
+
+.simulation-ready-summary footer button.simulation-run-start,
+.simulation-ready-summary footer button.simulation-run-cancel {
+  cursor: pointer;
+}
+
+.simulation-ready-summary footer button.simulation-run-start {
+  background: var(--sim-ink);
+  color: #fff;
+}
+
+.simulation-ready-summary footer button.simulation-run-cancel {
+  border: 1px solid var(--sim-line-strong);
+  background: transparent;
+  color: var(--sim-muted);
 }
 
 .simulation-stage-empty {
@@ -3180,6 +3326,18 @@
 
   .simulation-ready-summary dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .simulation-run-details dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .simulation-run-details dl div:nth-child(3n) {
+    border-right: 1px solid var(--sim-line);
+  }
+
+  .simulation-run-details dl div:nth-child(2n) {
+    border-right: 0;
   }
 
   .simulation-ready-summary dl div:nth-child(3n) {

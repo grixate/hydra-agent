@@ -77,6 +77,16 @@ defmodule HydraAgent.Simulations.ScriptValidatorTest do
 
     assert Enum.any?(cost_errors, &(&1["code"] == "negative_balance_possible"))
 
+    consumption_forbidden =
+      impossible_cost
+      |> put_in(["resources", Access.at(0), "burn_allowed"], false)
+      |> put_in(["actions", Access.at(0), "costs", Access.at(0), "amount"], 0.1)
+
+    assert {:error, permission_errors} =
+             ScriptValidator.validate(consumption_forbidden, simulation.active_population_model)
+
+    assert Enum.any?(permission_errors, &(&1["code"] == "burn_not_allowed"))
+
     executable =
       put_in(
         script,
@@ -101,6 +111,16 @@ defmodule HydraAgent.Simulations.ScriptValidatorTest do
              ScriptValidator.validate(undeclared_state, simulation.active_population_model)
 
     assert Enum.any?(path_errors, &(&1["code"] == "missing_reference"))
+
+    unknown_world_resource = put_in(script, ["world", "resources"], %{"ghost" => 1})
+
+    assert {:error, world_resource_errors} =
+             ScriptValidator.validate(unknown_world_resource, simulation.active_population_model)
+
+    assert Enum.any?(world_resource_errors, fn error ->
+             error["path"] == "$.world.resources.ghost" and
+               error["code"] == "missing_reference"
+           end)
   end
 
   test "hybrid cognition requires a model budget and transition emissions cannot cycle", %{
@@ -167,6 +187,76 @@ defmodule HydraAgent.Simulations.ScriptValidatorTest do
              )
 
     assert Enum.any?(cycle_errors, &(&1["code"] == "unbounded_event_cycle"))
+  end
+
+  test "relationship effects require numeric weights and bounded neighbor targets", %{
+    simulation: simulation,
+    script: script
+  } do
+    [relationship | _] = script["relationships"]
+
+    invalid_weight =
+      update_in(script, ["actions", Access.at(0), "effects"], fn effects ->
+        effects ++
+          [
+            %{
+              "op" => "set_relationship",
+              "relationship" => relationship["id"],
+              "target" => %{"self" => true},
+              "value" => "strong"
+            }
+          ]
+      end)
+
+    assert {:error, weight_errors} =
+             ScriptValidator.validate(invalid_weight, simulation.active_population_model)
+
+    assert Enum.any?(weight_errors, &(&1["code"] == "invalid_expression"))
+
+    unbounded_target =
+      put_in(
+        script,
+        ["actions", Access.at(0), "effects", Access.at(0), "target"],
+        %{"relationship_neighbors" => %{"type" => relationship["id"]}}
+      )
+
+    assert {:error, target_errors} =
+             ScriptValidator.validate(unbounded_target, simulation.active_population_model)
+
+    assert Enum.any?(target_errors, &(&1["path"] =~ "relationship_neighbors.limit"))
+
+    scheduled_relationship_effect =
+      update_in(script, ["events", Access.at(0), "effects"], fn effects ->
+        effects ++
+          [
+            %{
+              "op" => "adjust_relationship",
+              "relationship" => relationship["id"],
+              "target" => %{"audience" => true},
+              "value" => -0.05
+            }
+          ]
+      end)
+
+    assert {:ok, _report} =
+             ScriptValidator.validate(
+               scheduled_relationship_effect,
+               simulation.active_population_model
+             )
+
+    action_event_transition =
+      put_in(script, ["transitions"], [
+        %{
+          "id" => "after_action",
+          "when" => %{"event_type" => "action_selected"},
+          "target" => %{"audience" => true},
+          "effects" => [],
+          "emits" => []
+        }
+      ])
+
+    assert {:ok, _report} =
+             ScriptValidator.validate(action_event_transition, simulation.active_population_model)
   end
 
   test "repair is attempted once and failed previews return safe blockers", %{

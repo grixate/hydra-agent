@@ -46,6 +46,12 @@ defmodule HydraAgent.Simulations.ScriptValidator do
     policy_ids = ids(policies)
     relationship_ids = script |> list("relationships") |> ids()
     metric_ids = ids(metrics)
+
+    declared_event_types =
+      (event_ids ++ emitted_types(actions) ++ emitted_types(transitions))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
     fact_context = fact_context(script, population)
 
     errors =
@@ -69,7 +75,7 @@ defmodule HydraAgent.Simulations.ScriptValidator do
       errors ++
         validate_metadata(value(script, "metadata")) ++
         validate_clock(value(script, "clock")) ++
-        validate_world(value(script, "world")) ++
+        validate_world(value(script, "world"), resources) ++
         validate_script_agent_types(
           list(script, "agent_types"),
           type_ids,
@@ -78,7 +84,14 @@ defmodule HydraAgent.Simulations.ScriptValidator do
         ) ++
         validate_relationships(list(script, "relationships"), type_ids) ++
         validate_resources(resources) ++
-        validate_events(events, value(script, "clock", %{}), type_ids, resource_ids, fact_context) ++
+        validate_events(
+          events,
+          value(script, "clock", %{}),
+          type_ids,
+          resource_ids,
+          relationship_ids,
+          fact_context
+        ) ++
         validate_actions(actions, type_ids, resource_ids, relationship_ids, fact_context) ++
         validate_perception(
           value(script, "perception"),
@@ -89,7 +102,7 @@ defmodule HydraAgent.Simulations.ScriptValidator do
         validate_policies(policies, action_ids, policy_ids, fact_context, model_budget?) ++
         validate_transitions(
           transitions,
-          event_ids,
+          declared_event_types,
           relationship_ids,
           resource_ids,
           fact_context
@@ -172,11 +185,13 @@ defmodule HydraAgent.Simulations.ScriptValidator do
 
   defp validate_clock(_clock), do: []
 
-  defp validate_world(world) when is_map(world) do
+  defp validate_world(world, resource_definitions) when is_map(world) do
     state = value(world, "state")
+    resources = value(world, "resources", %{})
 
     []
     |> require_map(state, "$.world.state")
+    |> require_map(resources, "$.world.resources")
     |> then(fn errors ->
       if is_map(state) and map_size(state) > @max_world_keys,
         do: [error("$.world.state", "too_many_values", "supports at most 64 values") | errors],
@@ -205,9 +220,44 @@ defmodule HydraAgent.Simulations.ScriptValidator do
              end)),
         else: errors
     end)
+    |> Kernel.++(validate_world_resources(resources, resource_definitions))
   end
 
-  defp validate_world(_world), do: []
+  defp validate_world(_world, _resource_definitions), do: []
+
+  defp validate_world_resources(resources, definitions) when is_map(resources) do
+    definitions = Map.new(definitions, &{value(&1, "id"), &1})
+
+    Enum.flat_map(resources, fn {resource_id, balance} ->
+      path = "$.world.resources.#{resource_id}"
+
+      case definitions[resource_id] do
+        nil ->
+          [error(path, "missing_reference", "does not reference a declared resource")]
+
+        definition ->
+          constraints = value(definition, "constraints", %{})
+          minimum = value(constraints, "min")
+          maximum = value(constraints, "max")
+
+          cond do
+            not is_number(balance) ->
+              [error(path, "invalid_number", "must be a number")]
+
+            is_number(minimum) and balance < minimum ->
+              [error(path, "below_minimum", "must respect the declared minimum")]
+
+            is_number(maximum) and balance > maximum ->
+              [error(path, "above_maximum", "must respect the declared maximum")]
+
+            true ->
+              []
+          end
+      end
+    end)
+  end
+
+  defp validate_world_resources(_resources, _definitions), do: []
 
   defp validate_script_agent_types(agent_types, population_type_ids, policy_ids, perception_ids) do
     agent_types
@@ -297,6 +347,23 @@ defmodule HydraAgent.Simulations.ScriptValidator do
           |> optional_number(min_value, "#{path}.constraints.min", -1_000_000, 1_000_000)
           |> optional_number(max_value, "#{path}.constraints.max", -1_000_000, 1_000_000)
 
+        errors =
+          errors
+          |> optional_string(value(resource, "label"), "#{path}.label", 1, 80)
+          |> optional_boolean(value(resource, "allow_negative"), "#{path}.allow_negative")
+          |> optional_boolean(value(resource, "mint_allowed"), "#{path}.mint_allowed")
+          |> optional_boolean(value(resource, "burn_allowed"), "#{path}.burn_allowed")
+          |> optional_member(
+            value(resource, "visibility"),
+            ~w(private participants public),
+            "#{path}.visibility"
+          )
+          |> optional_member(
+            value(resource, "aggregation"),
+            ~w(sum mean min max none),
+            "#{path}.aggregation"
+          )
+
         if is_number(min_value) and is_number(max_value) and min_value > max_value,
           do: [error("#{path}.constraints", "invalid_bounds", "minimum exceeds maximum") | errors],
           else: errors
@@ -304,7 +371,14 @@ defmodule HydraAgent.Simulations.ScriptValidator do
     )
   end
 
-  defp validate_events(events, clock, type_ids, resource_ids, fact_context) do
+  defp validate_events(
+         events,
+         clock,
+         type_ids,
+         resource_ids,
+         relationship_ids,
+         fact_context
+       ) do
     round_count = value(clock, "count", 0)
 
     events
@@ -327,7 +401,7 @@ defmodule HydraAgent.Simulations.ScriptValidator do
               validate_effects(
                 value(event, "effects", []),
                 resource_ids,
-                [],
+                relationship_ids,
                 fact_context,
                 "#{path}.effects"
               ))
@@ -557,6 +631,13 @@ defmodule HydraAgent.Simulations.ScriptValidator do
         |> require_id(value(transition, "id"), "#{path}.id")
         |> require_map(when_clause, "#{path}.when")
         |> require_member(value(when_clause, "event_type"), event_ids, "#{path}.when.event_type")
+        |> then(
+          &(&1 ++
+              validate_json_value(
+                value(when_clause, "payload", %{}),
+                "#{path}.when.payload"
+              ))
+        )
         |> then(&(&1 ++ validate_target(target, relationship_ids, "#{path}.target")))
         |> then(
           &(&1 ++
@@ -671,7 +752,7 @@ defmodule HydraAgent.Simulations.ScriptValidator do
   end
 
   defp validate_resource_feasibility(actions, resources, archetypes) do
-    bounds = Map.new(resources, &{value(&1, "id"), value(value(&1, "constraints", %{}), "min")})
+    definitions = Map.new(resources, &{value(&1, "id"), &1})
 
     actions
     |> Enum.with_index()
@@ -684,24 +765,47 @@ defmodule HydraAgent.Simulations.ScriptValidator do
       |> Enum.flat_map(fn {cost, cost_index} ->
         resource = value(cost, "resource")
         amount = value(cost, "amount")
+        definition = definitions[resource] || %{}
+        minimum = value(value(definition, "constraints", %{}), "min")
 
         available =
           archetypes
           |> Enum.filter(&MapSet.member?(actors, value(&1, "agent_type")))
           |> Enum.map(&value(value(&1, "initial_resources", %{}), resource, 0))
 
-        if bounds[resource] == 0 and is_number(amount) and available != [] and
-             Enum.any?(available, &(not is_number(&1) or &1 < amount)) do
-          [
-            error(
-              "$.actions[#{action_index}].costs[#{cost_index}]",
-              "negative_balance_possible",
-              "at least one eligible archetype cannot pay this non-negative resource cost"
-            )
-          ]
-        else
-          []
-        end
+        path = "$.actions[#{action_index}].costs[#{cost_index}]"
+
+        []
+        |> then(fn errors ->
+          if value(definition, "burn_allowed", true) == false and is_number(amount) and
+               amount > 0 do
+            [
+              error(
+                path,
+                "burn_not_allowed",
+                "the declared resource does not allow action-cost consumption"
+              )
+              | errors
+            ]
+          else
+            errors
+          end
+        end)
+        |> then(fn errors ->
+          if minimum == 0 and is_number(amount) and available != [] and
+               Enum.any?(available, &(not is_number(&1) or &1 < amount)) do
+            [
+              error(
+                path,
+                "negative_balance_possible",
+                "at least one eligible archetype cannot pay this non-negative resource cost"
+              )
+              | errors
+            ]
+          else
+            errors
+          end
+        end)
       end)
     end)
   end
@@ -799,6 +903,14 @@ defmodule HydraAgent.Simulations.ScriptValidator do
     end
   end
 
+  defp emitted_types(records) do
+    Enum.flat_map(records, fn record ->
+      record
+      |> list("emits")
+      |> Enum.map(&value(&1, "type"))
+    end)
+  end
+
   defp cycle_from?(nil, _graph, _visiting, _visited), do: false
 
   defp cycle_from?(node, graph, visiting, visited) do
@@ -889,11 +1001,10 @@ defmodule HydraAgent.Simulations.ScriptValidator do
       )
 
     errors ++
-      if op == "adjust_attribute" do
-        validate_numeric_expression(value(effect, "value"), fact_context, "#{path}.value")
-      else
-        validate_json_value(value(effect, "value"), "#{path}.value")
-      end
+      if(op == "adjust_attribute",
+        do: validate_numeric_expression(value(effect, "value"), fact_context, "#{path}.value"),
+        else: validate_json_value(value(effect, "value"), "#{path}.value")
+      ) ++ validate_optional_target(effect, fact_context.relationships, path)
   end
 
   defp validate_effect(
@@ -910,6 +1021,7 @@ defmodule HydraAgent.Simulations.ScriptValidator do
       &(&1 ++
           validate_numeric_expression(value(effect, "amount"), fact_context, "#{path}.amount"))
     )
+    |> Kernel.++(validate_optional_target(effect, fact_context.relationships, path))
   end
 
   defp validate_effect(
@@ -928,6 +1040,7 @@ defmodule HydraAgent.Simulations.ScriptValidator do
       &(&1 ++
           validate_numeric_expression(value(effect, "amount"), fact_context, "#{path}.amount"))
     )
+    |> Kernel.++(validate_optional_target(effect, fact_context.relationships, path))
   end
 
   defp validate_effect(effect, op, _resources, relationship_ids, fact_context, path)
@@ -937,11 +1050,7 @@ defmodule HydraAgent.Simulations.ScriptValidator do
     |> then(&(&1 ++ validate_target(value(effect, "target"), relationship_ids, "#{path}.target")))
     |> then(
       &(&1 ++
-          if(op == "adjust_relationship",
-            do:
-              validate_numeric_expression(value(effect, "value"), fact_context, "#{path}.value"),
-            else: validate_json_value(value(effect, "value"), "#{path}.value")
-          ))
+          validate_numeric_expression(value(effect, "value"), fact_context, "#{path}.value"))
     )
   end
 
@@ -955,6 +1064,8 @@ defmodule HydraAgent.Simulations.ScriptValidator do
 
   defp validate_target(%{"self" => true}, _relationship_ids, _path), do: []
   defp validate_target(%{"audience" => true}, _relationship_ids, _path), do: []
+  defp validate_target("self", _relationship_ids, _path), do: []
+  defp validate_target("audience", _relationship_ids, _path), do: []
 
   defp validate_target(%{"relationship_neighbors" => target}, relationship_ids, path)
        when is_map(target) do
@@ -975,6 +1086,14 @@ defmodule HydraAgent.Simulations.ScriptValidator do
         "must target self, audience, or a relationship neighborhood with a limit"
       )
     ]
+
+  defp validate_optional_target(effect, relationship_ids, path) do
+    if Map.has_key?(effect, "target") do
+      validate_target(value(effect, "target"), relationship_ids, "#{path}.target")
+    else
+      []
+    end
+  end
 
   defp validate_emits(emits, path) do
     emits = list_value(emits)
@@ -1398,6 +1517,19 @@ defmodule HydraAgent.Simulations.ScriptValidator do
 
   defp optional_number(errors, value, path, min, max),
     do: require_number(errors, value, path, min, max)
+
+  defp optional_string(errors, nil, _path, _min, _max), do: errors
+
+  defp optional_string(errors, value, path, min, max),
+    do: require_string(errors, value, path, min, max)
+
+  defp optional_boolean(errors, nil, _path), do: errors
+  defp optional_boolean(errors, value, path), do: require_boolean(errors, value, path)
+
+  defp optional_member(errors, nil, _members, _path), do: errors
+
+  defp optional_member(errors, value, members, path),
+    do: require_member(errors, value, members, path)
 
   defp require_boolean(errors, value, _path) when is_boolean(value), do: errors
 

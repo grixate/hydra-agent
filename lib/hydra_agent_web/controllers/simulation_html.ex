@@ -15,6 +15,24 @@ defmodule HydraAgentWeb.SimulationHTML do
   def status_key("archived"), do: :archived_status
   def status_key(status), do: String.to_existing_atom(status)
 
+  def workbench_status_key(:run, _simulation, nil, {:ok, _summary}), do: :ready_to_run
+
+  def workbench_status_key(:run, _simulation, %{run: %{status: status}}, _readiness)
+      when status in ~w(planned running),
+      do: :running
+
+  def workbench_status_key(:run, _simulation, %{run: %{status: "completed"}}, _readiness),
+    do: :ready
+
+  def workbench_status_key(:run, _simulation, %{run: %{status: "canceled"}}, _readiness),
+    do: :canceled
+
+  def workbench_status_key(:run, _simulation, %{run: %{status: "failed"}}, _readiness),
+    do: :failed
+
+  def workbench_status_key(_stage, simulation, _latest_run, _readiness),
+    do: status_key(simulation.status)
+
   def stage_status_key("running"), do: :running_stage
   def stage_status_key("failed"), do: :failed_stage
   def stage_status_key(status), do: String.to_existing_atom(status)
@@ -75,6 +93,59 @@ defmodule HydraAgentWeb.SimulationHTML do
   end
 
   def mode_label(mode), do: String.to_existing_atom(mode)
+
+  def run_status_key("planned"), do: :run_queued_status
+  def run_status_key("running"), do: :run_running_status
+  def run_status_key("completed"), do: :run_completed_status
+  def run_status_key("failed"), do: :run_failed_status
+  def run_status_key("canceled"), do: :run_canceled_status
+  def run_status_key(_status), do: :run_queued_status
+
+  def run_heading_key(nil, {:ok, _summary}), do: :run_ready
+  def run_heading_key(nil, _readiness), do: :not_ready_to_run
+
+  def run_heading_key(%{run: %{status: status}}, _readiness) when status in ~w(planned running),
+    do: :run_active_title
+
+  def run_heading_key(%{run: %{status: "completed"}}, _readiness), do: :run_complete_title
+  def run_heading_key(%{run: %{status: "canceled"}}, _readiness), do: :run_canceled_title
+  def run_heading_key(_run, _readiness), do: :run_failed_title
+
+  def run_lede_key(nil, {:ok, _summary}), do: :run_ready_lede
+  def run_lede_key(nil, _readiness), do: :not_ready_to_run_lede
+
+  def run_lede_key(%{run: %{status: status}}, _readiness) when status in ~w(planned running),
+    do: :run_active_lede
+
+  def run_lede_key(%{run: %{status: "completed"}}, _readiness), do: :run_complete_lede
+  def run_lede_key(%{run: %{status: "canceled"}}, _readiness), do: :run_canceled_lede
+  def run_lede_key(_run, _readiness), do: :run_failed_lede
+
+  def run_active?(%{run: %{status: status}}), do: status in ~w(planned running)
+  def run_active?(_run), do: false
+
+  def run_progress(%{rounds_planned: rounds, current_round: current}) when rounds > 0,
+    do: "#{current} / #{rounds}"
+
+  def run_progress(_run), do: "—"
+
+  def run_seal_text(%{run: %{status: status}} = run) when status in ~w(planned running),
+    do: "#{run.current_round}/#{run.rounds_planned}"
+
+  def run_seal_text(%{run: %{status: "completed"}}), do: "✓"
+  def run_seal_text(%{run: %{status: "canceled"}}), do: "×"
+  def run_seal_text(%{run: %{status: "failed"}}), do: "!"
+  def run_seal_text(_run), do: "◇"
+
+  def run_seal_label(locale, %{run: %{status: status}} = run, _readiness)
+      when status in ~w(planned running),
+      do: "#{t(locale, :run_progress)} #{run_progress(run)}"
+
+  def run_seal_label(locale, %{run: %{status: status}}, _readiness),
+    do: t(locale, run_status_key(status))
+
+  def run_seal_label(locale, nil, {:ok, _summary}), do: t(locale, :run_ready)
+  def run_seal_label(locale, _run, _readiness), do: t(locale, :not_ready_to_run)
 
   def grounding_key(class), do: String.to_existing_atom("context_grounding_#{class}")
 

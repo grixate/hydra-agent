@@ -33,9 +33,13 @@ defmodule HydraAgent.Simulations do
     ScriptPreviewEngine,
     ScriptValidator,
     Simulation,
+    SimulationRunRecord,
     SimulationScript,
     SimulationVersion
   }
+
+  alias HydraAgent.Runtime.{Run, RunEvent}
+  alias HydraAgent.Simulations.Workers.QuickRunWorker
 
   @stage_definitions [
     {"understanding_question", 1},
@@ -193,6 +197,380 @@ defmodule HydraAgent.Simulations do
         simulation.active_script && simulation.active_script.preview &&
           simulation.active_script.preview.status
     }
+  end
+
+  def run_readiness(%Simulation{} = simulation) do
+    simulation =
+      Repo.preload(simulation, [
+        :active_version,
+        :active_context_pack,
+        :active_population_model,
+        active_script: :preview
+      ])
+
+    reasons =
+      []
+      |> require_ready(simulation.active_version, "simulation_version_missing")
+      |> require_ready(simulation.active_context_pack, "context_pack_missing")
+      |> require_ready(simulation.active_population_model, "population_model_missing")
+      |> require_ready(simulation.active_script, "simulation_script_missing")
+      |> require_quick_mode(simulation.active_version)
+      |> require_population_ready(simulation.active_population_model)
+      |> require_script_ready(simulation.active_script)
+
+    if reasons == [], do: {:ok, ready_summary(simulation)}, else: {:error, reasons}
+  end
+
+  def list_simulation_run_records(%Simulation{} = simulation) do
+    SimulationRunRecord
+    |> where([record], record.simulation_id == ^simulation.id)
+    |> order_by([record], desc: record.inserted_at, desc: record.id)
+    |> preload([:run])
+    |> Repo.all()
+  end
+
+  def latest_simulation_run_record(%Simulation{} = simulation) do
+    simulation
+    |> list_simulation_run_records()
+    |> List.first()
+  end
+
+  def create_quick_run(%Simulation{} = simulation, user, opts \\ []) do
+    simulation =
+      Repo.preload(simulation, [
+        :active_version,
+        :active_context_pack,
+        :active_population_model,
+        active_script: :preview
+      ])
+
+    seed =
+      Keyword.get(
+        opts,
+        :seed,
+        simulation.active_population_model && simulation.active_population_model.seed
+      )
+
+    partition_count = Keyword.get(opts, :partition_count, 4)
+
+    cond do
+      not Accounts.workspace_authorized?(user, simulation.workspace_id, "researcher") ->
+        {:error, :forbidden}
+
+      not (is_integer(seed) and seed >= 0) ->
+        {:error, :invalid_seed}
+
+      not (is_integer(partition_count) and partition_count in 1..64) ->
+        {:error, :invalid_partition_count}
+
+      true ->
+        with {:ok, _summary} <- run_readiness(simulation) do
+          persist_quick_run(simulation, user, seed, partition_count)
+        end
+    end
+  end
+
+  def cancel_quick_run(%SimulationRunRecord{} = record, user) do
+    record = Repo.preload(record, [:run, :simulation])
+
+    if Accounts.workspace_authorized?(user, record.workspace_id, "researcher") do
+      result =
+        Repo.transaction(fn ->
+          locked =
+            SimulationRunRecord
+            |> where([current], current.id == ^record.id)
+            |> lock("FOR UPDATE")
+            |> Repo.one!()
+
+          run =
+            Run
+            |> where([current], current.id == ^locked.run_id)
+            |> lock("FOR UPDATE")
+            |> Repo.one!()
+
+          if run.status in ~w(completed failed canceled) do
+            {:terminal, run.status}
+          else
+            completed_at = DateTime.utc_now()
+            sequence = locked.last_event_sequence + 1
+
+            idempotency_key =
+              ContentHash.digest(%{"run" => locked.pack_hash, "event" => "canceled"})
+
+            %RunEvent{}
+            |> RunEvent.changeset(%{
+              workspace_id: locked.workspace_id,
+              run_id: locked.run_id,
+              event_type: "simulation.canceled",
+              summary: "Simulation canceled by operator",
+              payload: %{"last_committed_round" => locked.current_round},
+              sequence: sequence,
+              round: locked.current_round,
+              phase: "complete",
+              actor_key: "operator",
+              targets: [],
+              source_ref: "run:cancel",
+              provenance: %{"engine_version" => locked.engine_version},
+              idempotency_key: idempotency_key
+            })
+            |> Repo.insert!()
+
+            %RunEvent{}
+            |> RunEvent.changeset(%{
+              workspace_id: locked.workspace_id,
+              run_id: locked.run_id,
+              event_type: "run.canceled",
+              summary: "Run canceled",
+              payload: %{"kind" => "simulation", "actor" => "operator"}
+            })
+            |> Repo.insert!()
+
+            locked
+            |> SimulationRunRecord.changeset(%{
+              last_event_sequence: sequence,
+              completed_at: completed_at,
+              failure: %{"code" => "operator_canceled"}
+            })
+            |> Repo.update!()
+
+            run
+            |> Run.changeset(%{
+              status: "canceled",
+              completed_at: completed_at,
+              runtime_state: %{
+                "kind" => "simulation",
+                "current_round" => locked.current_round,
+                "terminal_fence" => "canceled"
+              }
+            })
+            |> Repo.update!()
+
+            Simulation
+            |> Repo.get!(locked.simulation_id)
+            |> Ecto.Changeset.change(status: "canceled")
+            |> Repo.update!()
+
+            {:canceled, locked.id}
+          end
+        end)
+
+      case result do
+        {:ok, {:canceled, record_id}} ->
+          cancel_quick_run_jobs(record_id)
+          _stopped = HydraAgent.Simulations.Engine.stop(record_id)
+          {:ok, get_simulation_run_record!(record_id)}
+
+        {:ok, {:terminal, status}} ->
+          {:error, {:terminal_fence, status}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def get_simulation_run_record!(id) do
+    SimulationRunRecord
+    |> Repo.get!(id)
+    |> Repo.preload([:run, :simulation, :snapshots])
+  end
+
+  def get_simulation_run_record(id) when is_binary(id) do
+    id_type = SimulationRunRecord.__schema__(:type, :id)
+
+    case Ecto.Type.cast(id_type, id) do
+      {:ok, cast_id} ->
+        case Repo.get(SimulationRunRecord, cast_id) do
+          nil -> nil
+          record -> Repo.preload(record, [:run, :simulation, :snapshots])
+        end
+
+      :error ->
+        nil
+    end
+  end
+
+  def get_simulation_run_record(_id), do: nil
+
+  defp persist_quick_run(simulation, user, seed, partition_count) do
+    now = DateTime.utc_now()
+
+    Multi.new()
+    |> Multi.run(:locked_simulation, fn repo, _changes ->
+      locked =
+        Simulation
+        |> where([current], current.id == ^simulation.id)
+        |> lock("FOR UPDATE")
+        |> repo.one!()
+        |> repo.preload([
+          :active_version,
+          :active_context_pack,
+          :active_population_model,
+          active_script: :preview
+        ])
+
+      case run_readiness(locked) do
+        {:ok, _summary} ->
+          if active_quick_run?(repo, locked.id) do
+            {:error, :run_already_active}
+          else
+            {:ok, locked}
+          end
+
+        {:error, reasons} ->
+          {:error, {:not_ready, reasons}}
+      end
+    end)
+    |> Multi.insert(:run, fn %{locked_simulation: locked} ->
+      rounds = get_in(locked.active_script.script, ["clock", "count"])
+      pack_hash = simulation_pack_hash(locked, seed)
+
+      Run.changeset(%Run{}, %{
+        workspace_id: locked.workspace_id,
+        title: "#{locked.title} · Quick run",
+        goal: locked.question,
+        status: "planned",
+        autonomy_level: "recommend",
+        budget: %{"simulation_model_calls" => 0},
+        plan: %{
+          "kind" => "simulation",
+          "mode" => "quick",
+          "rounds" => rounds,
+          "population_size" => locked.active_population_model.population_size
+        },
+        metadata: %{
+          "kind" => "simulation",
+          "simulation_id" => locked.id,
+          "pack_hash" => pack_hash,
+          "engine_version" => SimulationRunRecord.engine_version()
+        }
+      })
+    end)
+    |> Multi.insert(:run_created_event, fn %{run: run} ->
+      RunEvent.changeset(%RunEvent{}, %{
+        workspace_id: run.workspace_id,
+        run_id: run.id,
+        event_type: "run.created",
+        summary: "Run created",
+        payload: %{
+          "kind" => "simulation",
+          "mode" => "quick",
+          "pack_hash" => run.metadata["pack_hash"],
+          "model_call_cap" => 0
+        }
+      })
+    end)
+    |> Multi.insert(:record, fn %{locked_simulation: locked, run: run} ->
+      rounds = get_in(locked.active_script.script, ["clock", "count"])
+      pack_hash = simulation_pack_hash(locked, seed)
+
+      SimulationRunRecord.changeset(%SimulationRunRecord{}, %{
+        workspace_id: locked.workspace_id,
+        run_id: run.id,
+        simulation_id: locked.id,
+        simulation_version_id: locked.active_version_id,
+        context_pack_id: locked.active_context_pack_id,
+        population_model_id: locked.active_population_model_id,
+        simulation_script_id: locked.active_script_id,
+        created_by_user_id: user && user.id,
+        mode: "quick",
+        seed: seed,
+        engine_version: SimulationRunRecord.engine_version(),
+        pack_hash: pack_hash,
+        partition_count: partition_count,
+        snapshot_interval: 1,
+        rounds_planned: rounds,
+        current_round: 0,
+        last_event_sequence: 0,
+        model_call_count: 0,
+        recovery_count: 0,
+        result_summary: %{},
+        failure: %{}
+      })
+    end)
+    |> Multi.run(:preparing_stage, fn repo, %{locked_simulation: locked} ->
+      stage =
+        BuildStage
+        |> where(
+          [stage],
+          stage.simulation_id == ^locked.id and
+            stage.simulation_version_id == ^locked.active_version_id and
+            stage.stage == "preparing_run"
+        )
+        |> lock("FOR UPDATE")
+        |> repo.one!()
+
+      stage
+      |> BuildStage.changeset(%{
+        status: "complete",
+        summary: "Quick · #{SimulationRunRecord.engine_version()} · 0 simulation model calls",
+        warnings: [],
+        started_at: now,
+        completed_at: now
+      })
+      |> repo.update()
+    end)
+    |> Multi.insert(:job, fn %{record: record} ->
+      QuickRunWorker.new(%{"simulation_run_record_id" => record.id})
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{record: record}} ->
+        {:ok, Repo.preload(record, [:run, :simulation])}
+
+      {:error, _operation, reason, _changes} ->
+        {:error, reason}
+    end
+  end
+
+  defp simulation_pack_hash(simulation, seed) do
+    ContentHash.digest(%{
+      "simulation_version" => simulation.active_version.content_hash,
+      "context_pack" => simulation.active_context_pack.content_hash,
+      "population_model" => simulation.active_population_model.content_hash,
+      "simulation_script" => simulation.active_script.content_hash,
+      "seed" => seed,
+      "engine_version" => SimulationRunRecord.engine_version()
+    })
+  end
+
+  defp active_quick_run?(repo, simulation_id) do
+    SimulationRunRecord
+    |> join(:inner, [record], run in assoc(record, :run))
+    |> where(
+      [record, run],
+      record.simulation_id == ^simulation_id and run.status in ["planned", "running"]
+    )
+    |> repo.exists?()
+  end
+
+  defp require_ready(reasons, nil, code), do: reasons ++ [code]
+  defp require_ready(reasons, _record, _code), do: reasons
+
+  defp require_quick_mode(reasons, %{execution_mode: "quick"}), do: reasons
+  defp require_quick_mode(reasons, nil), do: reasons
+  defp require_quick_mode(reasons, _version), do: reasons ++ ["quick_mode_required"]
+
+  defp require_population_ready(reasons, %{status: "ready"}), do: reasons
+  defp require_population_ready(reasons, nil), do: reasons
+  defp require_population_ready(reasons, _population), do: reasons ++ ["population_not_ready"]
+
+  defp require_script_ready(reasons, %{status: "ready", preview: %{status: "passed"}}),
+    do: reasons
+
+  defp require_script_ready(reasons, nil), do: reasons
+  defp require_script_ready(reasons, _script), do: reasons ++ ["script_preview_not_passed"]
+
+  defp cancel_quick_run_jobs(record_id) do
+    worker = to_string(QuickRunWorker)
+
+    Oban.Job
+    |> where([job], job.worker == ^worker)
+    |> Repo.all()
+    |> Enum.filter(&(get_in(&1.args, ["simulation_run_record_id"]) == record_id))
+    |> Enum.each(&Oban.cancel_job/1)
   end
 
   def build_context_pack(%Simulation{} = simulation, user, opts \\ []) do

@@ -30,6 +30,7 @@ defmodule HydraAgent.Simulations.Simulation do
     has_many :persona_projections, HydraAgent.Simulations.PersonaProjection
     has_many :scripts, HydraAgent.Simulations.SimulationScript
     has_many :script_previews, HydraAgent.Simulations.ScriptPreview
+    has_many :run_records, HydraAgent.Simulations.SimulationRunRecord
 
     timestamps(type: :utc_datetime_usec)
   end

@@ -63,7 +63,7 @@ config :hydra_agent, :sim_lab_tavily,
 
 config :hydra_agent, Oban,
   repo: HydraAgent.Repo,
-  queues: [sim_lab: 5, research: 3],
+  queues: [sim_lab: 5, research: 3, simulations: 3],
   plugins: [{Oban.Plugins.Pruner, max_age: 86_400}]
 
 config :tailwind,

@@ -11,10 +11,10 @@ entire epic or release is complete.
 
 ## Current status
 
-- Active epic: **Epic 6 — Quick engine and world economy**
-- Completed epic: **Epic 5 — Simulation Script DSL, validation, and preview**
-- Next vertical slice: deterministic per-run supervision, ordered events,
-  Resource Ledger, snapshots, recovery, cancellation, and terminal fences
+- Active epic: **Epic 7 — Balanced execution and decision provenance**
+- Completed epic: **Epic 6 — Quick engine and world economy**
+- Next vertical slice: selective bounded cognition, deterministic fallbacks,
+  durable Run Decisions, replay, and provider-independent budget enforcement
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
@@ -57,11 +57,11 @@ product behavior.
 | Model Route Plan | Provider configs, credential pools, agent model routes | Reuse provider-neutral adapters and credential references; add Build/Simulation/Report role plan. |
 | Simulation Pack | No equivalent; SimLab run `input_snapshot` is closest | Add immutable compiled reference object only after component versions exist. |
 | Preview Run | `HydraAgent.Simulations.ScriptPreview`; existing deterministic runner assets | Implemented as a separate immutable, exact-lineage two-round result with at most 12 representatives, zero model calls, safe errors, and a deterministic result hash. |
-| Run | `sim_lab_runs` plus neutral runtime `runs` | Do not add a third run model. Define an execution adapter/link before schema changes. |
+| Run | neutral runtime `runs`; legacy `sim_lab_runs` | Neutral `runs` is the execution identity. A one-to-one simulation profile captures exact lineage and deterministic execution metadata; legacy records remain compatibility assets. |
 | Run Decision | Pattern decisions summarized; outcome events exist | Add only when Balanced cognition lands; preserve deterministic IDs and provenance. |
-| Run Event | Runtime `run_events`, `sim_lab_outcome_events` | Reuse and normalize into a simulation event stream; avoid duplicate append-only logs. |
-| Run Snapshot | `sim_lab_snapshots` | Reuse payload/versioning path; add checksum/codec fields if needed. |
-| Resource Transaction | None | Add immutable, workspace/run-scoped generic ledger in Quick-engine epic. |
+| Run Event | Runtime `run_events`, legacy `sim_lab_outcome_events` | Runtime events now carry optional simulation sequence, round, phase, targets, source, provenance, and idempotency fields. Simulation events fail closed when ordering fields are absent. |
+| Run Snapshot | General `run_snapshots`; legacy `sim_lab_snapshots` | Implemented as append-only, checksummed, engine/schema-versioned full recovery state owned by the neutral run. Legacy snapshots remain unchanged. |
+| Resource Transaction | `resource_transactions` | Implemented as an append-only Decimal ledger with stable ordering, provenance, resulting balances, and retry-safe idempotency. |
 | Analysis Pack | Forecast inputs and `Forecast` calculations | Add deterministic versioned artifact; report generation must consume it rather than raw mutable state. |
 | Report | `sim_lab_forecast_reports` | Adapt as legacy reports; add Blueprint/model/language/validation metadata. |
 | Calibration | `sim_lab_calibration_records` | Reuse as observed-outcome links without rewriting original predictions. |
@@ -165,6 +165,12 @@ converted by Epic 0.
   exact 12-representative bound. A second hardening migration requires matching
   passed/ready or failed/blocked Preview evidence before a Script can become
   active.
+- Epic 6: additive one-to-one `simulation_run_records`, append-only
+  `run_snapshots`, and append-only `resource_transactions`; additive optional
+  ordering and provenance fields on neutral `run_events`. Database constraints
+  enforce Quick-only zero-model execution, bounded progress, immutable exact
+  lineage, checksum/hash formats, closed ledger operations, and simulation-event
+  sequencing. Legacy SimLab runs, events, and snapshots are not rewritten.
 
 ## Acceptance ledger
 
@@ -361,6 +367,54 @@ failure, immutable triggers, exact lineage, idempotent rebuild, exports, audit
 privacy, authorization, both locales, and the truthful Run checkpoint. Full
 release-gate totals are recorded below.
 
+### Epic 6 — Quick engine and world economy
+
+- [x] Neutral runtime `runs` is the single execution identity; a one-to-one
+  immutable simulation profile records exact component lineage, Pack hash,
+  seed, engine version, and progress.
+- [x] Quick mode interprets the full compiled Population without provider,
+  credential, tool, or external-effect access and enforces zero model calls in
+  both changeset and database constraints.
+- [x] One dynamically supervised tree per active run owns a coordinator, four
+  configurable state partitions, and one authoritative Resource Ledger; agents
+  are compact state rather than permanent processes.
+- [x] Stable policy selection, action/event ordering, merge keys, and phase
+  order make the same Pack and seed produce identical result and final-state
+  hashes.
+- [x] Relationship effects, bounded neighbor targets, transition payload
+  filters, and `event.relationship_weight` execute deterministically in both
+  preview and Quick paths; current-round transition input is not truncated by
+  the bounded perception history.
+- [x] Simulation events extend the neutral append stream with contiguous
+  sequence, round, phase, targets, source, provenance, and idempotency.
+- [x] Decimal resources enforce declared precision, bounds, negative policy,
+  mint/burn permission, conservative transfer rounding, stable batches, and
+  idempotent retry behavior.
+- [x] Each round atomically commits events, ledger transactions, a checksummed
+  snapshot, simulation progress, and neutral run state.
+- [x] Initial and every-round full snapshots support verified resume after a
+  killed coordinator; supervised process recovery and Oban retry share the same
+  durable boundary.
+- [x] Snapshot restore fails closed on run scope, schema/engine version, Pack
+  hash, seed, round, event sequence, payload checksum, and authoritative state
+  hash. Final hashes include all resource accounts and relationship state.
+- [x] Completion, safe failure, and operator cancellation establish a locked
+  terminal fence that retries cannot cross.
+- [x] Run creation, progress, exact engine/Pack disclosure, cancellation, and
+  terminal outcome are exposed in a quiet English/Russian Run stage without
+  queue, worker, provider, or internal-process language.
+- [x] A real 10,000-agent × 20-round durable benchmark completed three samples
+  in 30.874–34.451 seconds with matching hashes, zero model calls, and
+  1,138,431,469-byte peak whole-application memory.
+
+Acceptance evidence: focused tests cover ordered commits, replay equality,
+bounded Decimal conservation, precision rounding, forbidden supply changes,
+overdraft rejection, idempotent retry, relationship execution, transition
+targeting, snapshot tamper rejection, killed-coordinator recovery, operator
+cancellation, terminal fencing, and specific creation errors. Architecture and
+operations are recorded in ADR 0003 and `docs/quick-engine.md`; the exact local
+benchmark is `docs/benchmarks/2026-07-18-blueprint-quick-engine-10k.json`.
+
 ## Baseline evidence
 
 The previous production-readiness pass recorded 543 tests, 75.04% line
@@ -420,6 +474,18 @@ passed `mix precommit` on 2026-07-18: compilation with warnings as errors,
 dependency lock hygiene and audit, formatting, Sobelow with no high-confidence
 findings, and 641 ExUnit tests with zero failures (seed 591892, 20.9 seconds).
 `mix assets.build` also passes.
+
+The exact Epic 6 worktree's 32-test focused Script, Quick-engine, and Run UI
+suite passes with zero failures. Its provider-free durable benchmark executes
+the complete 10,000-agent Population for 20 atomic rounds, writes 163 ordered
+events and 21 checksummed snapshots per run, and produces identical result and
+final-state hashes across all three observations. The maximum 34.451-second
+observation is recorded only as a local p95 proxy; hosted performance
+qualification remains open. The exact worktree passed `mix precommit` on
+2026-07-18: compilation with
+warnings as errors, dependency lock hygiene and audit, formatting, Sobelow with
+only the repository's reviewed low-confidence findings, and 654 ExUnit tests
+with zero failures (seed 88332, 21.2 seconds).
 
 The current legacy visual baseline is captured at desktop and 390px mobile in:
 
@@ -486,6 +552,15 @@ unit, policy, and metric labels in the Russian view. Final English/Russian DOM,
 console, focusable controls, and both widths reported no overflow or browser
 warnings.
 
+Epic 6 Run browser QA exercised a real provider-free 5,000-agent, 12-round Run
+from start through automatic progress refresh and completion, then repeated and
+canceled a second Run before its first committed round. English and Russian
+outcomes, progressive technical disclosure, keyboard focus, terminal actions,
+and plain-language recovery copy were inspected. At 1280 px and at a 390 px
+viewport, the document width matched the viewport exactly, no horizontal
+overflow occurred, and the console remained free of warnings and errors. The
+temporary QA Simulation was archived afterward.
+
 The exact-worktree aggregate Quick-engine baseline is recorded in
 `docs/benchmarks/2026-07-18-quick-engine-10k.json`. On the recorded arm64
 environment, ten measured 10k-population runs after two warmups produced a
@@ -496,16 +571,15 @@ engine must earn its own 10k result.
 
 ## Known incompatibilities and open decisions
 
-- Context, Population, and Script stages are implemented and durable, but no
-  runnable Simulation Pack is claimed until the Quick engine, Resource Ledger,
-  Budget Plan, Model Route Plan, and immutable Pack boundary land.
+- Context, Population, Script, and deterministic Quick execution are durable,
+  but no separately immutable Simulation Pack is claimed until Budget Plan and
+  Model Route Plan land.
 - Normal Blueprint navigation is limited to Simulations, Blueprints, and
   Settings. Operations is role-gated to system administrators and workspace
   owners/administrators.
 - Current SimLab lifecycle and terminology are Decision Replay-oriented.
-- Legacy scenarios remain Decision Replay compatibility inputs; the general
-  versioned declarative Script is not yet connected to the full Quick run loop.
-- Current aggregate outcomes do not include a generic Resource Ledger.
+- Legacy scenarios remain Decision Replay compatibility inputs; Blueprint
+  Studio execution uses the general declarative Script and neutral Run profile.
 - Balanced and Deep execution contracts are not implemented under the new hard
   Budget Plan.
 - Exact replay currently covers deterministic saved inputs but not recorded
@@ -514,8 +588,9 @@ engine must earn its own 10k result.
 - English/Russian copy and locale persistence are established across Blueprint,
   Simulation, Context, Population, and Script surfaces; future Pack, Run,
   Analysis, and Observatory inspectors must extend the same contract.
-- The relationship between neutral runtime `runs` and `sim_lab_runs` must be
-  defined before the general Run contract changes.
+- Full snapshots intentionally favor exact recovery over compact storage;
+  hosted retention, compression, and codec evolution need qualification before
+  public launch.
 
 ## Remaining release gates
 

@@ -18,6 +18,7 @@ defmodule HydraAgent.Application do
       {Task.Supervisor, name: HydraAgent.TaskSupervisor},
       {Oban, Application.fetch_env!(:hydra_agent, Oban)},
       HydraAgent.Agent.Supervisor,
+      HydraAgent.Simulations.Engine.Supervisor,
       HydraAgent.MCP.SessionSupervisor,
       HydraAgent.Runtime.RecoveryWorker,
       HydraAgent.Automations.Worker,

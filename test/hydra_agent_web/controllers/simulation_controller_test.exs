@@ -5,7 +5,14 @@ defmodule HydraAgentWeb.SimulationControllerTest do
 
   alias HydraAgent.Repo
   alias HydraAgent.SimLab.Schemas.Study
-  alias HydraAgent.Simulations.{Blueprints, Simulation, SimulationScript, SimulationVersion}
+
+  alias HydraAgent.Simulations.{
+    Blueprints,
+    Simulation,
+    SimulationRunRecord,
+    SimulationScript,
+    SimulationVersion
+  }
 
   setup do
     workspace = workspace_fixture(%{name: "Simulation Studio", slug: "simulation-controller"})
@@ -537,7 +544,7 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     assert yaml =~ "stopping_conditions:"
   end
 
-  test "Run, Results, and Compare are honest deep-linkable gates", %{
+  test "Run, Results, and Compare are honest deep-linkable stages", %{
     conn: conn,
     workspace: workspace,
     general: general
@@ -554,11 +561,12 @@ defmodule HydraAgentWeb.SimulationControllerTest do
       |> get("/simulations/#{simulation.id}/run?workspace_id=#{workspace.id}&locale=en")
       |> html_response(200)
 
-    assert run =~ "Not ready to run"
-    assert run =~ "incomplete or unvalidated Simulation Pack"
+    assert run =~ "Ready to run"
+    assert run =~ "exact Pack, seed, and execution version"
     assert run =~ "5000"
     assert run =~ "Quick"
-    assert run =~ ~s(button type="button" disabled)
+    assert run =~ "Run simulation"
+    assert run =~ ~s(class="simulation-run-start")
 
     results =
       conn
@@ -578,6 +586,102 @@ defmodule HydraAgentWeb.SimulationControllerTest do
       |> html_response(200)
 
     assert compare =~ "Run at least two compatible scenarios"
+  end
+
+  test "Run action creates one durable record and completion is legible", %{
+    conn: conn,
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might one bounded policy change participant behavior?",
+        "blueprint_id" => general.id,
+        "execution_mode" => "quick",
+        "population_size" => "24",
+        "horizon" => "3 rounds"
+      })
+
+    queued =
+      post(conn, "/simulations/#{simulation.id}/run", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en"
+      })
+
+    assert redirected_to(queued) ==
+             "/simulations/#{simulation.id}/run?locale=en&workspace_id=#{workspace.id}"
+
+    record = Repo.one!(SimulationRunRecord)
+    assert record.mode == "quick"
+    assert record.model_call_count == 0
+
+    queued_page =
+      conn
+      |> recycle()
+      |> get(redirected_to(queued))
+      |> html_response(200)
+
+    assert queued_page =~ "Latest run"
+    assert queued_page =~ "Starting"
+    assert queued_page =~ "0 / 3"
+    assert queued_page =~ ~s(data-run-auto-refresh="true")
+    assert queued_page =~ ~s(aria-busy="true")
+    assert queued_page =~ "Cancel run"
+
+    duplicate_start =
+      conn
+      |> recycle()
+      |> post("/simulations/#{simulation.id}/run", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en"
+      })
+
+    assert redirected_to(duplicate_start) == redirected_to(queued)
+
+    assert Phoenix.Flash.get(duplicate_start.assigns.flash, :info) ==
+             "This simulation is already running."
+
+    assert Repo.aggregate(SimulationRunRecord, :count) == 1
+
+    assert {:ok, _completed} = HydraAgent.Simulations.Engine.execute(record.id)
+
+    completed_page =
+      conn
+      |> recycle()
+      |> get(redirected_to(queued))
+      |> html_response(200)
+
+    assert completed_page =~ "Run complete"
+    assert completed_page =~ "Completed"
+    assert completed_page =~ "3 / 3"
+    assert completed_page =~ "hydra-quick/v1"
+    assert completed_page =~ "Model decisions"
+    assert completed_page =~ "Run simulation"
+    refute completed_page =~ ~s(data-run-auto-refresh="true")
+    refute completed_page =~ "Cancel run"
+
+    late_cancel =
+      conn
+      |> recycle()
+      |> post("/simulations/#{simulation.id}/run/#{record.id}/cancel", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en"
+      })
+
+    assert redirected_to(late_cancel) == redirected_to(queued)
+
+    assert Phoenix.Flash.get(late_cancel.assigns.flash, :info) ==
+             "The run had already finished. The latest outcome is shown below."
+
+    missing_cancel =
+      conn
+      |> recycle()
+      |> post("/simulations/#{simulation.id}/run/#{Ecto.UUID.generate()}/cancel", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en"
+      })
+
+    assert response(missing_cancel, 404)
   end
 
   test "duplicate and archive remain workspace-scoped and preserve history", %{

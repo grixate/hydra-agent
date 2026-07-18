@@ -1,0 +1,73 @@
+{
+  "benchmark": "Hydra Quick engine",
+  "duration_ms": {
+    "median": 32055,
+    "minimum": 30874,
+    "observed_p95_proxy": 34451
+  },
+  "engine_version": "hydra-quick/v1",
+  "environment": {
+    "elixir": "1.19.5",
+    "operating_system": "{:unix, :darwin}",
+    "otp": "28",
+    "schedulers_online": 10
+  },
+  "notes": [
+    "Three local observations; maximum duration is recorded as an initial p95 proxy, not a public performance claim.",
+    "Duration includes full population compilation, all atomic round commits, event batches, and one checksummed snapshot per round.",
+    "Peak memory is whole-application BEAM memory sampled every 25 ms."
+  ],
+  "peak_application_bytes": 1138431469,
+  "population_size": 10000,
+  "provider_calls_during_simulation": 0,
+  "recorded_at": "2026-07-18T21:32:03.096877Z",
+  "result_hash": "284fcaa548974615d2f6492c4829e58397cc7f3b6dec526d250e763879e833ed",
+  "result_hashes_identical": true,
+  "rounds": 20,
+  "runs": [
+    {
+      "duration_ms": 34451,
+      "event_count": 163,
+      "final_state_hash": "76c7404935289e9452e3bb5d7a9cdd40b8b4a2a7a57325fc2de45a31a012e43d",
+      "model_calls": 0,
+      "peak_application_bytes": 936863085,
+      "peak_delta_bytes": 854607705,
+      "result_hash": "284fcaa548974615d2f6492c4829e58397cc7f3b6dec526d250e763879e833ed",
+      "sample": 1,
+      "snapshot_bytes": 49394283,
+      "snapshot_count": 21
+    },
+    {
+      "duration_ms": 32055,
+      "event_count": 163,
+      "final_state_hash": "76c7404935289e9452e3bb5d7a9cdd40b8b4a2a7a57325fc2de45a31a012e43d",
+      "model_calls": 0,
+      "peak_application_bytes": 1138069229,
+      "peak_delta_bytes": 1053638086,
+      "result_hash": "284fcaa548974615d2f6492c4829e58397cc7f3b6dec526d250e763879e833ed",
+      "sample": 2,
+      "snapshot_bytes": 49394283,
+      "snapshot_count": 21
+    },
+    {
+      "duration_ms": 30874,
+      "event_count": 163,
+      "final_state_hash": "76c7404935289e9452e3bb5d7a9cdd40b8b4a2a7a57325fc2de45a31a012e43d",
+      "model_calls": 0,
+      "peak_application_bytes": 1138431469,
+      "peak_delta_bytes": 1053926544,
+      "result_hash": "284fcaa548974615d2f6492c4829e58397cc7f3b6dec526d250e763879e833ed",
+      "sample": 3,
+      "snapshot_bytes": 49394283,
+      "snapshot_count": 21
+    }
+  ],
+  "samples": 3,
+  "script_hash": "fbf0a625cded4c57a93220311dd69d1f2b5c9b53e53071ac196c437e9e3c7528",
+  "target_checks": {
+    "exact_replay_hash_equality": true,
+    "observed_p95_proxy_under_60_seconds": true,
+    "peak_application_memory_under_2_gib": true,
+    "zero_simulation_model_calls": true
+  }
+}
