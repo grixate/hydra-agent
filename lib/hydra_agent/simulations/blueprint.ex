@@ -21,6 +21,7 @@ defmodule HydraAgent.Simulations.Blueprint do
     belongs_to :source_blueprint, __MODULE__
     belongs_to :active_version, BlueprintVersion
     has_many :versions, BlueprintVersion
+    has_many :simulations, HydraAgent.Simulations.Simulation, foreign_key: :selected_blueprint_id
 
     timestamps(type: :utc_datetime_usec)
   end

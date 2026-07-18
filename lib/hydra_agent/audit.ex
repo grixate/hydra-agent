@@ -19,6 +19,11 @@ defmodule HydraAgent.Audit do
 
   alias HydraAgent.Runtime.RunEvent
   alias HydraAgent.SimLab.SimulationRunner
+  alias HydraAgent.Simulations.Blueprint, as: SimulationBlueprint
+  alias HydraAgent.Simulations.BlueprintVersion, as: SimulationBlueprintVersion
+  alias HydraAgent.Simulations.BuildStage, as: SimulationBuildStage
+  alias HydraAgent.Simulations.Simulation, as: StudioSimulation
+  alias HydraAgent.Simulations.SimulationVersion, as: StudioSimulationVersion
 
   alias HydraAgent.SimLab.Schemas.{
     ActionPattern,
@@ -76,8 +81,72 @@ defmodule HydraAgent.Audit do
       "automations" => Enum.map(Automations.list_automations(workspace_id), &automation_json/1),
       "webhooks" => Enum.map(Gateways.list_webhooks(workspace_id), &webhook_json/1),
       "eval_suites" => Enum.map(Evals.list_suites(workspace_id), &suite_json/1),
+      "simulation_studio" => simulation_studio_json(workspace_id),
       "sim_lab" => sim_lab_json(workspace_id)
     }
+  end
+
+  defp simulation_studio_json(workspace_id) do
+    %{
+      "blueprints" =>
+        map_records(simulation_blueprints(workspace_id), &simulation_blueprint_json/1),
+      "blueprint_versions" =>
+        map_records(
+          simulation_blueprint_versions(workspace_id),
+          &simulation_blueprint_version_json/1
+        ),
+      "simulations" => map_records(studio_simulations(workspace_id), &studio_simulation_json/1),
+      "simulation_versions" =>
+        map_records(studio_simulation_versions(workspace_id), &studio_simulation_version_json/1),
+      "build_stages" =>
+        map_records(simulation_build_stages(workspace_id), &simulation_build_stage_json/1)
+    }
+  end
+
+  defp simulation_blueprints(workspace_id) do
+    SimulationBlueprint
+    |> where(
+      [blueprint],
+      (blueprint.built_in and is_nil(blueprint.workspace_id)) or
+        blueprint.workspace_id == ^workspace_id
+    )
+    |> order_by([blueprint], desc: blueprint.built_in, asc: blueprint.id)
+    |> Repo.all()
+  end
+
+  defp simulation_blueprint_versions(workspace_id) do
+    SimulationBlueprintVersion
+    |> join(:inner, [version], blueprint in SimulationBlueprint,
+      on: blueprint.id == version.blueprint_id
+    )
+    |> where(
+      [_version, blueprint],
+      (blueprint.built_in and is_nil(blueprint.workspace_id)) or
+        blueprint.workspace_id == ^workspace_id
+    )
+    |> order_by([version], asc: version.blueprint_id, asc: version.id)
+    |> Repo.all()
+  end
+
+  defp studio_simulations(workspace_id) do
+    StudioSimulation
+    |> where([simulation], simulation.workspace_id == ^workspace_id)
+    |> order_by([simulation], asc: simulation.id)
+    |> Repo.all()
+  end
+
+  defp studio_simulation_versions(workspace_id) do
+    StudioSimulationVersion
+    |> where([version], version.workspace_id == ^workspace_id)
+    |> order_by([version], asc: version.simulation_id, asc: version.version)
+    |> Repo.all()
+  end
+
+  defp simulation_build_stages(workspace_id) do
+    SimulationBuildStage
+    |> where([stage], stage.workspace_id == ^workspace_id)
+    |> order_by([stage], asc: stage.simulation_version_id, asc: stage.ordinal)
+    |> Repo.all()
   end
 
   defp sim_lab_json(workspace_id) do
@@ -397,6 +466,140 @@ defmodule HydraAgent.Audit do
       "slug" => suite.slug,
       "name" => suite.name,
       "status" => suite.status
+    }
+  end
+
+  defp simulation_blueprint_json(blueprint) do
+    %{
+      "id" => blueprint.id,
+      "workspace_id" => blueprint.workspace_id,
+      "owner_user_id" => blueprint.owner_user_id,
+      "source_blueprint_id" => blueprint.source_blueprint_id,
+      "active_version_id" => blueprint.active_version_id,
+      "slug" => blueprint.slug,
+      "name" => blueprint.name,
+      "description" => blueprint.description,
+      "status" => blueprint.status,
+      "built_in" => blueprint.built_in,
+      "origin" => blueprint.origin,
+      "inserted_at" => blueprint.inserted_at,
+      "updated_at" => blueprint.updated_at
+    }
+  end
+
+  defp simulation_blueprint_version_json(version) do
+    %{
+      "id" => version.id,
+      "workspace_id" => version.workspace_id,
+      "blueprint_id" => version.blueprint_id,
+      "created_by_user_id" => version.created_by_user_id,
+      "version" => version.version,
+      "manifest" => version.manifest,
+      "instruction_fingerprints" =>
+        Map.new(version.instructions || %{}, fn {name, instructions} ->
+          {name, fingerprint(instructions)}
+        end),
+      "schema_paths" => version.schemas |> Map.keys() |> Enum.sort(),
+      "example_paths" => version.examples |> Map.keys() |> Enum.sort(),
+      "readme_fingerprint" => fingerprint(version.readme),
+      "capability_requirements" => version.capability_requirements,
+      "content_hash" => version.content_hash,
+      "validation_status" => version.validation_status,
+      "validation_errors" => version.validation_errors,
+      "compatibility_warnings" => version.compatibility_warnings,
+      "inserted_at" => version.inserted_at
+    }
+  end
+
+  defp studio_simulation_json(simulation) do
+    %{
+      "id" => simulation.id,
+      "workspace_id" => simulation.workspace_id,
+      "selected_blueprint_id" => simulation.selected_blueprint_id,
+      "owner_user_id" => simulation.owner_user_id,
+      "source_simulation_id" => simulation.source_simulation_id,
+      "legacy_study_id" => simulation.legacy_study_id,
+      "active_version_id" => simulation.active_version_id,
+      "title" => simulation.title,
+      "question" => simulation.question,
+      "locale" => simulation.locale,
+      "status" => simulation.status,
+      "archived_at" => simulation.archived_at,
+      "inserted_at" => simulation.inserted_at,
+      "updated_at" => simulation.updated_at
+    }
+  end
+
+  defp studio_simulation_version_json(version) do
+    %{
+      "id" => version.id,
+      "workspace_id" => version.workspace_id,
+      "simulation_id" => version.simulation_id,
+      "blueprint_version_id" => version.blueprint_version_id,
+      "created_by_user_id" => version.created_by_user_id,
+      "version" => version.version,
+      "title" => version.title,
+      "question" => version.question,
+      "locale" => version.locale,
+      "normalized_input" => version.normalized_input,
+      "input_summary" => audit_input_summary(version.inputs),
+      "instruction_override_fingerprints" =>
+        Map.new(version.instruction_overrides || %{}, fn {name, instructions} ->
+          {name, fingerprint(instructions)}
+        end),
+      "research_settings" => version.research_settings,
+      "population_size" => version.population_size,
+      "execution_mode" => version.execution_mode,
+      "budget_preset" => version.budget_preset,
+      "model_routes" => version.model_routes,
+      "content_hash" => version.content_hash,
+      "inserted_at" => version.inserted_at
+    }
+  end
+
+  defp audit_input_summary(inputs) do
+    inputs = inputs || %{}
+
+    %{
+      "notes_fingerprint" => fingerprint(inputs["notes"]),
+      "urls" =>
+        Enum.map(inputs["urls"] || [], fn entry ->
+          uri = entry["uri"]
+
+          %{
+            "uri" => safe_source_uri(uri),
+            "uri_hash" => fingerprint(uri),
+            "status" => entry["status"]
+          }
+        end),
+      "files" =>
+        Enum.map(inputs["files"] || [], fn file ->
+          %{
+            "filename" => file["filename"],
+            "extension" => file["extension"],
+            "media_type" => file["media_type"],
+            "size_bytes" => file["size_bytes"],
+            "sha256" => file["sha256"]
+          }
+        end)
+    }
+  end
+
+  defp simulation_build_stage_json(stage) do
+    %{
+      "id" => stage.id,
+      "workspace_id" => stage.workspace_id,
+      "simulation_id" => stage.simulation_id,
+      "simulation_version_id" => stage.simulation_version_id,
+      "stage" => stage.stage,
+      "ordinal" => stage.ordinal,
+      "status" => stage.status,
+      "summary" => stage.summary,
+      "warnings" => stage.warnings,
+      "started_at" => stage.started_at,
+      "completed_at" => stage.completed_at,
+      "inserted_at" => stage.inserted_at,
+      "updated_at" => stage.updated_at
     }
   end
 

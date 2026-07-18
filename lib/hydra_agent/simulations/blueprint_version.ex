@@ -22,6 +22,7 @@ defmodule HydraAgent.Simulations.BlueprintVersion do
     belongs_to :workspace, HydraAgent.Runtime.Workspace
     belongs_to :blueprint, HydraAgent.Simulations.Blueprint
     belongs_to :created_by_user, HydraAgent.Accounts.User
+    has_many :simulation_versions, HydraAgent.Simulations.SimulationVersion
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end

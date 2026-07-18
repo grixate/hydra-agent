@@ -11,9 +11,9 @@ entire epic or release is complete.
 
 ## Current status
 
-- Active epic: **Epic 2 — Simple Simulation Studio shell**
-- Completed epic: **Epic 1 — Blueprint domain and package portability**
-- Next vertical slice: durable Simulation and immutable Simulation Version shell
+- Active epic: **Epic 3 — Automatic Context Pack**
+- Completed epic: **Epic 2 — Simple Simulation Studio shell**
+- Next vertical slice: immutable Context Pack and bounded question interpretation
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
@@ -44,8 +44,8 @@ product behavior.
 | Workspace | `HydraAgent.Runtime.Workspace`, `workspaces` | Reuse as the tenant, knowledge, policy, and simulation boundary. |
 | Blueprint | `HydraAgent.Simulations.Blueprint`, `simulation_blueprints` | Implemented as workspace/system-scoped persistence with exact built-in constraints. |
 | Blueprint Version | `HydraAgent.Simulations.BlueprintVersion`, `simulation_blueprint_versions` | Implemented as immutable content-addressed versions with active-version integrity triggers. |
-| Simulation | `SimLab.Schemas.Study`, `sim_lab_studies` | Adapt legacy studies first. Add only fields/adapter state the general lifecycle cannot express. |
-| Simulation Version | No equivalent | Add immutable snapshot linked to Simulation and Blueprint Version. Do not overwrite studies. |
+| Simulation | `HydraAgent.Simulations.Simulation`, `simulations`; legacy `SimLab.Schemas.Study` | Implemented as the general workspace-scoped identity. Legacy studies remain visible through links and are not rewritten. |
+| Simulation Version | `HydraAgent.Simulations.SimulationVersion`, `simulation_versions` | Implemented as an immutable, content-addressed input snapshot linked to the exact Blueprint Version. |
 | Context Pack | `sim_lab_context_packs`, sources, evidence items, research runs | Reuse evidence storage and review semantics; extend grounding classes and link to Simulation Version. |
 | Population Model | Personas, action patterns, `BehaviorCompiler` | Introduce a general structured contract. Adapt personas/patterns as legacy archetypes/policies and keep deterministic fallback. |
 | Agent Instance | Generated aggregate cohorts and representative traces | Add compact run-owned state, not permanent runtime agent profiles or one process per agent. |
@@ -69,7 +69,7 @@ product behavior.
 
 | Requirement | Existing code | Planned reuse |
 |---|---|---|
-| Durable build jobs | Oban and SimLab research/simulation workers | Add version-keyed build-stage workers to current Oban queues. |
+| Durable build jobs | Six `simulation_build_stages`; Oban and SimLab workers available | Shell stage state is durable. Add version-keyed Epic 3 workers to current Oban queues. |
 | Question interpretation | `StudyParser` | Generalize into a structured contract with schema validation. |
 | Bounded research | research planner, safe query abstraction, Tavily/configured provider, evidence pipeline | Reuse provider and safety boundary; extend grounding vocabulary. |
 | Population fallback | `BehaviorCompiler` | Preserve behind new interface as explicit emergency fallback. |
@@ -82,9 +82,9 @@ product behavior.
 
 | Target route | Current mapping | Migration state |
 |---|---|---|
-| `/simulations` | `/lab/studies` and workspace study index | New route pending Studio shell. Legacy routes preserved. |
-| `/simulations/new` | study creation on workspace index | New one-question composer pending. |
-| `/simulations/:id/*` | one large workspace-study controller/template | Split by deep-linkable stage without duplicating domain logic. |
+| `/simulations` | General Simulation list plus explicit legacy-study links | Implemented and selected as the Blueprint Studio entry route. Legacy routes preserved. |
+| `/simulations/new` | One-question composer | Implemented with optional notes/data, URLs, files, geography, horizon, mode, and Blueprint. |
+| `/simulations/:id/*` | Durable Build, Run, Results, and Compare stages | Implemented as deep links with truthful readiness gates and shared domain logic. |
 | `/blueprints/*` | Blueprint library, detail, editor, test, import, export | Implemented with workspace role boundaries and EN/RU interface copy. |
 | `/settings/*` | `/settings`, `/control/settings`, provider/tool pages | Present product-safe subsections; keep authority-sensitive controls under Operations. |
 | `/operations/*` | `/control/*`, `/dashboard`, runtime surfaces | Preserve operator routes; later add safe redirects/aliases. |
@@ -135,9 +135,14 @@ converted by Epic 0.
   the two system built-ins do not use a fake workspace. Database constraints
   and triggers enforce scope, exact built-in slugs, author scope, immutable
   versions, and an active version belonging to its Blueprint.
-- Next proposed migration: Simulation and immutable Simulation Version only,
-  with an explicit adapter to legacy `sim_lab_studies` and no destructive
-  conversion.
+- Epic 2: additive `simulations`, immutable `simulation_versions`, and durable
+  `simulation_build_stages`. Database constraints and triggers enforce active
+  author roles, workspace and Blueprint scope, duplicate/legacy provenance,
+  immutable Version history, active-Version identity, and immutable Build-stage
+  identity. Legacy `sim_lab_studies` are not converted.
+- Next proposed migration: Context Pack versioning and explicit links from an
+  immutable Simulation Version, reusing existing source/evidence storage where
+  its semantics remain valid.
 
 ## Acceptance ledger
 
@@ -154,7 +159,7 @@ converted by Epic 0.
 - [x] No duplicate domain object is proposed without justification.
 - [x] Migration plan names affected existing schemas.
 - [x] Full existing `mix precommit` suite passes after this slice.
-- [ ] New product surface is switchable after the Studio shell exists; current flags are data-neutral but do not yet route to an unfinished surface.
+- [x] New product surface is switchable without data loss; Blueprint Studio now routes authenticated entry to `/simulations` while legacy routes remain intact.
 
 ### Epic 1 — Blueprint domain and package portability
 
@@ -173,6 +178,35 @@ rewriting history; deterministic export/import preserves the semantic content
 hash; traversal, symlink, size-bomb, executable, hash, YAML, capability, and
 schema-reference attacks are covered; the provider-free miniature validates
 three agents and two rounds without publishing.
+
+### Epic 2 — Simple Simulation Studio shell
+
+- [x] Simulations index with explicit legacy-study access.
+- [x] One-question composer with optional files, URLs, notes/data, geography,
+  horizon, population, mode, and Blueprint selection.
+- [x] Atomic Simulation, immutable v1, and six-stage creation.
+- [x] Build progress with four instruction cards and exact Blueprint version.
+- [x] Honest ready-to-run summary and disabled Run gate.
+- [x] Deep-linkable Build, Run, Results, and Compare stages.
+- [x] English and Russian visible shell copy.
+- [x] New users can create without opening Settings or visiting a generic Home.
+- [x] Creation and stage state survive refresh.
+- [x] Ordinary viewers do not see mutation controls, job names, queue state, or
+  provider internals.
+- [x] Optional input is bounded and revalidated at the web and domain boundaries.
+- [x] Workspace audit includes provenance without raw notes, file content, or
+  Blueprint instruction text.
+- [x] Real 390 px browser evidence for the composer and Build hierarchy.
+
+Acceptance evidence: controller journeys cover question-only and fully
+specified creation, refresh, deep links, disabled modes, duplicate/archive,
+legacy visibility, both locales, and viewer restrictions. Domain and database
+tests cover deterministic content hashing, immutable versions, cross-workspace
+scope, owner/author authorization, stage identity, tampered inputs, and audit
+privacy. Desktop and 390 px browser QA confirm the quiet object-first hierarchy,
+truthful zero-provider/disabled-Run states, responsive wrapping, compact Build
+title, full-width lifecycle controls, and absence of horizontal document
+overflow.
 
 ## Baseline evidence
 
@@ -195,6 +229,16 @@ package safety, manifest and JSON Schema validation, tenant persistence,
 immutable versioning, controller journeys, feature-flag boundaries, and
 provider-free testing.
 
+The exact current Epic 2 worktree passed `mix precommit` on 2026-07-18:
+compilation with warnings as errors, dependency lock hygiene and audit,
+formatting, Sobelow with no high-confidence findings, and 595 ExUnit tests with
+zero failures (seed 406574, 8.6 seconds). The Epic 2-focused coverage includes
+the durable domain, web journeys, tenant and author triggers, input safety,
+audit privacy, locale behavior, and the Blueprint Studio default-route switch.
+`mix assets.build` also passes. A real runtime startup smoke with
+`HYDRA_PRODUCT_SURFACE=blueprint_studio` resolves the surface to
+`blueprint_studio` and serves the Studio routes.
+
 The current legacy visual baseline is captured at desktop and 390px mobile in:
 
 - `docs/screenshots/blueprint-baseline-2026-07-18/legacy-simulations-desktop.png`;
@@ -215,6 +259,24 @@ test result, ordinary navigation, deterministic zero-provider test disclosure,
 sample reveal, and built-in restore interaction. Blueprint-specific narrow
 viewport capture remains part of Epic 2 mobile-shell acceptance.
 
+Epic 2 desktop browser QA is captured in:
+
+- `docs/screenshots/simulation-studio-epic2-2026-07-18/simulations-index-en-desktop.jpg`;
+- `docs/screenshots/simulation-studio-epic2-2026-07-18/simulation-composer-en-desktop.jpg`;
+- `docs/screenshots/simulation-studio-epic2-2026-07-18/simulation-build-en-desktop.jpg`;
+- `docs/screenshots/simulation-studio-epic2-2026-07-18/simulation-build-ru-desktop.jpg`;
+- `docs/screenshots/simulation-studio-epic2-2026-07-18/simulation-run-gate-en-desktop.jpg`;
+- `docs/screenshots/simulation-studio-epic2-2026-07-18/simulation-composer-en-mobile-390-frame.png`;
+- `docs/screenshots/simulation-studio-epic2-2026-07-18/simulation-build-en-mobile-390-frame.png`.
+
+The captures cover the direct Simulations index, first-viewport question
+composer, localized Build hierarchy, six durable stages, Blueprint instruction
+inspection, exact version/hash, and the disabled Run checkpoint. DOM inspection
+reported the expected labels and no internal worker terminology.
+The narrow frame measured exactly 390×844 CSS pixels with a 390 px document
+width on both screens. The mobile pass also led to a smaller workbench title and
+removal of automatic field focus, avoiding an unsolicited on-screen keyboard.
+
 The exact-worktree aggregate Quick-engine baseline is recorded in
 `docs/benchmarks/2026-07-18-quick-engine-10k.json`. On the recorded arm64
 environment, ten measured 10k-population runs after two warmups produced a
@@ -225,8 +287,9 @@ engine must earn its own 10k result.
 
 ## Known incompatibilities and open decisions
 
-- The new `/simulations` surface does not exist yet; `/blueprints` is complete
-  for the Epic 1 contract.
+- The `/simulations` shell is implemented, but its Build stages are not yet
+  connected to Epic 3 Context Pack workers; no Pack or runnable state is
+  claimed.
 - Normal Blueprint navigation is limited to Simulations, Blueprints, and
   Settings. Operations is role-gated to system administrators and workspace
   owners/administrators.
@@ -239,8 +302,9 @@ engine must earn its own 10k result.
 - Exact replay currently covers deterministic saved inputs but not recorded
   model decisions.
 - Analysis Pack and claim-validated report regeneration are missing.
-- English/Russian copy and locale persistence are established for Blueprint
-  Studio; the Simulation Studio shell must extend the same contract.
+- English/Russian copy and locale persistence are established across Blueprint
+  and Simulation Studio shells; future Pack inspectors must extend the same
+  contract.
 - The relationship between neutral runtime `runs` and `sim_lab_runs` must be
   defined before the general Run contract changes.
 

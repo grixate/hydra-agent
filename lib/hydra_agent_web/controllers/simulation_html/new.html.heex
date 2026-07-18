@@ -1,0 +1,232 @@
+<div class="simulation-studio simulation-composer">
+  <header class="simulation-composer-header">
+    <a href={index_path(@workspace && @workspace.id, @locale)} class="simulation-back-link">
+      <span aria-hidden="true">←</span> {t(@locale, :simulations)}
+    </a>
+    <nav class="blueprint-locale-switch" aria-label={t(@locale, :locale_label)}>
+      <a
+        href={new_path(@workspace && @workspace.id, "en")}
+        aria-current={if @locale == "en", do: "page"}
+      >
+        {t(@locale, :english)}
+      </a>
+      <span aria-hidden="true">/</span>
+      <a
+        href={new_path(@workspace && @workspace.id, "ru")}
+        aria-current={if @locale == "ru", do: "page"}
+      >
+        {t(@locale, :russian)}
+      </a>
+    </nav>
+  </header>
+
+  <section :if={!@workspace} class="blueprint-empty-state">
+    <span aria-hidden="true">00</span>
+    <h1>{t(@locale, :no_workspace)}</h1>
+    <p>{t(@locale, :no_workspace_lede)}</p>
+  </section>
+
+  <%= if @workspace do %>
+    <% selected_blueprint_id =
+      @form["blueprint_id"] || @blueprints |> List.first() |> then(&(&1 && to_string(&1.id))) %>
+    <% selected_mode = @form["execution_mode"] || "quick" %>
+
+    <main class="simulation-composer-main">
+      <header>
+        <p class="blueprint-eyebrow">01 · {t(@locale, :describe)}</p>
+        <h1>{t(@locale, :compose_title)}</h1>
+        <p>{t(@locale, :compose_lede)}</p>
+      </header>
+
+      <form
+        class="simulation-create-form"
+        action={"/simulations?workspace_id=#{@workspace.id}&locale=#{@locale}"}
+        method="post"
+        enctype="multipart/form-data"
+      >
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <input type="hidden" name="workspace_id" value={@workspace.id} />
+        <input type="hidden" name="locale" value={@locale} />
+        <input type="hidden" name="simulation[locale]" value={@locale} />
+
+        <div :if={@error} class="simulation-form-error" role="alert">
+          <span aria-hidden="true">!</span>
+          <p>{@error}</p>
+        </div>
+
+        <label class="simulation-question-field">
+          <span>{t(@locale, :question)}</span>
+          <textarea
+            name="simulation[question]"
+            rows="5"
+            minlength="10"
+            maxlength="5000"
+            required
+            placeholder={t(@locale, :question_placeholder)}
+          >{@form["question"]}</textarea>
+        </label>
+
+        <label class="simulation-title-field">
+          <span>{t(@locale, :title_optional)}</span>
+          <input
+            type="text"
+            name="simulation[title]"
+            value={@form["title"]}
+            maxlength="180"
+            placeholder={t(@locale, :title_placeholder)}
+          />
+        </label>
+
+        <fieldset class="simulation-choice-fieldset">
+          <legend>{t(@locale, :choose_blueprint)}</legend>
+          <p>{t(@locale, :blueprint_hint)}</p>
+          <div class="simulation-blueprint-choices">
+            <label :for={blueprint <- @blueprints}>
+              <input
+                type="radio"
+                name="simulation[blueprint_id]"
+                value={blueprint.id}
+                checked={to_string(blueprint.id) == to_string(selected_blueprint_id)}
+                required
+              />
+              <span>
+                <strong>{localized(blueprint.name, @locale)}</strong>
+                <small>{localized(blueprint.description, @locale)}</small>
+                <em>v{blueprint.active_version.version}</em>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="simulation-choice-fieldset simulation-mode-fieldset">
+          <legend>{t(@locale, :choose_mode)}</legend>
+          <div class="simulation-mode-choices">
+            <label>
+              <input
+                type="radio"
+                name="simulation[execution_mode]"
+                value="quick"
+                checked={selected_mode == "quick"}
+              />
+              <span>
+                <strong>{t(@locale, :quick)}</strong><small>{t(@locale, :quick_hint)}</small>
+              </span>
+            </label>
+            <label class={!@balanced_enabled && "is-disabled"}>
+              <input
+                type="radio"
+                name="simulation[execution_mode]"
+                value="balanced"
+                checked={selected_mode == "balanced"}
+                disabled={!@balanced_enabled}
+              />
+              <span>
+                <strong>{t(@locale, :balanced)}</strong>
+                <small>{t(@locale, :balanced_hint)}</small>
+                <em :if={!@balanced_enabled}>{t(@locale, :unavailable)}</em>
+              </span>
+            </label>
+            <label class={!@deep_enabled && "is-disabled"}>
+              <input
+                type="radio"
+                name="simulation[execution_mode]"
+                value="deep"
+                checked={selected_mode == "deep"}
+                disabled={!@deep_enabled}
+              />
+              <span>
+                <strong>{t(@locale, :deep)}</strong>
+                <small>{t(@locale, :deep_hint)}</small>
+                <em :if={!@deep_enabled}>{t(@locale, :unavailable)}</em>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
+        <details class="simulation-optional-context" open={not is_nil(@error)}>
+          <summary>
+            <span>
+              <strong>{t(@locale, :optional_context)}</strong>
+              <small>{t(@locale, :optional_context_hint)}</small>
+            </span>
+            <span aria-hidden="true">＋</span>
+          </summary>
+          <div class="simulation-optional-grid">
+            <label class="is-wide">
+              <span>{t(@locale, :notes)}</span>
+              <textarea
+                name="simulation[notes]"
+                rows="4"
+                maxlength={@input_limits.notes_bytes}
+                placeholder={t(@locale, :notes_placeholder)}
+              >{@form["notes"]}</textarea>
+            </label>
+            <label class="is-wide">
+              <span>{t(@locale, :urls)}</span>
+              <textarea
+                name="simulation[urls]"
+                rows="3"
+                placeholder={t(@locale, :urls_placeholder)}
+              >{@form["urls"]}</textarea>
+              <small>{t(@locale, :urls_hint)}</small>
+            </label>
+            <label class="simulation-file-input is-wide">
+              <span>{t(@locale, :files)}</span>
+              <input
+                type="file"
+                name="simulation[files][]"
+                accept=".txt,.md,.markdown,.csv,.json,text/plain,text/markdown,text/csv,application/json"
+                multiple
+                data-simulation-files
+              />
+              <small data-simulation-filenames>{t(@locale, :files_hint)}</small>
+            </label>
+            <label>
+              <span>{t(@locale, :geography)}</span>
+              <input
+                type="text"
+                name="simulation[geography]"
+                value={@form["geography"]}
+                maxlength="120"
+                placeholder={t(@locale, :geography_placeholder)}
+              />
+            </label>
+            <label>
+              <span>{t(@locale, :horizon)}</span>
+              <input
+                type="text"
+                name="simulation[horizon]"
+                value={@form["horizon"]}
+                maxlength="120"
+                placeholder={t(@locale, :horizon_placeholder)}
+              />
+            </label>
+            <label>
+              <span>{t(@locale, :population_size)}</span>
+              <input
+                type="number"
+                name="simulation[population_size]"
+                value={@form["population_size"] || 5000}
+                min="10"
+                max="100000"
+                step="1"
+              />
+              <small>{t(@locale, :population_hint)}</small>
+            </label>
+          </div>
+        </details>
+
+        <footer class="simulation-composer-footer">
+          <div>
+            <span aria-hidden="true">◇</span>
+            <p>{t(@locale, :defaults_disclosure)}</p>
+          </div>
+          <a href={index_path(@workspace.id, @locale)}>{t(@locale, :cancel)}</a>
+          <button type="submit">
+            {t(@locale, :continue_build)} <span aria-hidden="true">→</span>
+          </button>
+        </footer>
+      </form>
+    </main>
+  <% end %>
+</div>

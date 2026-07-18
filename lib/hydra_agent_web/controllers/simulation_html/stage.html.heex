@@ -1,0 +1,151 @@
+<div class="simulation-studio simulation-workbench simulation-stage-shell">
+  <header class="simulation-workbench-header">
+    <div class="simulation-workbench-topline">
+      <a href={index_path(@workspace.id, @locale)} class="simulation-back-link">
+        <span aria-hidden="true">←</span> {t(@locale, :back)}
+      </a>
+      <nav class="blueprint-locale-switch" aria-label={t(@locale, :locale_label)}>
+        <a
+          href={stage_path(@simulation.id, Atom.to_string(@stage), @workspace.id, "en")}
+          aria-current={if @locale == "en", do: "page"}
+        >
+          {t(@locale, :english)}
+        </a>
+        <span aria-hidden="true">/</span>
+        <a
+          href={stage_path(@simulation.id, Atom.to_string(@stage), @workspace.id, "ru")}
+          aria-current={if @locale == "ru", do: "page"}
+        >
+          {t(@locale, :russian)}
+        </a>
+      </nav>
+    </div>
+    <div class="simulation-workbench-title">
+      <div>
+        <p class="blueprint-eyebrow">
+          {t(@locale, status_key(@simulation.status))} · v{@simulation.active_version.version}
+        </p>
+        <h1>{@simulation.title}</h1>
+        <p>{@simulation.question}</p>
+      </div>
+    </div>
+  </header>
+
+  <nav class="simulation-lifecycle" aria-label={t(@locale, :current_stage)}>
+    <a
+      href={stage_path(@simulation.id, "build", @workspace.id, @locale)}
+      aria-current={if @stage == :build, do: "step"}
+    >
+      <span>01</span><strong>{t(@locale, :build)}</strong>
+    </a>
+    <a
+      href={stage_path(@simulation.id, "run", @workspace.id, @locale)}
+      aria-current={if @stage == :run, do: "step"}
+    >
+      <span>02</span><strong>{t(@locale, :run)}</strong>
+    </a>
+    <a
+      href={stage_path(@simulation.id, "results", @workspace.id, @locale)}
+      aria-current={if @stage in [:results, :compare], do: "step"}
+    >
+      <span>03</span><strong>{t(@locale, :explore)}</strong>
+    </a>
+  </nav>
+
+  <%= case @stage do %>
+    <% :run -> %>
+      <section class="simulation-checkpoint-header">
+        <div>
+          <p class="blueprint-eyebrow">03 · {t(@locale, :run)}</p>
+          <h2>{t(@locale, :not_ready_to_run)}</h2>
+          <p>{t(@locale, :not_ready_to_run_lede)}</p>
+        </div>
+        <span class="simulation-locked-seal" aria-hidden="true">◇</span>
+      </section>
+
+      <section class="simulation-ready-summary" aria-label={t(@locale, :ready_summary)}>
+        <header>
+          <p class="blueprint-eyebrow">{t(@locale, :ready_summary)}</p>
+          <span>{t(@locale, :not_sample)}</span>
+        </header>
+        <dl>
+          <div>
+            <dt>{t(@locale, :population)}</dt>
+            <dd>{@ready_summary.population_size}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :agent_types)}</dt>
+            <dd>{t(@locale, :not_built)}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :rounds)}</dt>
+            <dd>{t(@locale, :not_built)}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :actions)}</dt>
+            <dd>{t(@locale, :not_built)}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :resources)}</dt>
+            <dd>{t(@locale, :not_built)}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :events)}</dt>
+            <dd>{t(@locale, :not_built)}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :mode)}</dt>
+            <dd>{t(@locale, mode_label(@ready_summary.execution_mode))}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :max_cost)}</dt>
+            <dd>{t(@locale, :not_estimated)}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :max_decisions)}</dt>
+            <dd>
+              {if is_nil(@ready_summary.maximum_model_decisions),
+                do: t(@locale, :not_estimated),
+                else: @ready_summary.maximum_model_decisions}
+            </dd>
+          </div>
+        </dl>
+        <footer>
+          <a href={stage_path(@simulation.id, "build", @workspace.id, @locale)}>
+            {t(@locale, :edit_build)}
+          </a>
+          <button type="button" disabled>{t(@locale, :run_simulation)}</button>
+        </footer>
+      </section>
+    <% :results -> %>
+      <section class="simulation-stage-empty">
+        <span aria-hidden="true">○</span>
+        <p class="blueprint-eyebrow">04 · {t(@locale, :explore)}</p>
+        <h2>{t(@locale, :results_title)}</h2>
+        <strong>{t(@locale, :results_empty)}</strong>
+        <p>{t(@locale, :results_empty_lede)}</p>
+        <div>
+          <span>{t(@locale, :locked)} · State</span>
+          <span>{t(@locale, :locked)} · Flow</span>
+          <span>{t(@locale, :locked)} · Explain</span>
+        </div>
+        <a href={stage_path(@simulation.id, "build", @workspace.id, @locale)}>
+          {t(@locale, :edit_build)}
+        </a>
+        <a href={stage_path(@simulation.id, "compare", @workspace.id, @locale)}>
+          {t(@locale, :compare_runs)}
+        </a>
+      </section>
+    <% :compare -> %>
+      <section class="simulation-stage-empty">
+        <span aria-hidden="true">⇄</span>
+        <p class="blueprint-eyebrow">{t(@locale, :compare)}</p>
+        <h2>{t(@locale, :compare_title)}</h2>
+        <strong>{t(@locale, :compare_empty)}</strong>
+        <p>{t(@locale, :compare_empty_lede)}</p>
+        <a href={stage_path(@simulation.id, "results", @workspace.id, @locale)}>
+          {t(@locale, :explore)}
+        </a>
+      </section>
+  <% end %>
+</div>

@@ -1,5 +1,5 @@
 defmodule HydraAgent.AuditTest do
-  use HydraAgent.DataCase, async: true
+  use HydraAgent.DataCase, async: false
 
   import HydraAgent.RuntimeFixtures
 
@@ -148,6 +148,64 @@ defmodule HydraAgent.AuditTest do
     assert simulation_run["input_fingerprint"] == lifecycle.run.input_fingerprint
   end
 
+  test "exports workspace-scoped Simulation Studio lineage without raw attachments" do
+    workspace = workspace_fixture(%{name: "Audit Studio", slug: "audit-studio"})
+    other = workspace_fixture(%{name: "Audit Other", slug: "audit-other"})
+    [general | _] = HydraAgent.Simulations.Blueprints.ensure_builtins!()
+    secret_note = "private-studio-note"
+    secret_file = "private,file\nsecret,value"
+
+    inputs = %{
+      "notes" => secret_note,
+      "urls" => [%{"uri" => "https://research.example.test/context", "status" => "pending"}],
+      "files" => [
+        %{
+          "filename" => "private.csv",
+          "extension" => ".csv",
+          "media_type" => "text/csv",
+          "size_bytes" => byte_size(secret_file),
+          "sha256" => sha256_for_test(secret_file),
+          "text" => secret_file
+        }
+      ]
+    }
+
+    {:ok, included} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might a private input alter modeled behavior?",
+        "blueprint_id" => general.id,
+        "inputs" => inputs
+      })
+
+    {:ok, excluded} =
+      HydraAgent.Simulations.create_simulation(other, nil, %{
+        "question" => "How might another workspace remain isolated?",
+        "blueprint_id" => general.id
+      })
+
+    studio = Audit.export_workspace(workspace.id)["simulation_studio"]
+    encoded = Jason.encode!(studio)
+
+    assert Enum.map(studio["simulations"], & &1["id"]) == [included.id]
+    refute Enum.any?(studio["simulations"], &(&1["id"] == excluded.id))
+    assert Enum.count(studio["blueprints"], & &1["built_in"]) == 2
+    assert length(studio["build_stages"]) == 6
+
+    [version] = studio["simulation_versions"]
+    assert version["content_hash"] == included.active_version.content_hash
+
+    assert version["input_summary"]["notes_fingerprint"] ==
+             audit_fingerprint_for_test(secret_note)
+
+    assert [%{"filename" => "private.csv", "sha256" => file_hash}] =
+             version["input_summary"]["files"]
+
+    assert file_hash == sha256_for_test(secret_file)
+    refute encoded =~ secret_note
+    refute encoded =~ secret_file
+    refute encoded =~ "\"text\""
+  end
+
   defp assert_section_ids(sim_lab, first, second) do
     sections = [
       {"sources", :source},
@@ -168,6 +226,17 @@ defmodule HydraAgent.AuditTest do
       expected = Enum.sort([Map.fetch!(first, field).id, Map.fetch!(second, field).id])
       assert Enum.map(sim_lab[section], & &1["id"]) == expected
     end)
+  end
+
+  defp sha256_for_test(value) do
+    value |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+  end
+
+  defp audit_fingerprint_for_test(value) do
+    value
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   defp sim_lab_lifecycle_fixture(workspace, suffix) do

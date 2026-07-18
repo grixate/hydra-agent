@@ -1,0 +1,168 @@
+<div class="simulation-studio simulation-workbench">
+  <header class="simulation-workbench-header">
+    <div class="simulation-workbench-topline">
+      <a href={index_path(@workspace.id, @locale)} class="simulation-back-link">
+        <span aria-hidden="true">←</span> {t(@locale, :back)}
+      </a>
+      <nav class="blueprint-locale-switch" aria-label={t(@locale, :locale_label)}>
+        <a
+          href={stage_path(@simulation.id, "build", @workspace.id, "en")}
+          aria-current={if @locale == "en", do: "page"}
+        >
+          {t(@locale, :english)}
+        </a>
+        <span aria-hidden="true">/</span>
+        <a
+          href={stage_path(@simulation.id, "build", @workspace.id, "ru")}
+          aria-current={if @locale == "ru", do: "page"}
+        >
+          {t(@locale, :russian)}
+        </a>
+      </nav>
+    </div>
+    <div class="simulation-workbench-title">
+      <div>
+        <p class="blueprint-eyebrow">
+          {t(@locale, status_key(@simulation.status))} · v{@simulation.active_version.version}
+        </p>
+        <h1>{@simulation.title}</h1>
+        <p>{@simulation.question}</p>
+      </div>
+      <div :if={@can_edit} class="simulation-workbench-actions">
+        <form action={"/simulations/#{@simulation.id}/duplicate"} method="post">
+          <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+          <input type="hidden" name="workspace_id" value={@workspace.id} />
+          <input type="hidden" name="locale" value={@locale} />
+          <button type="submit">{t(@locale, :duplicate)}</button>
+        </form>
+        <form action={"/simulations/#{@simulation.id}/archive"} method="post">
+          <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+          <input type="hidden" name="workspace_id" value={@workspace.id} />
+          <input type="hidden" name="locale" value={@locale} />
+          <button type="submit">{t(@locale, :archive)}</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <nav class="simulation-lifecycle" aria-label={t(@locale, :current_stage)}>
+    <a href={stage_path(@simulation.id, "build", @workspace.id, @locale)} aria-current="step">
+      <span>01</span><strong>{t(@locale, :build)}</strong>
+    </a>
+    <a href={stage_path(@simulation.id, "run", @workspace.id, @locale)}>
+      <span>02</span><strong>{t(@locale, :run)}</strong>
+    </a>
+    <a href={stage_path(@simulation.id, "results", @workspace.id, @locale)}>
+      <span>03</span><strong>{t(@locale, :explore)}</strong>
+    </a>
+  </nav>
+
+  <section class="simulation-build-intro">
+    <div>
+      <p class="blueprint-eyebrow">02 · {t(@locale, :build)}</p>
+      <h2>{t(@locale, :build_title)}</h2>
+      <p>{t(@locale, :build_lede)}</p>
+    </div>
+    <aside>
+      <span aria-hidden="true">◇</span>
+      <div>
+        <strong>{t(@locale, :build_not_started)}</strong>
+        <p>{t(@locale, :build_not_started_lede)}</p>
+      </div>
+    </aside>
+  </section>
+
+  <section class="simulation-build-progress" aria-label={t(@locale, :build)}>
+    <article :for={stage <- @stages} class={"is-#{stage.status}"}>
+      <span class="simulation-progress-index">
+        {String.pad_leading(to_string(stage.ordinal), 2, "0")}
+      </span>
+      <div>
+        <h3>{t(@locale, String.to_existing_atom(stage.stage))}</h3>
+        <p :if={stage.summary}>{stage.summary}</p>
+      </div>
+      <span class="simulation-progress-status">
+        {t(@locale, stage_status_key(stage.status))}
+      </span>
+    </article>
+  </section>
+
+  <section class="simulation-input-contract">
+    <div>
+      <span>{t(@locale, :build_inputs)}</span>
+      <strong>{t(@locale, :inputs_saved)}</strong>
+    </div>
+    <div class="simulation-input-tags">
+      <%= if input_labels(@simulation.active_version.inputs, @locale) == [] do %>
+        <span>{t(@locale, :question_only)}</span>
+      <% else %>
+        <span :for={label <- input_labels(@simulation.active_version.inputs, @locale)}>
+          {label}
+        </span>
+      <% end %>
+    </div>
+    <div>
+      <span>{t(@locale, :provider_calls)}</span>
+      <strong>{t(@locale, :zero)}</strong>
+    </div>
+  </section>
+
+  <% modules = [
+    {"research", :context, :context_summary, "01"},
+    {"agents", :agents, :agents_summary, "02"},
+    {"simulation", :simulation, :simulation_summary, "03"},
+    {"report", :report, :report_summary, "04"}
+  ] %>
+  <section class="simulation-module-section">
+    <header>
+      <p class="blueprint-eyebrow">{t(@locale, :modules_eyebrow)}</p>
+      <h2>{t(@locale, :modules_title)}</h2>
+      <p>{t(@locale, :modules_lede)}</p>
+    </header>
+    <div class="simulation-module-grid">
+      <article :for={{module, title, summary, number} <- modules}>
+        <span>{number}</span>
+        <div>
+          <h3>{t(@locale, title)}</h3>
+          <p>{t(@locale, summary)}</p>
+        </div>
+        <details>
+          <summary>{t(@locale, :inspect_details)}</summary>
+          <p>{@simulation.selected_blueprint.active_version.instructions[module]}</p>
+        </details>
+        <a
+          :if={@can_edit}
+          href={blueprint_path(@simulation.selected_blueprint, @workspace.id, @locale)}
+        >
+          {t(
+            @locale,
+            if(@simulation.selected_blueprint.built_in,
+              do: :inspect_blueprint,
+              else: :edit_instructions
+            )
+          )} <span aria-hidden="true">↗</span>
+        </a>
+      </article>
+    </div>
+  </section>
+
+  <section class="simulation-version-contract" aria-label={t(@locale, :selected_method)}>
+    <div>
+      <span>{t(@locale, :selected_method)}</span>
+      <strong>{localized(@simulation.selected_blueprint.name, @locale)}</strong>
+    </div>
+    <div>
+      <span>{t(@locale, :exact_version)}</span>
+      <strong>v{@simulation.selected_blueprint.active_version.version}</strong>
+    </div>
+    <div>
+      <span>{t(@locale, :content_hash)}</span>
+      <code title={@simulation.active_version.content_hash}>
+        {short_hash(@simulation.active_version.content_hash)}…
+      </code>
+    </div>
+    <a href={stage_path(@simulation.id, "run", @workspace.id, @locale)}>
+      {t(@locale, :run_title)} <span aria-hidden="true">→</span>
+    </a>
+  </section>
+</div>

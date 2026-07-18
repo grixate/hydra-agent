@@ -1,0 +1,128 @@
+<div class="simulation-studio simulation-index">
+  <header class="simulation-page-header">
+    <div>
+      <p class="blueprint-eyebrow">{t(@locale, :index_eyebrow)}</p>
+      <h1>{t(@locale, :index_title)}</h1>
+      <p class="simulation-lede">{t(@locale, :index_lede)}</p>
+    </div>
+    <div class="simulation-header-tools">
+      <nav class="blueprint-locale-switch" aria-label={t(@locale, :locale_label)}>
+        <a
+          href={index_path(@workspace && @workspace.id, "en")}
+          aria-current={if @locale == "en", do: "page"}
+        >
+          {t(@locale, :english)}
+        </a>
+        <span aria-hidden="true">/</span>
+        <a
+          href={index_path(@workspace && @workspace.id, "ru")}
+          aria-current={if @locale == "ru", do: "page"}
+        >
+          {t(@locale, :russian)}
+        </a>
+      </nav>
+      <a :if={@can_create} class="simulation-primary-link" href={new_path(@workspace.id, @locale)}>
+        <span aria-hidden="true">＋</span> {t(@locale, :new_simulation)}
+      </a>
+    </div>
+  </header>
+
+  <form :if={@workspace} class="blueprint-workspace-switch" action="/simulations" method="get">
+    <label for="simulation-workspace">{t(@locale, :workspace)}</label>
+    <select id="simulation-workspace" name="workspace_id">
+      <option
+        :for={workspace <- @workspaces}
+        value={workspace.id}
+        selected={workspace.id == @workspace.id}
+      >
+        {workspace.name}
+      </option>
+    </select>
+    <input type="hidden" name="locale" value={@locale} />
+    <button type="submit">{t(@locale, :switch)}</button>
+  </form>
+
+  <section :if={!@workspace} class="blueprint-empty-state">
+    <span aria-hidden="true">00</span>
+    <h2>{t(@locale, :no_workspace)}</h2>
+    <p>{t(@locale, :no_workspace_lede)}</p>
+  </section>
+
+  <section
+    :if={@workspace && @simulations == [] && @legacy_studies == []}
+    class="simulation-zero-state"
+  >
+    <span class="simulation-orbit" aria-hidden="true">○</span>
+    <h2>{t(@locale, :no_simulations)}</h2>
+    <p>{t(@locale, :no_simulations_lede)}</p>
+    <a :if={@can_create} class="simulation-primary-link" href={new_path(@workspace.id, @locale)}>
+      {t(@locale, :new_simulation)} <span aria-hidden="true">→</span>
+    </a>
+  </section>
+
+  <section
+    :if={@workspace && @simulations != []}
+    class="simulation-list"
+    aria-label={t(@locale, :simulations)}
+  >
+    <article :for={simulation <- @simulations} class="simulation-row">
+      <a
+        class="simulation-row-main"
+        href={stage_path(simulation.id, "build", @workspace.id, @locale)}
+      >
+        <span class={"simulation-status-dot is-#{simulation.status}"} aria-hidden="true"></span>
+        <div>
+          <div class="simulation-row-meta">
+            <span>{t(@locale, status_key(simulation.status))}</span>
+            <span>v{simulation.active_version.version}</span>
+          </div>
+          <h2>{simulation.title}</h2>
+          <p>{simulation.question}</p>
+        </div>
+      </a>
+      <dl class="simulation-row-facts">
+        <div>
+          <dt>{t(@locale, :blueprint)}</dt>
+          <dd>{localized(simulation.selected_blueprint.name, @locale)}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :population)}</dt>
+          <dd>{simulation.active_version.population_size}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :updated)}</dt>
+          <dd>{format_date(simulation.updated_at, @locale)}</dd>
+        </div>
+      </dl>
+      <div :if={@can_create} class="simulation-row-actions">
+        <form action={"/simulations/#{simulation.id}/duplicate"} method="post">
+          <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+          <input type="hidden" name="workspace_id" value={@workspace.id} />
+          <input type="hidden" name="locale" value={@locale} />
+          <button type="submit">{t(@locale, :duplicate)}</button>
+        </form>
+        <form action={"/simulations/#{simulation.id}/archive"} method="post">
+          <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+          <input type="hidden" name="workspace_id" value={@workspace.id} />
+          <input type="hidden" name="locale" value={@locale} />
+          <button type="submit">{t(@locale, :archive)}</button>
+        </form>
+      </div>
+    </article>
+  </section>
+
+  <section :if={@workspace && @legacy_studies != []} class="simulation-legacy-list">
+    <header>
+      <p class="blueprint-eyebrow">{t(@locale, :legacy)}</p>
+      <p>{t(@locale, :legacy_lede)}</p>
+    </header>
+    <a
+      :for={study <- @legacy_studies}
+      class="simulation-legacy-row"
+      href={"/lab/workspaces/#{@workspace.id}/studies/#{study.id}"}
+    >
+      <span>{study.title}</span>
+      <span>{format_date(study.updated_at, @locale)} · →</span>
+    </a>
+  </section>
+</div>

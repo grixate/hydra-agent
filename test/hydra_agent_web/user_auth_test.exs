@@ -73,7 +73,7 @@ defmodule HydraAgentWeb.UserAuthTest do
         }
       })
 
-    assert redirected_to(login) == "/blueprints?workspace_id=#{workspace.id}"
+    assert redirected_to(login) == "/simulations?workspace_id=#{workspace.id}"
 
     assert HydraAgent.Repo.get!(HydraAgent.Runtime.Workspace, workspace.id).slug ==
              "blueprint-entry"

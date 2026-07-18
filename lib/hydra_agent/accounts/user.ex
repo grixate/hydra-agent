@@ -21,6 +21,11 @@ defmodule HydraAgent.Accounts.User do
     has_many :owned_simulation_blueprints, HydraAgent.Simulations.Blueprint,
       foreign_key: :owner_user_id
 
+    has_many :owned_simulations, HydraAgent.Simulations.Simulation, foreign_key: :owner_user_id
+
+    has_many :created_simulation_versions, HydraAgent.Simulations.SimulationVersion,
+      foreign_key: :created_by_user_id
+
     timestamps(type: :utc_datetime_usec)
   end
 

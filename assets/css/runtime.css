@@ -1878,3 +1878,1315 @@
     justify-content: space-between;
   }
 }
+
+/* Blueprint-first Simulation Studio */
+
+.simulation-studio {
+  --sim-ink: #1d211f;
+  --sim-muted: #717974;
+  --sim-faint: #9aa19d;
+  --sim-line: #dfe2dd;
+  --sim-line-strong: #cbd0ca;
+  --sim-paper: #fbfbf8;
+  --sim-sage: #4f7560;
+  --sim-sage-soft: #e8f0ea;
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  color: var(--sim-ink);
+  font-family: Avenir, "Avenir Next", ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.simulation-studio h1,
+.simulation-studio h2,
+.simulation-studio h3,
+.simulation-studio p {
+  text-wrap: pretty;
+}
+
+.simulation-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 40px;
+  padding: clamp(28px, 4vw, 52px) 0 34px;
+}
+
+.simulation-page-header h1 {
+  max-width: 720px;
+  margin: 18px 0 22px;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(52px, 6.5vw, 80px);
+  font-weight: 400;
+  line-height: 0.93;
+  letter-spacing: -0.065em;
+}
+
+.simulation-lede,
+.simulation-composer-main > header > p,
+.simulation-build-intro > div > p,
+.simulation-module-section > header > p,
+.simulation-checkpoint-header p,
+.simulation-stage-empty > p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--sim-muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.simulation-header-tools {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.simulation-primary-link {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 18px;
+  border: 1px solid #243128;
+  border-radius: 9px;
+  background: #243128;
+  color: #f7faf7;
+  font-size: 11px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.simulation-primary-link:hover {
+  background: #17201a;
+  transform: translateY(-1px);
+}
+
+.simulation-zero-state {
+  display: grid;
+  min-height: 390px;
+  place-items: center;
+  padding: 70px 24px;
+  border-top: 1px solid var(--sim-line-strong);
+  border-bottom: 1px solid var(--sim-line);
+  text-align: center;
+}
+
+.simulation-zero-state > * {
+  margin: 0;
+}
+
+.simulation-zero-state h2 {
+  margin-top: 20px;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 38px;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+}
+
+.simulation-zero-state p {
+  margin: 10px 0 24px;
+  color: var(--sim-muted);
+  font-size: 13px;
+}
+
+.simulation-orbit {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid var(--sim-line-strong);
+  border-radius: 50%;
+  color: var(--sim-sage);
+  font-size: 22px;
+}
+
+.simulation-list {
+  margin-top: 42px;
+  border-top: 1px solid var(--sim-line-strong);
+}
+
+.simulation-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(330px, 0.8fr) auto;
+  align-items: center;
+  gap: 26px;
+  min-height: 174px;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-row-main {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 20px;
+  padding: 31px 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.simulation-status-dot {
+  width: 6px;
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 50%;
+  background: #a8ada9;
+}
+
+.simulation-status-dot.is-ready,
+.simulation-status-dot.is-ready_to_run {
+  background: #5d8a6b;
+  box-shadow: 0 0 0 4px rgba(93, 138, 107, 0.11);
+}
+
+.simulation-status-dot.is-running,
+.simulation-status-dot.is-building,
+.simulation-status-dot.is-analyzing {
+  background: #9b8151;
+}
+
+.simulation-status-dot.is-needs_attention,
+.simulation-status-dot.is-failed {
+  background: #a45f58;
+}
+
+.simulation-row-meta {
+  display: flex;
+  gap: 12px;
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.simulation-row h2 {
+  margin: 12px 0 7px;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(25px, 2.4vw, 34px);
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.simulation-row-main p {
+  display: -webkit-box;
+  max-width: 670px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--sim-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.simulation-row-facts {
+  display: grid;
+  grid-template-columns: 1.2fr 0.7fr 0.9fr;
+  margin: 0;
+}
+
+.simulation-row-facts div {
+  min-width: 0;
+  padding: 7px 15px;
+  border-left: 1px solid var(--sim-line);
+}
+
+.simulation-row-facts dt,
+.simulation-input-contract span,
+.simulation-version-contract span,
+.simulation-ready-summary dt {
+  color: var(--sim-faint);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.simulation-row-facts dd {
+  margin: 6px 0 0;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.simulation-row-actions {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.simulation-row-actions button,
+.simulation-workbench-actions button {
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--sim-muted);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.simulation-row-actions button:hover,
+.simulation-workbench-actions button:hover {
+  color: var(--sim-ink);
+}
+
+.simulation-legacy-list {
+  margin-top: 86px;
+  border-top: 1px solid var(--sim-line-strong);
+}
+
+.simulation-legacy-list > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 21px 0 15px;
+}
+
+.simulation-legacy-list header p:last-child {
+  margin: 0;
+  color: var(--sim-muted);
+  font-size: 10px;
+}
+
+.simulation-legacy-row {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid var(--sim-line);
+  color: var(--sim-ink);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.simulation-legacy-row span:last-child {
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+}
+
+.simulation-composer {
+  width: min(100%, 1040px);
+}
+
+.simulation-composer-header,
+.simulation-workbench-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 30px;
+  padding: 14px 0 34px;
+}
+
+.simulation-back-link {
+  color: #5f6862;
+  font-size: 10px;
+  font-weight: 620;
+  text-decoration: none;
+}
+
+.simulation-composer-main > header {
+  max-width: 830px;
+  padding: 30px 0 48px;
+}
+
+.simulation-composer-main > header h1 {
+  margin: 16px 0 25px;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(49px, 7vw, 80px);
+  font-weight: 400;
+  line-height: 0.96;
+  letter-spacing: -0.058em;
+}
+
+.simulation-create-form {
+  display: grid;
+  gap: 32px;
+}
+
+.simulation-create-form label > span,
+.simulation-choice-fieldset legend,
+.simulation-optional-grid label > span {
+  display: block;
+  margin-bottom: 9px;
+  color: #4d5550;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.simulation-question-field textarea,
+.simulation-title-field input,
+.simulation-optional-grid textarea,
+.simulation-optional-grid input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--sim-line);
+  border-radius: 10px;
+  background: rgba(251, 251, 248, 0.76);
+  color: var(--sim-ink);
+  font: inherit;
+  transition: border-color 130ms ease, background-color 130ms ease, box-shadow 130ms ease;
+}
+
+.simulation-question-field textarea {
+  min-height: 206px;
+  padding: 24px 25px;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(24px, 3.2vw, 36px);
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+  resize: vertical;
+}
+
+.simulation-title-field input,
+.simulation-optional-grid textarea,
+.simulation-optional-grid input {
+  min-height: 45px;
+  padding: 11px 13px;
+  font-size: 12px;
+}
+
+.simulation-optional-grid textarea {
+  min-height: 104px;
+  resize: vertical;
+}
+
+.simulation-question-field textarea:focus,
+.simulation-title-field input:focus,
+.simulation-optional-grid textarea:focus,
+.simulation-optional-grid input:focus {
+  border-color: #8da094;
+  background: var(--sim-paper);
+  box-shadow: 0 0 0 3px rgba(79, 117, 96, 0.08);
+  outline: 0;
+}
+
+.simulation-question-field textarea::placeholder,
+.simulation-title-field input::placeholder,
+.simulation-optional-grid textarea::placeholder,
+.simulation-optional-grid input::placeholder {
+  color: #a4aaa6;
+}
+
+.simulation-choice-fieldset {
+  margin: 4px 0 0;
+  padding: 27px 0 0;
+  border: 0;
+  border-top: 1px solid var(--sim-line-strong);
+}
+
+.simulation-choice-fieldset > p {
+  margin: -1px 0 17px;
+  color: var(--sim-muted);
+  font-size: 11px;
+}
+
+.simulation-blueprint-choices,
+.simulation-mode-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid var(--sim-line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.simulation-blueprint-choices label,
+.simulation-mode-choices label {
+  position: relative;
+  display: block;
+  min-height: 132px;
+  cursor: pointer;
+}
+
+.simulation-blueprint-choices label + label,
+.simulation-mode-choices label + label {
+  border-left: 1px solid var(--sim-line);
+}
+
+.simulation-blueprint-choices input,
+.simulation-mode-choices input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.simulation-blueprint-choices label > span,
+.simulation-mode-choices label > span {
+  display: flex;
+  height: 100%;
+  min-height: inherit;
+  box-sizing: border-box;
+  flex-direction: column;
+  padding: 24px;
+  background: rgba(251, 251, 248, 0.46);
+  transition: background-color 130ms ease, box-shadow 130ms ease;
+}
+
+.simulation-blueprint-choices input:checked + span,
+.simulation-mode-choices input:checked + span {
+  background: var(--sim-paper);
+  box-shadow: inset 0 3px 0 var(--sim-sage);
+}
+
+.simulation-blueprint-choices input:focus-visible + span,
+.simulation-mode-choices input:focus-visible + span {
+  outline: 2px solid #18181b;
+  outline-offset: -3px;
+}
+
+.simulation-blueprint-choices strong,
+.simulation-mode-choices strong {
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+}
+
+.simulation-blueprint-choices small,
+.simulation-mode-choices small {
+  max-width: 360px;
+  margin-top: 8px;
+  color: var(--sim-muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.simulation-blueprint-choices em,
+.simulation-mode-choices em {
+  margin-top: auto;
+  padding-top: 14px;
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+  font-style: normal;
+  text-transform: uppercase;
+}
+
+.simulation-mode-choices {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.simulation-mode-choices label {
+  min-height: 148px;
+}
+
+.simulation-mode-choices label.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.simulation-optional-context {
+  border-top: 1px solid var(--sim-line-strong);
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-optional-context > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.simulation-optional-context > summary::-webkit-details-marker {
+  display: none;
+}
+
+.simulation-optional-context summary strong {
+  display: block;
+  font-size: 11px;
+}
+
+.simulation-optional-context summary small {
+  display: block;
+  margin-top: 4px;
+  color: var(--sim-muted);
+  font-size: 9px;
+}
+
+.simulation-optional-context[open] > summary > span:last-child {
+  transform: rotate(45deg);
+}
+
+.simulation-optional-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  padding: 14px 0 34px;
+}
+
+.simulation-optional-grid .is-wide {
+  grid-column: 1 / -1;
+}
+
+.simulation-optional-grid label > small {
+  display: block;
+  margin-top: 7px;
+  color: var(--sim-faint);
+  font-size: 9px;
+}
+
+.simulation-file-input input {
+  padding: 9px 10px;
+  color: var(--sim-muted);
+}
+
+.simulation-file-input input::file-selector-button {
+  margin-right: 12px;
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 11px;
+  background: #e9ece7;
+  color: #384039;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.simulation-composer-footer {
+  position: sticky;
+  z-index: 20;
+  bottom: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 18px;
+  margin-top: 8px;
+  padding: 11px 11px 11px 17px;
+  border: 1px solid var(--sim-line-strong);
+  border-radius: 12px;
+  background: rgba(251, 251, 248, 0.94);
+  box-shadow: 0 16px 42px rgba(35, 43, 37, 0.1);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.simulation-composer-footer > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.simulation-composer-footer p {
+  margin: 0;
+  color: var(--sim-muted);
+  font-size: 9px;
+}
+
+.simulation-composer-footer a {
+  color: var(--sim-muted);
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.simulation-composer-footer button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 16px;
+  background: #243128;
+  color: #f7faf7;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.simulation-form-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #d8bbb7;
+  border-radius: 9px;
+  background: #f8eeec;
+  color: #75433e;
+}
+
+.simulation-form-error span {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+}
+
+.simulation-form-error p {
+  margin: 0;
+  font-size: 11px;
+}
+
+.simulation-workbench {
+  width: min(100%, 1220px);
+}
+
+.simulation-workbench-header {
+  padding-bottom: 34px;
+}
+
+.simulation-workbench-topline {
+  padding-bottom: 28px;
+}
+
+.simulation-workbench-title {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 36px;
+}
+
+.simulation-workbench-title > div:first-child {
+  max-width: 900px;
+}
+
+.simulation-workbench-title h1 {
+  margin: 15px 0 17px;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(43px, 5.5vw, 68px);
+  font-weight: 400;
+  line-height: 0.96;
+  letter-spacing: -0.055em;
+}
+
+.simulation-workbench-title p:last-child {
+  max-width: 760px;
+  margin: 0;
+  color: var(--sim-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.simulation-workbench-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 14px;
+  padding-bottom: 5px;
+}
+
+.simulation-lifecycle {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--sim-line-strong);
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-lifecycle a {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  gap: 13px;
+  padding: 0 20px;
+  border-right: 1px solid var(--sim-line);
+  color: var(--sim-faint);
+  text-decoration: none;
+}
+
+.simulation-lifecycle a:last-child {
+  border-right: 0;
+}
+
+.simulation-lifecycle a[aria-current="step"] {
+  color: var(--sim-ink);
+  box-shadow: inset 0 -2px 0 var(--sim-sage);
+}
+
+.simulation-lifecycle span {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+}
+
+.simulation-lifecycle strong {
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.simulation-build-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  align-items: end;
+  gap: clamp(38px, 7vw, 90px);
+  padding: 64px 0 38px;
+}
+
+.simulation-build-intro h2,
+.simulation-module-section h2,
+.simulation-checkpoint-header h2,
+.simulation-stage-empty h2 {
+  margin: 13px 0 17px;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: clamp(37px, 4.6vw, 56px);
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.simulation-build-intro aside {
+  display: flex;
+  gap: 14px;
+  padding: 17px;
+  border: 1px solid #dfe7e1;
+  border-radius: 10px;
+  background: #f0f4f0;
+  color: #4d6656;
+}
+
+.simulation-build-intro aside strong {
+  font-size: 10px;
+}
+
+.simulation-build-intro aside p {
+  margin: 5px 0 0;
+  color: #728078;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.simulation-build-progress {
+  border-top: 1px solid var(--sim-line-strong);
+}
+
+.simulation-build-progress article {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 17px;
+  min-height: 66px;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-progress-index {
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+}
+
+.simulation-build-progress h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.simulation-build-progress p {
+  margin: 4px 0 0;
+  color: var(--sim-muted);
+  font-size: 9px;
+}
+
+.simulation-progress-status {
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.simulation-build-progress article.is-complete .simulation-progress-status {
+  color: var(--sim-sage);
+}
+
+.simulation-build-progress article.is-running .simulation-progress-status {
+  color: #8a7040;
+}
+
+.simulation-build-progress article.is-failed .simulation-progress-status {
+  color: #9a5751;
+}
+
+.simulation-input-contract,
+.simulation-version-contract {
+  display: grid;
+  grid-template-columns: 0.7fr minmax(0, 1.8fr) 0.55fr;
+  align-items: stretch;
+  margin-top: 45px;
+  border-top: 1px solid var(--sim-line);
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-input-contract > div,
+.simulation-version-contract > div {
+  display: flex;
+  min-height: 68px;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 18px;
+  border-right: 1px solid var(--sim-line);
+}
+
+.simulation-input-contract > div:first-child,
+.simulation-version-contract > div:first-child {
+  padding-left: 0;
+}
+
+.simulation-input-contract strong,
+.simulation-version-contract strong,
+.simulation-version-contract code {
+  font-size: 10px;
+  font-weight: 620;
+}
+
+.simulation-input-tags {
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-start !important;
+  flex-flow: row wrap !important;
+  gap: 6px !important;
+}
+
+.simulation-input-tags span {
+  padding: 5px 8px;
+  border: 1px solid var(--sim-line);
+  border-radius: 999px;
+  color: var(--sim-muted);
+  font-size: 8px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.simulation-module-section {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.65fr) minmax(0, 1.75fr);
+  gap: clamp(40px, 7vw, 92px);
+  margin-top: 92px;
+}
+
+.simulation-module-section > header {
+  position: sticky;
+  top: 88px;
+  align-self: start;
+}
+
+.simulation-module-grid {
+  border-top: 1px solid var(--sim-line-strong);
+}
+
+.simulation-module-grid > article {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 27px 0;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-module-grid > article > span {
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+}
+
+.simulation-module-grid h3 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 25px;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+}
+
+.simulation-module-grid article > div p {
+  max-width: 520px;
+  margin: 6px 0 0;
+  color: var(--sim-muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.simulation-module-grid details {
+  grid-column: 2 / -1;
+}
+
+.simulation-module-grid summary {
+  color: var(--sim-muted);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.simulation-module-grid details p {
+  margin: 15px 0 0;
+  color: #4e5651;
+  font-size: 11px;
+  line-height: 1.7;
+  white-space: pre-line;
+}
+
+.simulation-module-grid article > a {
+  align-self: start;
+  color: var(--sim-sage);
+  font-size: 9px;
+  font-weight: 620;
+  text-decoration: none;
+}
+
+.simulation-version-contract {
+  grid-template-columns: 1.1fr 0.55fr 0.8fr auto;
+  margin-top: 90px;
+}
+
+.simulation-version-contract > a {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  gap: 11px;
+  padding: 0 22px;
+  color: var(--sim-sage);
+  font-size: 10px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.simulation-checkpoint-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 40px;
+  padding: 70px 0 44px;
+}
+
+.simulation-locked-seal {
+  display: grid;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  border: 1px solid var(--sim-line-strong);
+  border-radius: 50%;
+  color: var(--sim-faint);
+  font-size: 21px;
+}
+
+.simulation-ready-summary {
+  border: 1px solid var(--sim-line-strong);
+  border-radius: 12px;
+  background: rgba(251, 251, 248, 0.55);
+  overflow: hidden;
+}
+
+.simulation-ready-summary > header {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-ready-summary > header span {
+  color: var(--sim-muted);
+  font-size: 9px;
+}
+
+.simulation-ready-summary dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.simulation-ready-summary dl div {
+  min-height: 88px;
+  padding: 21px 22px;
+  border-right: 1px solid var(--sim-line);
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-ready-summary dl div:nth-child(3n) {
+  border-right: 0;
+}
+
+.simulation-ready-summary dd {
+  margin: 9px 0 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 20px;
+}
+
+.simulation-ready-summary footer {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+  padding: 0 12px;
+}
+
+.simulation-ready-summary footer a {
+  color: var(--sim-muted);
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.simulation-ready-summary footer button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 17px;
+  background: #dfe2dd;
+  color: #929993;
+  font: inherit;
+  font-size: 10px;
+  cursor: not-allowed;
+}
+
+.simulation-stage-empty {
+  display: grid;
+  min-height: 480px;
+  place-items: center;
+  align-content: center;
+  padding: 70px 24px;
+  text-align: center;
+}
+
+.simulation-stage-empty > * {
+  margin-right: 0;
+  margin-left: 0;
+}
+
+.simulation-stage-empty > span:first-child {
+  color: var(--sim-sage);
+  font-size: 34px;
+}
+
+.simulation-stage-empty > strong {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.simulation-stage-empty > p:not(.blueprint-eyebrow) {
+  max-width: 600px;
+  margin-top: 10px;
+}
+
+.simulation-stage-empty > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 24px 0;
+}
+
+.simulation-stage-empty > div span {
+  padding: 6px 10px;
+  border: 1px solid var(--sim-line);
+  border-radius: 999px;
+  color: var(--sim-faint);
+  font-size: 8px;
+}
+
+.simulation-stage-empty > a {
+  color: var(--sim-sage);
+  font-size: 10px;
+  font-weight: 620;
+  text-decoration: none;
+}
+
+@media (max-width: 940px) {
+  .simulation-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .simulation-row-facts {
+    grid-column: 1;
+    padding: 0 0 26px 32px;
+  }
+
+  .simulation-row-actions {
+    grid-row: 1 / 3;
+    grid-column: 2;
+  }
+
+  .simulation-build-intro,
+  .simulation-module-section {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-module-section > header {
+    position: static;
+  }
+}
+
+@media (max-width: 680px) {
+  .simulation-page-header,
+  .simulation-workbench-title,
+  .simulation-build-intro {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .simulation-page-header {
+    display: flex;
+  }
+
+  .simulation-header-tools {
+    width: 100%;
+    align-items: flex-start;
+  }
+
+  .simulation-page-header h1 {
+    font-size: clamp(50px, 16vw, 68px);
+  }
+
+  .simulation-primary-link {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .simulation-row {
+    display: block;
+    padding-bottom: 22px;
+  }
+
+  .simulation-row-main {
+    padding-bottom: 17px;
+  }
+
+  .simulation-row-facts {
+    grid-template-columns: 1fr 0.7fr;
+    padding: 0 0 16px 32px;
+  }
+
+  .simulation-row-facts div:first-child {
+    grid-column: 1 / -1;
+    border-bottom: 1px solid var(--sim-line);
+  }
+
+  .simulation-row-actions {
+    align-items: center;
+    flex-direction: row;
+    padding-left: 32px;
+  }
+
+  .simulation-legacy-list > header,
+  .simulation-legacy-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .simulation-legacy-row {
+    padding: 14px 0;
+  }
+
+  .simulation-composer-main > header h1 {
+    font-size: clamp(44px, 13vw, 60px);
+  }
+
+  .simulation-workbench-header {
+    padding-bottom: 26px;
+  }
+
+  .simulation-workbench-topline {
+    padding-bottom: 22px;
+  }
+
+  .simulation-workbench-title h1 {
+    margin: 12px 0 14px;
+    font-size: clamp(38px, 10.5vw, 46px);
+    letter-spacing: -0.045em;
+  }
+
+  .simulation-blueprint-choices,
+  .simulation-mode-choices,
+  .simulation-optional-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-blueprint-choices label + label,
+  .simulation-mode-choices label + label {
+    border-top: 1px solid var(--sim-line);
+    border-left: 0;
+  }
+
+  .simulation-optional-grid .is-wide {
+    grid-column: 1;
+  }
+
+  .simulation-composer-footer {
+    position: static;
+    grid-template-columns: 1fr auto;
+  }
+
+  .simulation-composer-footer > div {
+    grid-column: 1 / -1;
+  }
+
+  .simulation-composer-footer button {
+    min-width: 0;
+  }
+
+  .simulation-workbench-actions {
+    margin-top: 12px;
+  }
+
+  .simulation-lifecycle a {
+    min-height: 54px;
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  .simulation-lifecycle span {
+    display: none;
+  }
+
+  .simulation-build-progress article {
+    grid-template-columns: 27px minmax(0, 1fr);
+    padding: 13px 0;
+  }
+
+  .simulation-progress-status {
+    grid-column: 2;
+  }
+
+  .simulation-input-contract,
+  .simulation-version-contract {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .simulation-input-contract > div,
+  .simulation-version-contract > div {
+    border-bottom: 1px solid var(--sim-line);
+  }
+
+  .simulation-input-contract > div:nth-child(2),
+  .simulation-version-contract > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .simulation-input-tags {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--sim-line);
+  }
+
+  .simulation-module-grid > article {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .simulation-module-grid article > a,
+  .simulation-module-grid details {
+    grid-column: 2;
+  }
+
+  .simulation-version-contract > a {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
+  .simulation-checkpoint-header {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-ready-summary dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .simulation-ready-summary dl div:nth-child(3n) {
+    border-right: 1px solid var(--sim-line);
+  }
+
+  .simulation-ready-summary dl div:nth-child(2n) {
+    border-right: 0;
+  }
+}

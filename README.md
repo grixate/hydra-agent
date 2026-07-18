@@ -72,6 +72,9 @@ Its boundary decision is recorded in
 [docs/adr/0001-blueprint-first-product-boundary.md](docs/adr/0001-blueprint-first-product-boundary.md).
 The portable package contract and import boundary are documented in
 [docs/blueprint-packages.md](docs/blueprint-packages.md).
+The durable Simulation Studio shell, input boundary, and honest lifecycle gates
+are documented in
+[docs/simulation-studio-shell.md](docs/simulation-studio-shell.md).
 
 Production browser access is authenticated. Set
 `HYDRA_BOOTSTRAP_ADMIN_EMAIL` and a password of at least 12 characters in

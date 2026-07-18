@@ -47,10 +47,21 @@ document.addEventListener("click", event => {
 })
 
 document.addEventListener("change", event => {
-  if (!event.target.matches("[data-blueprint-file]")) return
+  if (event.target.matches("[data-blueprint-file]")) {
+    const filename = event.target.closest("form")?.querySelector("[data-blueprint-filename]")
+    if (filename) filename.textContent = event.target.files?.[0]?.name || filename.textContent
+    return
+  }
 
-  const filename = event.target.closest("form")?.querySelector("[data-blueprint-filename]")
-  if (filename) filename.textContent = event.target.files?.[0]?.name || filename.textContent
+  if (event.target.matches("[data-simulation-files]")) {
+    const label = event.target.closest("label")?.querySelector("[data-simulation-filenames]")
+
+    if (label) {
+      label.dataset.default ||= label.textContent
+      const names = Array.from(event.target.files || [], file => file.name)
+      label.textContent = names.length ? names.join(" · ") : label.dataset.default
+    }
+  }
 })
 
 liveSocket.connect()

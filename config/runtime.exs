@@ -54,8 +54,14 @@ product_surface =
     "legacy_simlab"
   )
 
+product_surface_atom =
+  case product_surface do
+    "legacy_simlab" -> :legacy_simlab
+    "blueprint_studio" -> :blueprint_studio
+  end
+
 config :hydra_agent, :product_features,
-  surface: String.to_existing_atom(product_surface),
+  surface: product_surface_atom,
   balanced_mode: HydraAgent.ReleaseConfig.boolean_env!("HYDRA_BALANCED_MODE", true),
   deep_mode: HydraAgent.ReleaseConfig.boolean_env!("HYDRA_DEEP_MODE", false),
   blueprint_import: HydraAgent.ReleaseConfig.boolean_env!("HYDRA_BLUEPRINT_IMPORT", true),
