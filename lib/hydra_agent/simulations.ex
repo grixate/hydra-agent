@@ -44,6 +44,7 @@ defmodule HydraAgent.Simulations do
   }
 
   alias HydraAgent.Runtime.{Run, RunEvent}
+  alias HydraAgent.Simulations.Engine.BalancedCognition
   alias HydraAgent.Simulations.Workers.QuickRunWorker
 
   @stage_definitions [
@@ -235,7 +236,12 @@ defmodule HydraAgent.Simulations do
       |> require_ready(simulation.active_script, "simulation_script_missing")
       |> require_ready(current_model_route_plan(simulation), "model_route_plan_missing")
       |> require_ready(current_budget_plan(simulation), "budget_plan_missing")
-      |> require_quick_mode(simulation.active_version)
+      |> require_supported_mode(simulation.active_version)
+      |> require_simulation_route(
+        simulation.active_version,
+        current_model_route_plan(simulation)
+      )
+      |> require_cognition_script(simulation.active_version, simulation.active_script)
       |> require_population_ready(simulation.active_population_model)
       |> require_script_ready(simulation.active_script)
 
@@ -255,6 +261,15 @@ defmodule HydraAgent.Simulations do
     |> list_simulation_run_records()
     |> List.first()
   end
+
+  def list_run_decisions(%SimulationRunRecord{} = record),
+    do: BalancedCognition.list_decisions(record.id)
+
+  def list_recent_run_decisions(%SimulationRunRecord{} = record, limit \\ 6),
+    do: BalancedCognition.list_recent_decisions(record.id, limit)
+
+  def run_cognition_summary(%SimulationRunRecord{} = record),
+    do: BalancedCognition.summary(record.id)
 
   def current_model_route_plan(%Simulation{} = simulation) do
     case current_budget_plan(simulation) do
@@ -290,7 +305,7 @@ defmodule HydraAgent.Simulations do
           |> Repo.one!()
           |> Repo.preload(:active_version)
 
-        if active_quick_run?(Repo, locked.id) do
+        if active_simulation_run?(Repo, locked.id) do
           Repo.rollback(:run_already_active)
         end
 
@@ -380,6 +395,10 @@ defmodule HydraAgent.Simulations do
   end
 
   def create_quick_run(%Simulation{} = simulation, user, opts \\ []) do
+    create_simulation_run(simulation, user, Keyword.put(opts, :mode, "quick"))
+  end
+
+  def create_simulation_run(%Simulation{} = simulation, user, opts \\ []) do
     simulation =
       Repo.preload(simulation, [
         :active_version,
@@ -397,6 +416,16 @@ defmodule HydraAgent.Simulations do
 
     partition_count = Keyword.get(opts, :partition_count, 4)
 
+    mode =
+      Keyword.get(
+        opts,
+        :mode,
+        simulation.active_version && simulation.active_version.execution_mode
+      )
+
+    replay_kind = Keyword.get(opts, :replay_kind, "original")
+    replay_source_id = Keyword.get(opts, :replay_source_id)
+
     cond do
       not Accounts.workspace_authorized?(user, simulation.workspace_id, "researcher") ->
         {:error, :forbidden}
@@ -407,10 +436,56 @@ defmodule HydraAgent.Simulations do
       not (is_integer(partition_count) and partition_count in 1..64) ->
         {:error, :invalid_partition_count}
 
+      mode not in ~w(quick balanced) ->
+        {:error, :unsupported_execution_mode}
+
+      simulation.active_version.execution_mode != mode ->
+        {:error, :execution_mode_mismatch}
+
+      not valid_replay_request?(simulation, replay_kind, replay_source_id) ->
+        {:error, :invalid_replay_source}
+
       true ->
         with {:ok, _summary} <- run_readiness(simulation) do
-          persist_quick_run(simulation, user, seed, partition_count)
+          persist_simulation_run(
+            simulation,
+            user,
+            seed,
+            partition_count,
+            mode,
+            replay_kind,
+            replay_source_id
+          )
         end
+    end
+  end
+
+  def create_fresh_rerun(%SimulationRunRecord{} = source, user, opts \\ []) do
+    source = Repo.preload(source, [:run, :simulation])
+    seed = Keyword.get(opts, :seed, source.seed + 1)
+
+    create_simulation_run(
+      source.simulation,
+      user,
+      opts
+      |> Keyword.put(:seed, seed)
+      |> Keyword.put(:replay_kind, "fresh_rerun")
+      |> Keyword.put(:replay_source_id, source.id)
+    )
+  end
+
+  def create_exact_replay(%SimulationRunRecord{} = source, user) do
+    source = Repo.preload(source, [:run, :simulation])
+
+    cond do
+      not Accounts.workspace_authorized?(user, source.workspace_id, "researcher") ->
+        {:error, :forbidden}
+
+      source.run.status != "completed" ->
+        {:error, :replay_source_not_completed}
+
+      true ->
+        persist_exact_replay(source, user)
     end
   end
 
@@ -518,7 +593,9 @@ defmodule HydraAgent.Simulations do
   def get_simulation_run_record!(id) do
     SimulationRunRecord
     |> Repo.get!(id)
-    |> Repo.preload([:run, :simulation, :snapshots, :budget_plan, :model_route_plan])
+    |> Repo.preload([:run, :simulation, :snapshots, :budget_plan, :model_route_plan],
+      in_parallel: false
+    )
   end
 
   def get_simulation_run_record(id) when is_binary(id) do
@@ -531,13 +608,11 @@ defmodule HydraAgent.Simulations do
             nil
 
           record ->
-            Repo.preload(record, [
-              :run,
-              :simulation,
-              :snapshots,
-              :budget_plan,
-              :model_route_plan
-            ])
+            Repo.preload(
+              record,
+              [:run, :simulation, :snapshots, :budget_plan, :model_route_plan],
+              in_parallel: false
+            )
         end
 
       :error ->
@@ -547,7 +622,143 @@ defmodule HydraAgent.Simulations do
 
   def get_simulation_run_record(_id), do: nil
 
-  defp persist_quick_run(simulation, user, seed, partition_count) do
+  defp persist_exact_replay(source, user) do
+    Multi.new()
+    |> Multi.run(:source, fn repo, _changes ->
+      locked =
+        SimulationRunRecord
+        |> where([record], record.id == ^source.id)
+        |> lock("FOR SHARE")
+        |> repo.one!()
+        |> repo.preload([
+          :run,
+          :simulation,
+          :simulation_version,
+          :context_pack,
+          :population_model,
+          :simulation_script,
+          :model_route_plan,
+          :budget_plan
+        ])
+
+      cond do
+        locked.run.status != "completed" -> {:error, :replay_source_not_completed}
+        active_simulation_run?(repo, locked.simulation_id) -> {:error, :run_already_active}
+        true -> {:ok, locked}
+      end
+    end)
+    |> Multi.insert(:run, fn %{source: source} ->
+      Run.changeset(%Run{}, %{
+        workspace_id: source.workspace_id,
+        title: "#{source.simulation.title} · Exact replay",
+        goal: source.simulation.question,
+        status: "planned",
+        autonomy_level: "recommend",
+        budget: BudgetPlanBuilder.snapshot(source.budget_plan),
+        plan: %{
+          "kind" => "simulation",
+          "mode" => source.mode,
+          "replay_kind" => "exact_replay",
+          "replay_source_id" => source.id,
+          "rounds" => source.rounds_planned,
+          "population_size" => source.population_model.population_size
+        },
+        metadata: %{
+          "kind" => "simulation",
+          "simulation_id" => source.simulation_id,
+          "replay_kind" => "exact_replay",
+          "replay_source_id" => source.id,
+          "pack_hash" => source.pack_hash,
+          "engine_version" => source.engine_version,
+          "budget_plan_hash" => source.budget_plan.content_hash,
+          "model_route_plan_hash" => source.model_route_plan.content_hash
+        }
+      })
+    end)
+    |> Multi.insert(:run_created_event, fn %{run: run, source: source} ->
+      RunEvent.changeset(%RunEvent{}, %{
+        workspace_id: run.workspace_id,
+        run_id: run.id,
+        event_type: "run.created",
+        summary: "Exact replay created",
+        payload: %{
+          "kind" => "simulation",
+          "mode" => source.mode,
+          "replay_kind" => "exact_replay",
+          "replay_source_id" => source.id,
+          "pack_hash" => source.pack_hash
+        }
+      })
+    end)
+    |> Multi.insert(:record, fn %{run: run, source: source} ->
+      SimulationRunRecord.changeset(%SimulationRunRecord{}, %{
+        workspace_id: source.workspace_id,
+        run_id: run.id,
+        simulation_id: source.simulation_id,
+        simulation_version_id: source.simulation_version_id,
+        context_pack_id: source.context_pack_id,
+        population_model_id: source.population_model_id,
+        simulation_script_id: source.simulation_script_id,
+        model_route_plan_id: source.model_route_plan_id,
+        budget_plan_id: source.budget_plan_id,
+        created_by_user_id: user && user.id,
+        mode: source.mode,
+        replay_kind: "exact_replay",
+        replay_source_id: source.id,
+        decision_policy: source.decision_policy,
+        seed: source.seed,
+        engine_version: source.engine_version,
+        pack_hash: source.pack_hash,
+        partition_count: source.partition_count,
+        snapshot_interval: source.snapshot_interval,
+        rounds_planned: source.rounds_planned,
+        current_round: 0,
+        last_event_sequence: 0,
+        model_call_count: 0,
+        recovery_count: 0,
+        model_route_snapshot: source.model_route_snapshot,
+        budget_snapshot: source.budget_snapshot,
+        budget_used: %{
+          "currency" => source.budget_plan.currency,
+          "model_calls" => 0,
+          "input_tokens" => 0,
+          "output_tokens" => 0,
+          "cost" => if(source.budget_plan.pricing_status == "known", do: "0", else: nil)
+        },
+        fallback_count: 0,
+        result_summary: %{},
+        failure: %{}
+      })
+    end)
+    |> Multi.insert(:job, fn %{record: record} ->
+      QuickRunWorker.new(%{"simulation_run_record_id" => record.id})
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{record: record}} ->
+        {:ok,
+         Repo.preload(record, [
+           :run,
+           :simulation,
+           :budget_plan,
+           :model_route_plan,
+           :replay_source
+         ])}
+
+      {:error, _operation, reason, _changes} ->
+        {:error, reason}
+    end
+  end
+
+  defp persist_simulation_run(
+         simulation,
+         user,
+         seed,
+         partition_count,
+         mode,
+         replay_kind,
+         replay_source_id
+       ) do
     now = DateTime.utc_now()
 
     Multi.new()
@@ -566,7 +777,7 @@ defmodule HydraAgent.Simulations do
 
       case run_readiness(locked) do
         {:ok, _summary} ->
-          if active_quick_run?(repo, locked.id) do
+          if active_simulation_run?(repo, locked.id) do
             {:error, :run_already_active}
           else
             {:ok, locked}
@@ -581,27 +792,31 @@ defmodule HydraAgent.Simulations do
     end)
     |> Multi.insert(:run, fn %{locked_simulation: locked, configuration: configuration} ->
       rounds = get_in(locked.active_script.script, ["clock", "count"])
-      pack_hash = simulation_pack_hash(locked, seed, configuration)
+      pack_hash = simulation_pack_hash(locked, seed, configuration, mode)
       budget_snapshot = BudgetPlanBuilder.snapshot(configuration.budget_plan)
 
       Run.changeset(%Run{}, %{
         workspace_id: locked.workspace_id,
-        title: "#{locked.title} · Quick run",
+        title: "#{locked.title} · #{run_label(mode, replay_kind)}",
         goal: locked.question,
         status: "planned",
         autonomy_level: "recommend",
         budget: budget_snapshot,
         plan: %{
           "kind" => "simulation",
-          "mode" => "quick",
+          "mode" => mode,
+          "replay_kind" => replay_kind,
+          "replay_source_id" => replay_source_id,
           "rounds" => rounds,
           "population_size" => locked.active_population_model.population_size
         },
         metadata: %{
           "kind" => "simulation",
           "simulation_id" => locked.id,
+          "replay_kind" => replay_kind,
+          "replay_source_id" => replay_source_id,
           "pack_hash" => pack_hash,
-          "engine_version" => SimulationRunRecord.engine_version(),
+          "engine_version" => SimulationRunRecord.engine_version(mode),
           "budget_plan_hash" => configuration.budget_plan.content_hash,
           "model_route_plan_hash" => configuration.model_route_plan.content_hash
         }
@@ -615,7 +830,9 @@ defmodule HydraAgent.Simulations do
         summary: "Run created",
         payload: %{
           "kind" => "simulation",
-          "mode" => "quick",
+          "mode" => mode,
+          "replay_kind" => replay_kind,
+          "replay_source_id" => replay_source_id,
           "pack_hash" => run.metadata["pack_hash"],
           "model_call_cap" =>
             get_in(configuration.budget_plan.stage_caps, ["simulation", "calls"]),
@@ -630,7 +847,8 @@ defmodule HydraAgent.Simulations do
                                   run: run
                                 } ->
       rounds = get_in(locked.active_script.script, ["clock", "count"])
-      pack_hash = simulation_pack_hash(locked, seed, configuration)
+      pack_hash = simulation_pack_hash(locked, seed, configuration, mode)
+      type_ids = Enum.map(locked.active_population_model.agent_types, & &1["id"])
 
       SimulationRunRecord.changeset(%SimulationRunRecord{}, %{
         workspace_id: locked.workspace_id,
@@ -643,9 +861,12 @@ defmodule HydraAgent.Simulations do
         model_route_plan_id: configuration.model_route_plan.id,
         budget_plan_id: configuration.budget_plan.id,
         created_by_user_id: user && user.id,
-        mode: "quick",
+        mode: mode,
+        replay_kind: replay_kind,
+        replay_source_id: replay_source_id,
+        decision_policy: BalancedCognition.default_policy(configuration.budget_plan, type_ids),
         seed: seed,
-        engine_version: SimulationRunRecord.engine_version(),
+        engine_version: SimulationRunRecord.engine_version(mode),
         pack_hash: pack_hash,
         partition_count: partition_count,
         snapshot_interval: 1,
@@ -668,7 +889,11 @@ defmodule HydraAgent.Simulations do
         failure: %{}
       })
     end)
-    |> Multi.run(:preparing_stage, fn repo, %{locked_simulation: locked} ->
+    |> Multi.run(:preparing_stage, fn repo,
+                                      %{
+                                        locked_simulation: locked,
+                                        configuration: configuration
+                                      } ->
       stage =
         BuildStage
         |> where(
@@ -683,7 +908,9 @@ defmodule HydraAgent.Simulations do
       stage
       |> BuildStage.changeset(%{
         status: "complete",
-        summary: "Quick · #{SimulationRunRecord.engine_version()} · 0 simulation model calls",
+        summary:
+          "#{mode_label(mode)} · #{SimulationRunRecord.engine_version(mode)} · " <>
+            "#{get_in(configuration.budget_plan.stage_caps, ["simulation", "calls"]) || 0} maximum model decisions",
         warnings: [],
         started_at: now,
         completed_at: now
@@ -703,7 +930,7 @@ defmodule HydraAgent.Simulations do
     end
   end
 
-  defp simulation_pack_hash(simulation, seed, configuration) do
+  defp simulation_pack_hash(simulation, seed, configuration, mode) do
     ContentHash.digest(%{
       "simulation_version" => simulation.active_version.content_hash,
       "context_pack" => simulation.active_context_pack.content_hash,
@@ -712,7 +939,7 @@ defmodule HydraAgent.Simulations do
       "model_route_plan" => configuration.model_route_plan.content_hash,
       "budget_plan" => configuration.budget_plan.content_hash,
       "seed" => seed,
-      "engine_version" => SimulationRunRecord.engine_version()
+      "engine_version" => SimulationRunRecord.engine_version(mode)
     })
   end
 
@@ -737,7 +964,7 @@ defmodule HydraAgent.Simulations do
       else: {:error, :simulation_configuration_missing}
   end
 
-  defp active_quick_run?(repo, simulation_id) do
+  defp active_simulation_run?(repo, simulation_id) do
     SimulationRunRecord
     |> join(:inner, [record], run in assoc(record, :run))
     |> where(
@@ -747,12 +974,55 @@ defmodule HydraAgent.Simulations do
     |> repo.exists?()
   end
 
+  defp mode_label("balanced"), do: "Balanced"
+  defp mode_label(_mode), do: "Quick"
+
+  defp run_label(mode, "fresh_rerun"), do: "#{mode_label(mode)} fresh rerun"
+  defp run_label(mode, _replay_kind), do: "#{mode_label(mode)} run"
+
+  defp valid_replay_request?(_simulation, "original", nil), do: true
+
+  defp valid_replay_request?(simulation, "fresh_rerun", source_id) when not is_nil(source_id) do
+    SimulationRunRecord
+    |> join(:inner, [record], run in assoc(record, :run))
+    |> where(
+      [record, run],
+      record.id == ^source_id and record.workspace_id == ^simulation.workspace_id and
+        record.simulation_id == ^simulation.id and run.status == "completed"
+    )
+    |> Repo.exists?()
+  end
+
+  defp valid_replay_request?(_simulation, _kind, _source_id), do: false
+
   defp require_ready(reasons, nil, code), do: reasons ++ [code]
   defp require_ready(reasons, _record, _code), do: reasons
 
-  defp require_quick_mode(reasons, %{execution_mode: "quick"}), do: reasons
-  defp require_quick_mode(reasons, nil), do: reasons
-  defp require_quick_mode(reasons, _version), do: reasons ++ ["quick_mode_required"]
+  defp require_supported_mode(reasons, %{execution_mode: mode}) when mode in ~w(quick balanced),
+    do: reasons
+
+  defp require_supported_mode(reasons, nil), do: reasons
+  defp require_supported_mode(reasons, _version), do: reasons ++ ["execution_mode_not_supported"]
+
+  defp require_simulation_route(reasons, %{execution_mode: "quick"}, _route_plan), do: reasons
+
+  defp require_simulation_route(reasons, %{execution_mode: "balanced"}, route_plan) do
+    if get_in(route_plan && route_plan.resolved_routes, ["simulation", "status"]) == "resolved",
+      do: reasons,
+      else: reasons ++ ["simulation_model_route_unavailable"]
+  end
+
+  defp require_simulation_route(reasons, _version, _route_plan), do: reasons
+
+  defp require_cognition_script(reasons, %{execution_mode: "quick"}, _script), do: reasons
+
+  defp require_cognition_script(reasons, %{execution_mode: "balanced"}, script) do
+    if script && Enum.any?(script.script["policies"] || [], &(&1["kind"] == "hybrid")),
+      do: reasons,
+      else: reasons ++ ["balanced_cognition_script_required"]
+  end
+
+  defp require_cognition_script(reasons, _version, _script), do: reasons
 
   defp require_population_ready(reasons, %{status: "ready"}), do: reasons
   defp require_population_ready(reasons, nil), do: reasons

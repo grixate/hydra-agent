@@ -94,6 +94,26 @@ defmodule HydraAgentWeb.SimulationHTML do
 
   def mode_label(mode), do: String.to_existing_atom(mode)
 
+  def run_lineage_key("exact_replay"), do: :run_exact_replay_label
+  def run_lineage_key("fresh_rerun"), do: :run_fresh_rerun_label
+  def run_lineage_key(_kind), do: :run_original
+
+  def cognition_source_key("model"), do: :cognition_source_model
+  def cognition_source_key("exact_replay"), do: :cognition_source_replay
+
+  def cognition_source_key(source)
+      when source in ~w(exact_cache policy_signature_cache representative_decision),
+      do: :cognition_source_cache
+
+  def cognition_source_key(_source), do: :cognition_source_rule
+
+  def cognition_agents_label(count, "ru") when is_integer(count) do
+    "#{count} #{russian_plural(count, "агент", "агента", "агентов")}"
+  end
+
+  def cognition_agents_label(1, _locale), do: "1 agent"
+  def cognition_agents_label(count, _locale), do: "#{count} agents"
+
   def run_status_key("planned"), do: :run_queued_status
   def run_status_key("running"), do: :run_running_status
   def run_status_key("completed"), do: :run_completed_status

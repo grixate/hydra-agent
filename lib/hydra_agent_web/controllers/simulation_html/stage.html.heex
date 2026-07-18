@@ -87,7 +87,12 @@
             <p class="blueprint-eyebrow">{t(@locale, :run_latest_record)}</p>
             <strong>{t(@locale, run_status_key(@latest_run.run.status))}</strong>
           </div>
-          <span>{t(@locale, mode_label(@latest_run.mode))}</span>
+          <span>
+            {t(@locale, mode_label(@latest_run.mode))} · {t(
+              @locale,
+              run_lineage_key(@latest_run.replay_kind)
+            )}
+          </span>
         </header>
         <div class="simulation-run-progress">
           <div>
@@ -135,6 +140,82 @@
             </div>
           </dl>
         </details>
+
+        <section
+          :if={
+            @latest_run.mode == "balanced" && @cognition_summary &&
+              @cognition_summary["decisions"] > 0
+          }
+          class="simulation-cognition"
+          aria-labelledby="cognition-title"
+        >
+          <header>
+            <div>
+              <h3 id="cognition-title">{t(@locale, :cognition_title)}</h3>
+              <p>{t(@locale, :cognition_lede)}</p>
+            </div>
+          </header>
+          <dl>
+            <div>
+              <dt>{t(@locale, :cognition_model)}</dt>
+              <dd>{@cognition_summary["model_decisions"]}</dd>
+            </div>
+            <div>
+              <dt>{t(@locale, :cognition_reused)}</dt>
+              <dd>{@cognition_summary["reused_decisions"]}</dd>
+            </div>
+            <div>
+              <dt>{t(@locale, :cognition_affected)}</dt>
+              <dd>{@cognition_summary["affected_agents"]}</dd>
+            </div>
+            <div>
+              <dt>{t(@locale, :cognition_fallbacks)}</dt>
+              <dd>{@cognition_summary["fallback_decisions"]}</dd>
+            </div>
+          </dl>
+          <details :if={@recent_decisions != []}>
+            <summary>{t(@locale, :cognition_recent)}</summary>
+            <ol>
+              <li :for={decision <- @recent_decisions}>
+                <span>
+                  {tx(@locale, :cognition_round, round: decision.round)} · {t(
+                    @locale,
+                    cognition_source_key(decision.source)
+                  )}
+                </span>
+                <strong>{context_identifier(decision.action_id, @locale)}</strong>
+                <small>
+                  {context_identifier(decision.agent_type, @locale)} · {cognition_agents_label(
+                    decision.affected_agent_count,
+                    @locale
+                  )}
+                </small>
+              </li>
+            </ol>
+          </details>
+        </section>
+
+        <div
+          :if={@can_edit && @latest_run.run.status == "completed"}
+          class="simulation-replay-actions"
+        >
+          <form
+            action={"/simulations/#{@simulation.id}/run/#{@latest_run.id}/replay?workspace_id=#{@workspace.id}&locale=#{@locale}"}
+            method="post"
+          >
+            <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+            <button type="submit">{t(@locale, :run_exact_replay)}</button>
+            <small>{t(@locale, :run_exact_replay_hint)}</small>
+          </form>
+          <form
+            action={"/simulations/#{@simulation.id}/run/#{@latest_run.id}/rerun?workspace_id=#{@workspace.id}&locale=#{@locale}"}
+            method="post"
+          >
+            <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+            <button type="submit">{t(@locale, :run_fresh_rerun)}</button>
+            <small>{t(@locale, :run_fresh_rerun_hint)}</small>
+          </form>
+        </div>
       </section>
 
       <section
@@ -234,7 +315,10 @@
                 </option>
               </select>
             </label>
-            <div class="simulation-route-fixed">
+            <div
+              :if={@simulation.active_version.execution_mode == "quick"}
+              class="simulation-route-fixed"
+            >
               <span>{t(@locale, :model_simulation)}</span>
               <strong>
                 {model_route_label(@locale, @model_route_plan.resolved_routes["simulation"])}
@@ -245,6 +329,26 @@
                 value="none"
               />
             </div>
+            <label :if={@simulation.active_version.execution_mode == "balanced"}>
+              <span>{t(@locale, :model_simulation)}</span>
+              <select name="run_configuration[model_routes][simulation]">
+                <option
+                  value="automatic"
+                  selected={model_route_selection(@model_route_plan, "simulation") == "automatic"}
+                >
+                  {t(@locale, :model_automatic)}
+                </option>
+                <option
+                  :for={provider <- @available_model_routes}
+                  value={provider["id"]}
+                  selected={
+                    model_route_selection(@model_route_plan, "simulation") == provider["id"]
+                  }
+                >
+                  {provider_option_label(provider)}
+                </option>
+              </select>
+            </label>
             <label>
               <span>{t(@locale, :model_report)}</span>
               <select name="run_configuration[model_routes][report]">
@@ -360,7 +464,11 @@
             <button class="simulation-run-cancel" type="submit">{t(@locale, :run_cancel)}</button>
           </form>
           <form
-            :if={@can_edit && !run_active?(@latest_run) && match?({:ok, _}, @run_readiness)}
+            :if={
+              @can_edit && !run_active?(@latest_run) &&
+                (!@latest_run || @latest_run.run.status != "completed") &&
+                match?({:ok, _}, @run_readiness)
+            }
             action={"/simulations/#{@simulation.id}/run?workspace_id=#{@workspace.id}&locale=#{@locale}"}
             method="post"
           >

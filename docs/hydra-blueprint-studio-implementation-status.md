@@ -11,10 +11,10 @@ entire epic or release is complete.
 
 ## Current status
 
-- Active epic: **Epic 8 — Balanced hybrid cognition**
-- Completed epic: **Epic 7 — Budget Governor and model routing**
-- Next vertical slice: selective activation, bounded decision queues, policy
-  signatures, exact recorded-decision replay, and deterministic fallbacks
+- Active epic: **Epic 9 — Deterministic analysis and uncertainty**
+- Completed epic: **Epic 8 — Balanced hybrid cognition**
+- Next vertical slice: immutable Analysis Packs, deterministic metrics and
+  segments, uncertainty diagnostics, sensitivity runs, and traceable claims
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
@@ -27,7 +27,7 @@ All flags are runtime configuration and do not mutate persisted records.
 | Environment variable | Default | Purpose |
 |---|---:|---|
 | `HYDRA_PRODUCT_SURFACE` | `legacy_simlab` | Selects the legacy entry route or the additive Blueprint Studio entry route. |
-| `HYDRA_BALANCED_MODE` | `true` | Enables bounded selective model cognition. The new execution contract is not implemented yet. |
+| `HYDRA_BALANCED_MODE` | `true` | Enables bounded selective model cognition with immutable decisions and replay. |
 | `HYDRA_DEEP_MODE` | `false` | Keeps experimental model-intensive execution disabled. |
 | `HYDRA_BLUEPRINT_IMPORT` | `true` | Enables the safe package-import surface and rejects direct imports when disabled. |
 | `HYDRA_LEGACY_SIMLAB` | `true` | Preserves the current product routes and records during migration. |
@@ -58,7 +58,7 @@ product behavior.
 | Simulation Pack | No equivalent; SimLab run `input_snapshot` is closest | Add immutable compiled reference object only after component versions exist. |
 | Preview Run | `HydraAgent.Simulations.ScriptPreview`; existing deterministic runner assets | Implemented as a separate immutable, exact-lineage two-round result with at most 12 representatives, zero model calls, safe errors, and a deterministic result hash. |
 | Run | neutral runtime `runs`; legacy `sim_lab_runs` | Neutral `runs` is the execution identity. A one-to-one simulation profile captures exact lineage and deterministic execution metadata; legacy records remain compatibility assets. |
-| Run Decision | Pattern decisions summarized; outcome events exist | Add only when Balanced cognition lands; preserve deterministic IDs and provenance. |
+| Run Decision | `HydraAgent.Simulations.RunDecision`, `simulation_run_decisions`, affected-agent mappings | Implemented as append-only, budget-linked, exact-contract decisions with stable signatures, typed actions, replay lineage, and explicit fallback provenance. |
 | Run Event | Runtime `run_events`, legacy `sim_lab_outcome_events` | Runtime events now carry optional simulation sequence, round, phase, targets, source, provenance, and idempotency fields. Simulation events fail closed when ordering fields are absent. |
 | Run Snapshot | General `run_snapshots`; legacy `sim_lab_snapshots` | Implemented as append-only, checksummed, engine/schema-versioned full recovery state owned by the neutral run. Legacy snapshots remain unchanged. |
 | Resource Transaction | `resource_transactions` | Implemented as an append-only Decimal ledger with stable ordering, provenance, resulting balances, and retry-safe idempotency. |
@@ -180,6 +180,12 @@ converted by Epic 0.
   envelopes, idempotency, non-negative usage, bounded configuration, and Run
   references. Existing Versions and Runs receive conservative unknown-price
   backfills without changing their execution history.
+- Epic 8: additive append-only `simulation_run_decisions` and
+  `simulation_run_decision_agents`; additive replay lineage, decision-policy,
+  and manifest fields on Simulation Run records. Database triggers enforce
+  exact workspace/Run/reservation scope, immutable decision provenance,
+  stable affected-agent mappings, strict replay-source compatibility, and
+  immutable Run lineage after creation. Quick Run constraints remain intact.
 
 ## Acceptance ledger
 
@@ -474,6 +480,50 @@ lock hygiene and audit, formatting, Sobelow with only the repository's reviewed
 low-confidence findings, and 664 ExUnit tests with zero failures (seed 70277,
 24.9 seconds). `mix assets.build` also passes.
 
+### Epic 8 — Balanced hybrid cognition
+
+- [x] Balanced Scripts compile explicit hybrid policies with declared candidate
+  actions and deterministic weighted fallbacks; Quick Scripts remain unchanged.
+- [x] Stable versioned policy signatures group agents by type, archetype,
+  bucketed relevant state, recent events, action set, relationship class,
+  Script hash, and model-route version.
+- [x] Novelty, uncertainty, influence, downstream impact, deterministic
+  disagreement, user importance, representative sampling, and cache miss feed
+  a deterministic priority score.
+- [x] Global, per-round, per-type, per-agent, token, call, cost, runtime, and
+  concurrency limits are checked before dispatch. Requests run in bounded
+  batches so active reservations cannot oversubscribe the concurrency cap.
+- [x] The six-field decision JSON contract rejects unknown keys, undeclared
+  actions, malformed reason codes, oversized parameters/memory, long rationale,
+  and out-of-range uncertainty.
+- [x] Invalid output, provider error, timeout, missing route, and exhausted
+  budget produce a recorded deterministic fallback without corrupting state.
+  Dispatched failures close against the conservative reserved envelope.
+- [x] Decisions and affected-agent mappings are append-only and exact-workspace/
+  Run scoped. They are durable before a round snapshot and reused on retry.
+- [x] Within-Run signature reuse lets one representative decision cover many
+  agents; per-agent coverage remains capped and inspectable.
+- [x] Exact replay uses the same Pack, seed, engine, ordering, and recorded
+  decisions with zero new provider calls; result, final-state, and decision-
+  manifest hashes match. Fresh rerun uses the current Pack and a new seed.
+- [x] The Run surface exposes an editable Simulation route only for Balanced,
+  quiet decision/reuse/coverage/fallback summaries, recent decisions, and
+  clearly differentiated exact/fresh replay actions in English and Russian.
+- [x] A 5,000-agent × 12-round acceptance run completed locally in 19.1905
+  seconds against the 60-second engine target, stayed under 80 model calls and
+  two decisions per agent, and proved multi-agent signature reuse.
+
+Focused domain and controller coverage passes for valid cognition, malformed
+provider output, conservative budget closure, exact replay, fresh rerun,
+5,000-agent scale, route editing/locking, and bilingual operator copy.
+Architecture and operations are recorded in ADR 0005 and
+`docs/balanced-cognition.md`; the local scale evidence is
+`docs/benchmarks/2026-07-18-balanced-engine-5k.json`. The exact implementation
+worktree passed `mix precommit` on 2026-07-18: warnings-as-errors compilation,
+dependency lock hygiene and audit, formatting, Sobelow with only the
+repository's reviewed low-confidence findings, and 670 ExUnit tests with zero
+failures (seed 667028, 44.5 seconds). `mix assets.build` also passes.
+
 ## Baseline evidence
 
 The previous production-readiness pass recorded 543 tests, 75.04% line
@@ -630,6 +680,23 @@ a visible 2 px keyboard-focus outline; the browser console reported no warnings
 or errors. The pass raised fragile micro-text sizes while preserving the quiet
 hierarchy, and archived its temporary QA Simulation afterward.
 
+Epic 8 Balanced browser QA created a real 5,000-agent, 12-round Simulation,
+configured a local structured mock route, observed durable progress from 0 to
+7 to 12 rounds, and completed an exact recorded-decision replay. The original
+Run recorded 80 new model decisions, 93 signature reuses, 485 covered agents,
+and zero fallbacks; the exact replay recorded zero new model decisions and 173
+recorded-decision reuses. English and Russian lineage, budget, replay, and
+fresh-run copy were inspected. At 1,280 px and 390 px, document width matched
+viewport width exactly, the console remained free of warnings and errors, and
+keyboard focus was visible. Browser review also corrected singular agent copy
+and raised mobile navigation, locale, back, and replay targets to 44 px. The QA
+Simulation was archived and the temporary provider removed. Evidence is in:
+
+- `docs/screenshots/simulation-studio-epic8-2026-07-18/balanced-complete-desktop.png`;
+- `docs/screenshots/simulation-studio-epic8-2026-07-18/balanced-exact-replay-mobile.png`;
+- `docs/screenshots/simulation-studio-epic8-2026-07-18/balanced-exact-replay-mobile-trace.png`;
+- `docs/screenshots/simulation-studio-epic8-2026-07-18/balanced-exact-replay-mobile-actions.png`.
+
 The exact-worktree aggregate Quick-engine baseline is recorded in
 `docs/benchmarks/2026-07-18-quick-engine-10k.json`. On the recorded arm64
 environment, ten measured 10k-population runs after two warmups produced a
@@ -649,10 +716,8 @@ engine must earn its own 10k result.
 - Current SimLab lifecycle and terminology are Decision Replay-oriented.
 - Legacy scenarios remain Decision Replay compatibility inputs; Blueprint
   Studio execution uses the general declarative Script and neutral Run profile.
-- Balanced and Deep have immutable hard Budget Plans, but their execution and
-  decision-provenance contracts are not implemented yet.
-- Exact replay currently covers deterministic saved inputs but not recorded
-  model decisions.
+- Balanced has bounded selective execution, immutable decision provenance, and
+  exact recorded-decision replay. Deep remains experimental and disabled.
 - Analysis Pack and claim-validated report regeneration are missing.
 - English/Russian copy and locale persistence are established across Blueprint,
   Simulation, Context, Population, and Script surfaces; future Pack, Run,

@@ -79,7 +79,7 @@ defmodule HydraAgentWeb.SimulationController do
   def start_quick_run(conn, params) do
     with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
          {:ok, _record} <-
-           Simulations.create_quick_run(simulation, conn.assigns[:current_user]) do
+           Simulations.create_simulation_run(simulation, conn.assigns[:current_user]) do
       conn
       |> put_flash(:info, t(conn, :run_queued))
       |> redirect(to: stage_path(simulation.id, :run, workspace.id, conn.assigns.locale))
@@ -149,6 +149,50 @@ defmodule HydraAgentWeb.SimulationController do
       {:error, {:terminal_fence, _status}} ->
         conn
         |> put_flash(:info, t(conn, :run_already_finished))
+        |> redirect(
+          to: stage_path(params["id"], :run, params["workspace_id"], conn.assigns.locale)
+        )
+
+      _reason ->
+        not_found(conn)
+    end
+  end
+
+  def replay_run(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         %{} = source <- Simulations.get_simulation_run_record(params["run_id"]),
+         true <- source.simulation_id == simulation.id,
+         {:ok, _record} <-
+           Simulations.create_exact_replay(source, conn.assigns[:current_user]) do
+      conn
+      |> put_flash(:info, t(conn, :run_exact_replay_queued))
+      |> redirect(to: stage_path(simulation.id, :run, workspace.id, conn.assigns.locale))
+    else
+      {:error, :run_already_active} ->
+        conn
+        |> put_flash(:info, t(conn, :run_already_active))
+        |> redirect(
+          to: stage_path(params["id"], :run, params["workspace_id"], conn.assigns.locale)
+        )
+
+      _reason ->
+        not_found(conn)
+    end
+  end
+
+  def rerun_fresh(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         %{} = source <- Simulations.get_simulation_run_record(params["run_id"]),
+         true <- source.simulation_id == simulation.id,
+         {:ok, _record} <-
+           Simulations.create_fresh_rerun(source, conn.assigns[:current_user]) do
+      conn
+      |> put_flash(:info, t(conn, :run_fresh_rerun_queued))
+      |> redirect(to: stage_path(simulation.id, :run, workspace.id, conn.assigns.locale))
+    else
+      {:error, :run_already_active} ->
+        conn
+        |> put_flash(:info, t(conn, :run_already_active))
         |> redirect(
           to: stage_path(params["id"], :run, params["workspace_id"], conn.assigns.locale)
         )
@@ -365,6 +409,14 @@ defmodule HydraAgentWeb.SimulationController do
         if stage == :run, do: Simulations.list_simulation_run_records(simulation), else: []
 
       latest_run = List.first(run_records)
+
+      recent_decisions =
+        if latest_run do
+          Simulations.list_recent_run_decisions(latest_run, 6)
+        else
+          []
+        end
+
       budget_plan = Simulations.current_budget_plan(simulation)
       model_route_plan = Simulations.current_model_route_plan(simulation)
 
@@ -386,6 +438,9 @@ defmodule HydraAgentWeb.SimulationController do
         run_readiness: Simulations.run_readiness(simulation),
         run_records: run_records,
         latest_run: latest_run,
+        recent_decisions: recent_decisions,
+        cognition_summary:
+          if(latest_run, do: Simulations.run_cognition_summary(latest_run), else: nil),
         budget_plan: budget_plan,
         model_route_plan: model_route_plan,
         available_model_routes: Simulations.available_model_routes(simulation),

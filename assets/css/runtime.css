@@ -663,6 +663,10 @@
     display: none;
   }
 
+  .runtime-brand {
+    min-height: 44px;
+  }
+
   .runtime-global-nav {
     min-width: 0;
     justify-content: flex-start;
@@ -677,7 +681,7 @@
 
   .runtime-global-nav a {
     flex: 0 0 auto;
-    min-height: 32px;
+    min-height: 44px;
     padding-inline: 7px;
     font-size: 11px;
   }
@@ -3206,6 +3210,141 @@
   font-size: 16px;
 }
 
+.simulation-cognition {
+  padding: 22px;
+  border-top: 1px solid var(--sim-line);
+}
+
+.simulation-cognition > header h3 {
+  margin: 0;
+  color: var(--sim-ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.simulation-cognition > header p {
+  max-width: 620px;
+  margin: 6px 0 0;
+  color: var(--sim-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.simulation-cognition > dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 20px 0 0;
+  border: 1px solid var(--sim-line);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.simulation-cognition > dl div {
+  padding: 14px 15px;
+  border-right: 1px solid var(--sim-line);
+}
+
+.simulation-cognition > dl div:last-child {
+  border-right: 0;
+}
+
+.simulation-cognition dt,
+.simulation-cognition details > summary,
+.simulation-cognition li span {
+  color: var(--sim-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.simulation-cognition dd {
+  margin: 7px 0 0;
+  color: var(--sim-ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 19px;
+}
+
+.simulation-cognition details {
+  margin-top: 16px;
+}
+
+.simulation-cognition details > summary {
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.simulation-cognition ol {
+  margin: 10px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--sim-line);
+  list-style: none;
+}
+
+.simulation-cognition li {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.7fr) minmax(140px, 1fr) minmax(160px, 1.2fr);
+  gap: 16px;
+  align-items: baseline;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-cognition li strong {
+  color: var(--sim-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.simulation-cognition li small {
+  color: var(--sim-muted);
+  font-size: 11px;
+}
+
+.simulation-replay-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  border-top: 1px solid var(--sim-line);
+  background: var(--sim-line);
+}
+
+.simulation-replay-actions form {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  margin: 0;
+  padding: 16px 22px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.simulation-replay-actions button {
+  min-height: 38px;
+  border: 1px solid var(--sim-line-strong);
+  border-radius: 8px;
+  padding: 0 14px;
+  background: transparent;
+  color: var(--sim-ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.simulation-replay-actions form:first-child button {
+  border-color: var(--sim-ink);
+  background: var(--sim-ink);
+  color: #fff;
+}
+
+.simulation-replay-actions small {
+  color: var(--sim-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .simulation-ready-summary > header {
   display: flex;
   min-height: 62px;
@@ -3441,6 +3580,13 @@
     padding-bottom: 22px;
   }
 
+  .simulation-workbench-topline .simulation-back-link,
+  .simulation-workbench-topline .blueprint-locale-switch a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+  }
+
   .simulation-workbench-title h1 {
     margin: 12px 0 14px;
     font-size: clamp(38px, 10.5vw, 46px);
@@ -3576,6 +3722,28 @@
 
   .simulation-run-details dl div:nth-child(2n) {
     border-right: 0;
+  }
+
+  .simulation-cognition > dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .simulation-cognition > dl div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .simulation-cognition > dl div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--sim-line);
+  }
+
+  .simulation-cognition li,
+  .simulation-replay-actions,
+  .simulation-replay-actions form {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-replay-actions button {
+    min-height: 44px;
   }
 
   .simulation-ready-summary dl div:nth-child(3n) {

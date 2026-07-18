@@ -26,7 +26,11 @@ defmodule HydraAgent.Simulations.Engine.QuickEngine do
     }
   end
 
-  def run_round(run_record_id, state, script, round, seed) do
+  def run_round(run_record_id, state, script, round, seed),
+    do: run_round(run_record_id, state, script, round, seed, %{})
+
+  def run_round(run_record_id, state, script, round, seed, decision_actions)
+      when is_map(decision_actions) do
     state = Map.put(state, "round_events", [])
 
     with hydrated <- ResourceLedger.hydrate_agents(run_record_id, state["agents"]),
@@ -34,7 +38,7 @@ defmodule HydraAgent.Simulations.Engine.QuickEngine do
          {:ok, state, before_events, before_transactions, before_changes} <-
            apply_scheduled_events(run_record_id, state, script, round, "before_actions"),
          {:ok, state, action_events, action_transactions, action_changes} <-
-           resolve_actions(run_record_id, state, script, round, seed),
+           resolve_actions(run_record_id, state, script, round, seed, decision_actions),
          {:ok, state, after_events, after_transactions, after_changes} <-
            apply_scheduled_events(run_record_id, state, script, round, "after_actions"),
          {:ok, state, transition_events, transition_transactions, transition_changes} <-
@@ -112,7 +116,7 @@ defmodule HydraAgent.Simulations.Engine.QuickEngine do
       "seed" => run_record.seed,
       "rounds_completed" => state["round"],
       "population_size" => length(state["agents"]),
-      "model_calls" => 0,
+      "model_calls" => run_record.model_call_count,
       "stop_reason" => state["stop_reason"] || "final_round",
       "world" => state["world"],
       "agents" => state["agents"],
@@ -171,7 +175,7 @@ defmodule HydraAgent.Simulations.Engine.QuickEngine do
     end)
   end
 
-  defp resolve_actions(run_record_id, state, script, round, seed) do
+  defp resolve_actions(run_record_id, state, script, round, seed, decision_actions) do
     assignments = Map.new(script["agent_types"] || [], &{&1["id"], &1["policy"]})
     policies = Map.new(script["policies"] || [], &{&1["id"], &1})
     actions = Map.new(script["actions"] || [], &{&1["id"], &1})
@@ -191,9 +195,11 @@ defmodule HydraAgent.Simulations.Engine.QuickEngine do
       |> Enum.sort_by(& &1["id"])
       |> Enum.reduce(initial, fn agent, acc ->
         facts = facts(agent, state["world"])
+        decision = decision_actions[agent["id"]]
 
         with {:ok, action_id} <-
-               choose_action(
+               choose_action_with_decision(
+                 decision,
                  assignments[agent["type"]],
                  policies,
                  facts,
@@ -207,6 +213,8 @@ defmodule HydraAgent.Simulations.Engine.QuickEngine do
              true <- can_pay?(agent, action["costs"] || []),
              {:ok, next_agent, operations, deferred, changes} <-
                apply_agent_action(state, agent, action, round) do
+          next_agent = apply_memory_updates(next_agent, decision)
+
           emissions =
             Enum.map(action["emits"] || [], fn emission ->
               %{
@@ -820,6 +828,35 @@ defmodule HydraAgent.Simulations.Engine.QuickEngine do
     }
   end
 
+  defp choose_action_with_decision(
+         %{"action_id" => action_id},
+         policy_id,
+         policies,
+         _facts,
+         _seed,
+         _round,
+         _agent_id
+       ) do
+    case policies[policy_id] do
+      %{"kind" => "hybrid", "candidates" => candidates} when is_list(candidates) ->
+        if action_id in candidates, do: {:ok, action_id}, else: {:error, :invalid_model_action}
+
+      _policy ->
+        {:error, :invalid_model_policy}
+    end
+  end
+
+  defp choose_action_with_decision(
+         _decision,
+         policy_id,
+         policies,
+         facts,
+         seed,
+         round,
+         agent_id
+       ),
+       do: choose_action(policy_id, policies, facts, seed, round, agent_id)
+
   defp choose_action(nil, _policies, _facts, _seed, _round, _agent_id),
     do: {:error, :missing_policy}
 
@@ -871,6 +908,13 @@ defmodule HydraAgent.Simulations.Engine.QuickEngine do
       end
     end
   end
+
+  defp apply_memory_updates(agent, %{"memory_updates" => updates})
+       when is_map(updates) and map_size(updates) > 0 do
+    Map.update(agent, "state", updates, fn state -> Map.merge(state || %{}, updates) end)
+  end
+
+  defp apply_memory_updates(agent, _decision), do: agent
 
   defp can_pay?(agent, costs) do
     Enum.all?(costs, fn cost ->

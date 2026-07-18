@@ -1,5 +1,5 @@
 defmodule HydraAgent.Simulations.Engine.RunStore do
-  @moduledoc "Durable, atomic commit boundary for Quick simulation rounds."
+  @moduledoc "Durable, atomic commit boundary for simulation rounds."
 
   import Ecto.Query
 
@@ -18,6 +18,7 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
   }
 
   alias HydraAgent.Simulations.Engine.{
+    BalancedCognition,
     EventRecorder,
     EventRecorder.Event,
     QuickEngine,
@@ -31,14 +32,17 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
   def get_record!(record_id) do
     SimulationRunRecord
     |> Repo.get!(record_id)
-    |> Repo.preload([
-      :run,
-      :simulation,
-      :simulation_version,
-      :context_pack,
-      :population_model,
-      simulation_script: :preview
-    ])
+    |> Repo.preload(
+      [
+        :run,
+        :simulation,
+        :simulation_version,
+        :context_pack,
+        :population_model,
+        simulation_script: :preview
+      ],
+      in_parallel: false
+    )
   end
 
   def latest_snapshot(record_id) do
@@ -163,13 +167,23 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
   end
 
   def complete(record, state) do
-    result = QuickEngine.result_payload(state, record)
+    budget = budget_usage(record)
+
+    result =
+      state
+      |> QuickEngine.result_payload(record)
+      |> Map.put("model_calls", result_model_calls(record, budget))
+
     result_hash = ContentHash.digest(result)
+    decision_summary = BalancedCognition.summary(record.id)
+    decision_manifest_hash = BalancedCognition.manifest_hash(record.id)
 
     summary = %{
       "rounds_completed" => result["rounds_completed"],
       "population_size" => result["population_size"],
-      "model_calls" => 0,
+      "model_calls" => result["model_calls"],
+      "provider_calls_this_run" => budget.used["model_calls"],
+      "decision_summary" => decision_summary,
       "stop_reason" => result["stop_reason"],
       "action_counts" => result["action_counts"],
       "final_observation" => List.last(result["observations"] || []),
@@ -179,7 +193,7 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
     completion = %Event{
       type: "simulation.completed",
       phase: "complete",
-      summary: "Quick simulation completed",
+      summary: completion_summary(record),
       payload: summary,
       source_ref: "run:complete",
       provenance: %{"engine_version" => record.engine_version, "pack_hash" => record.pack_hash}
@@ -222,7 +236,8 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
             |> SimulationRunRecord.changeset(%{
               current_round: state["round"],
               last_event_sequence: next_sequence,
-              model_call_count: 0,
+              model_call_count: budget.used["model_calls"],
+              decision_manifest_hash: decision_manifest_hash,
               final_state_hash: final_state_hash,
               result_hash: result_hash,
               result_summary: summary,
@@ -403,12 +418,14 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
       event = %Event{
         type: "simulation.prepared",
         phase: "prepare",
-        summary: "Full population compiled for Quick execution",
+        summary: "Full population compiled for #{mode_label(record)} execution",
         payload: %{
           "population_size" => length(agents),
           "relationship_count" => length(compiled.relationships),
           "partition_count" => record.partition_count,
-          "model_calls" => 0
+          "model_calls" => 0,
+          "mode" => record.mode,
+          "replay_kind" => record.replay_kind
         },
         source_ref: "population:#{record.population_model_id}",
         provenance: %{
@@ -539,6 +556,31 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
     }
   end
 
+  defp result_model_calls(%{replay_kind: "exact_replay", replay_source_id: source_id}, _budget)
+       when not is_nil(source_id) do
+    case Repo.get(SimulationRunRecord, source_id) do
+      %SimulationRunRecord{result_summary: %{"model_calls" => count}} when is_integer(count) ->
+        count
+
+      %SimulationRunRecord{model_call_count: count} ->
+        count
+
+      _source ->
+        0
+    end
+  end
+
+  defp result_model_calls(_record, budget), do: budget.used["model_calls"]
+
+  defp completion_summary(%{replay_kind: "exact_replay"}),
+    do: "Exact simulation replay completed"
+
+  defp completion_summary(%{mode: "balanced"}), do: "Balanced simulation completed"
+  defp completion_summary(_record), do: "Quick simulation completed"
+
+  defp mode_label(%{mode: "balanced"}), do: "Balanced"
+  defp mode_label(_record), do: "Quick"
+
   defp persist_initial(record, events, snapshot, next_sequence) do
     Repo.transaction(fn ->
       locked = lock_record!(record.id)
@@ -588,7 +630,11 @@ defmodule HydraAgent.Simulations.Engine.RunStore do
           run_id: locked.run_id,
           event_type: "run.started",
           summary: "Run started",
-          payload: %{"kind" => "simulation", "mode" => "quick"}
+          payload: %{
+            "kind" => "simulation",
+            "mode" => locked.mode,
+            "replay_kind" => locked.replay_kind
+          }
         })
         |> Repo.insert!()
 

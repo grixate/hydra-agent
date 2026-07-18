@@ -27,46 +27,42 @@ defmodule HydraAgent.Simulations.ScriptBuilder do
     relationships = relationship_definitions(population_model, type_ids)
     rounds = Keyword.get(opts, :rounds, round_count(version))
 
-    script = %{
-      "hydra_simulation_script" => 1,
-      "metadata" => %{
-        "id" => script_id(version.title),
-        "title" => version.title,
-        "locale" => version.locale
-      },
-      "clock" => %{
-        "kind" => "rounds",
-        "count" => rounds,
-        "label" => clock_label(version.locale, version.normalized_input["horizon"])
-      },
-      "world" => %{
-        "state" => %{
-          "change_introduced" => false,
-          "information_clarity" => normalized_confidence(context_pack.confidence),
-          "current_round" => 0
-        }
-      },
-      "agent_types" =>
-        Enum.map(type_ids, fn type_id ->
-          %{
-            "id" => type_id,
-            "policy" => "#{type_id}_response_policy",
-            "perception" => "#{type_id}_default"
+    script =
+      %{
+        "hydra_simulation_script" => 1,
+        "metadata" => %{
+          "id" => script_id(version.title),
+          "title" => version.title,
+          "locale" => version.locale
+        },
+        "clock" => %{
+          "kind" => "rounds",
+          "count" => rounds,
+          "label" => clock_label(version.locale, version.normalized_input["horizon"])
+        },
+        "world" => %{
+          "state" => %{
+            "change_introduced" => false,
+            "information_clarity" => normalized_confidence(context_pack.confidence),
+            "current_round" => 0
           }
-        end),
-      "relationships" => relationships,
-      "resources" => Enum.map(resources, &resource_definition/1),
-      "events" => [opening_event(type_ids)],
-      "actions" => Enum.map(actions, &action_definition(&1, population_model.agent_types)),
-      "perception" => perception(type_ids, relationships),
-      "policies" => Enum.map(type_ids, &policy(&1, actions, population_model.agent_types)),
-      "transitions" => [],
-      "observations" => observations(actions, resources),
-      "stopping_conditions" => [
-        %{"kind" => "final_round"},
-        %{"kind" => "no_state_changes", "rounds" => min(3, rounds)}
-      ]
-    }
+        },
+        "agent_types" => Enum.map(type_ids, &agent_type_definition(&1)),
+        "relationships" => relationships,
+        "resources" => Enum.map(resources, &resource_definition/1),
+        "events" => [opening_event(type_ids)],
+        "actions" => Enum.map(actions, &action_definition(&1, population_model.agent_types)),
+        "perception" => perception(type_ids, relationships),
+        "policies" =>
+          policies(type_ids, actions, population_model.agent_types, version.execution_mode),
+        "transitions" => [],
+        "observations" => observations(actions, resources),
+        "stopping_conditions" => [
+          %{"kind" => "final_round"},
+          %{"kind" => "no_state_changes", "rounds" => min(3, rounds)}
+        ]
+      }
+      |> maybe_put_cognition(version, type_ids)
 
     with {:ok, validation_report} <-
            ScriptValidator.validate(script, population, model_budget?: model_budget?(version)) do
@@ -247,7 +243,27 @@ defmodule HydraAgent.Simulations.ScriptBuilder do
     end)
   end
 
-  defp policy(type_id, all_actions, agent_types) do
+  defp agent_type_definition(type_id) do
+    %{
+      "id" => type_id,
+      "policy" => "#{type_id}_response_policy",
+      "perception" => "#{type_id}_default"
+    }
+  end
+
+  defp policies(type_ids, all_actions, agent_types, mode) do
+    Enum.flat_map(type_ids, fn type_id ->
+      weighted = weighted_policy(type_id, all_actions, agent_types, mode)
+
+      if mode == "balanced" do
+        [weighted, hybrid_policy(type_id, Map.keys(weighted["candidates"]))]
+      else
+        [weighted]
+      end
+    end)
+  end
+
+  defp weighted_policy(type_id, all_actions, agent_types, mode) do
     type_actions =
       agent_types
       |> Enum.find(&(&1["id"] == type_id))
@@ -268,11 +284,44 @@ defmodule HydraAgent.Simulations.ScriptBuilder do
       end)
 
     %{
-      "id" => "#{type_id}_response_policy",
+      "id" =>
+        if(mode == "balanced",
+          do: "#{type_id}_deterministic_policy",
+          else: "#{type_id}_response_policy"
+        ),
       "kind" => "weighted",
       "candidates" => candidates
     }
   end
+
+  defp hybrid_policy(type_id, candidates) do
+    %{
+      "id" => "#{type_id}_response_policy",
+      "kind" => "hybrid",
+      "candidates" => Enum.sort(candidates),
+      "fallback" => "#{type_id}_deterministic_policy",
+      "escalate_when" => %{
+        "fact" => "world.change_introduced",
+        "op" => "eq",
+        "value" => true
+      },
+      "model_role" => "simulation"
+    }
+  end
+
+  defp maybe_put_cognition(script, %{execution_mode: "balanced"}, type_ids) do
+    Map.put(script, "cognition", %{
+      "global_model_decisions" => 80,
+      "per_round" => 12,
+      "per_agent_type" => Map.new(type_ids, &{&1, 40}),
+      "per_agent_max" => 2,
+      "activation_signals" =>
+        ~w(novelty uncertainty influence downstream_impact deterministic_disagreement user_importance representative_sampling cache_miss),
+      "signature_version" => "hydra-policy-signature/v1"
+    })
+  end
+
+  defp maybe_put_cognition(script, _version, _type_ids), do: script
 
   defp observations(actions, resources) do
     action_metrics =

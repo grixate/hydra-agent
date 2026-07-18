@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-18",
+  "engine_version": "hydra-balanced/v1",
+  "scenario": {
+    "population_size": 5000,
+    "rounds": 12,
+    "provider": "deterministic structured mock",
+    "simulation_model_call_cap": 80,
+    "per_agent_decision_cap": 2
+  },
+  "measurement": {
+    "engine_elapsed_milliseconds": 19190.5,
+    "target_maximum_milliseconds": 60000,
+    "real_provider_latency_included": false,
+    "mock_adapter_time_included": true,
+    "result": "pass"
+  },
+  "assertions": [
+    "all 12 rounds committed",
+    "model calls did not exceed 80",
+    "no agent was covered by more than two model decisions",
+    "at least one policy signature served multiple agents",
+    "all provider reservations reached a terminal state"
+  ],
+  "qualification": "Local acceptance evidence only. This is not a hosted p95 or a real-provider latency claim."
+}

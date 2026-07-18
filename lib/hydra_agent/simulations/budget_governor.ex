@@ -168,6 +168,38 @@ defmodule HydraAgent.Simulations.BudgetGovernor do
     |> unwrap_transaction()
   end
 
+  @doc "Closes a dispatched provider request conservatively when reliable usage is unavailable."
+  def fail(%BudgetReservation{} = reservation, failure, fallback \\ "deterministic_rule") do
+    Repo.transaction(fn ->
+      current =
+        BudgetReservation
+        |> where([candidate], candidate.id == ^reservation.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+
+      if current.status == "reserved" do
+        current
+        |> BudgetReservation.changeset(%{
+          status: "completed",
+          actual_input_tokens: current.max_input_tokens,
+          actual_output_tokens: current.max_output_tokens,
+          actual_cost: current.reserved_cost,
+          fallback: fallback,
+          metadata:
+            Map.merge(current.metadata || %{}, %{
+              "provider_failure" => safe_failure(failure),
+              "usage_accounting" => "reserved_envelope"
+            }),
+          completed_at: DateTime.utc_now()
+        })
+        |> Repo.update!()
+      else
+        current
+      end
+    end)
+    |> unwrap_transaction()
+  end
+
   def summary(%BudgetPlan{} = plan, opts \\ []) do
     run_record_id = Keyword.get(opts, :simulation_run_record_id)
 
@@ -567,6 +599,17 @@ defmodule HydraAgent.Simulations.BudgetGovernor do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp safe_failure(failure) when is_map(failure) do
+    %{
+      "reason" =>
+        failure["reason"] || failure[:reason] || failure["code"] || failure[:code] ||
+          "provider_failure"
+    }
+  end
+
+  defp safe_failure(failure) when is_atom(failure), do: %{"reason" => Atom.to_string(failure)}
+  defp safe_failure(_failure), do: %{"reason" => "provider_failure"}
 
   defp stringify_map(map) when is_map(map),
     do: Map.new(map, fn {key, value} -> {to_string(key), value} end)

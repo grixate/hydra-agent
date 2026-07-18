@@ -20,6 +20,14 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     %{workspace: workspace, general: general, decision_replay: decision_replay}
   end
 
+  test "decision trace agent counts read naturally in both locales" do
+    assert HydraAgentWeb.SimulationHTML.cognition_agents_label(1, "en") == "1 agent"
+    assert HydraAgentWeb.SimulationHTML.cognition_agents_label(2, "en") == "2 agents"
+    assert HydraAgentWeb.SimulationHTML.cognition_agents_label(1, "ru") == "1 агент"
+    assert HydraAgentWeb.SimulationHTML.cognition_agents_label(2, "ru") == "2 агента"
+    assert HydraAgentWeb.SimulationHTML.cognition_agents_label(5, "ru") == "5 агентов"
+  end
+
   test "the index is quiet, bilingual, and starts with one clear action", %{
     conn: conn,
     workspace: workspace
@@ -690,7 +698,8 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     assert completed_page =~ "hydra-quick/v1"
     assert completed_page =~ "Model decisions"
     assert completed_page =~ "Complete"
-    assert completed_page =~ "Run simulation"
+    assert completed_page =~ "Replay exactly"
+    assert completed_page =~ "Run again"
     refute completed_page =~ ~s(data-run-auto-refresh="true")
     refute completed_page =~ "Cancel run"
 
@@ -792,6 +801,93 @@ defmodule HydraAgentWeb.SimulationControllerTest do
 
     assert Phoenix.Flash.get(locked.assigns.flash, :error) ==
              "Run settings stay locked while a simulation is active."
+  end
+
+  test "Balanced runs expose selective cognition and predictable replay choices", %{
+    conn: conn,
+    workspace: workspace,
+    general: general
+  } do
+    assert {:ok, _provider} =
+             HydraAgent.Runtime.create_provider(%{
+               workspace_id: workspace.id,
+               name: "Local cognition",
+               kind: "mock",
+               model: "local-cognition-v1",
+               enabled: true,
+               metadata: %{
+                 "capabilities" => %{
+                   "structured_generation" => true,
+                   "local_execution" => true
+                 }
+               }
+             })
+
+    assert {:ok, simulation} =
+             HydraAgent.Simulations.create_simulation(workspace, nil, %{
+               "question" => "How might selective cognition change a bounded forecast?",
+               "blueprint_id" => general.id,
+               "execution_mode" => "balanced",
+               "budget_preset" => "standard",
+               "population_size" => 40,
+               "horizon" => "2 rounds"
+             })
+
+    ready_html =
+      conn
+      |> get("/simulations/#{simulation.id}/run?workspace_id=#{workspace.id}&locale=en")
+      |> html_response(200)
+
+    assert ready_html =~ ~s(name="run_configuration[model_routes][simulation]")
+    assert ready_html =~ "Local cognition · local-cognition-v1 · Local"
+    refute ready_html =~ ~s(name="run_configuration[model_routes][simulation]" value="none")
+
+    started =
+      conn
+      |> recycle()
+      |> post("/simulations/#{simulation.id}/run", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en"
+      })
+
+    record = HydraAgent.Simulations.latest_simulation_run_record(simulation)
+    assert {:ok, completed} = HydraAgent.Simulations.Engine.execute(record.id)
+
+    completed_html =
+      conn
+      |> recycle()
+      |> get(redirected_to(started))
+      |> html_response(200)
+
+    assert completed_html =~ "Decision trace"
+    assert completed_html =~ "New model decisions"
+    assert completed_html =~ "Replay exactly"
+    assert completed_html =~ "Same Pack, seed, engine, and recorded decisions"
+    assert completed_html =~ "Run again"
+
+    replayed =
+      conn
+      |> recycle()
+      |> post("/simulations/#{simulation.id}/run/#{completed.id}/replay", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en"
+      })
+
+    assert Phoenix.Flash.get(replayed.assigns.flash, :info) ==
+             "Exact replay started. It will reuse the recorded decisions."
+
+    replay = HydraAgent.Simulations.latest_simulation_run_record(simulation)
+    assert replay.replay_kind == "exact_replay"
+    assert {:ok, _replay} = HydraAgent.Simulations.Engine.execute(replay.id)
+
+    replay_html =
+      conn
+      |> recycle()
+      |> get(redirected_to(replayed))
+      |> html_response(200)
+
+    assert replay_html =~ "Exact replay"
+    assert replay_html =~ "Replayed"
   end
 
   test "duplicate and archive remain workspace-scoped and preserve history", %{

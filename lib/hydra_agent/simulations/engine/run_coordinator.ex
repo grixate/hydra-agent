@@ -4,7 +4,12 @@ defmodule HydraAgent.Simulations.Engine.RunCoordinator do
 
   require Logger
 
-  alias HydraAgent.Simulations.Engine.{QuickEngine, RunStore, StateStoreSupervisor}
+  alias HydraAgent.Simulations.Engine.{
+    BalancedCognition,
+    QuickEngine,
+    RunStore,
+    StateStoreSupervisor
+  }
 
   def start_link(opts) do
     record_id = Keyword.fetch!(opts, :run_record_id)
@@ -86,48 +91,50 @@ defmodule HydraAgent.Simulations.Engine.RunCoordinator do
       true ->
         maybe_delay(coordinator_state.round_delay_ms)
 
-        case QuickEngine.run_round(
-               record.id,
-               simulation_state,
-               record.simulation_script.script,
-               next_round,
-               record.seed
-             ) do
-          {:ok, round_result} ->
-            :ok =
-              StateStoreSupervisor.load(
-                record.id,
-                round_result.state["agents"],
-                record.partition_count
-              )
+        with {:ok, decisions} <-
+               BalancedCognition.prepare_round(record, simulation_state, next_round),
+             {:ok, round_result} <-
+               QuickEngine.run_round(
+                 record.id,
+                 simulation_state,
+                 record.simulation_script.script,
+                 next_round,
+                 record.seed,
+                 decisions
+               ) do
+          :ok =
+            StateStoreSupervisor.load(
+              record.id,
+              round_result.state["agents"],
+              record.partition_count
+            )
 
-            case RunStore.persist_round(
-                   record,
-                   round_result.state,
-                   round_result.events,
-                   round_result.transactions
-                 ) do
-              {:ok, :committed} ->
-                maybe_pause(round_result.state["round"], coordinator_state)
-                run_rounds(record, round_result.state, coordinator_state)
+          case RunStore.persist_round(
+                 record,
+                 round_result.state,
+                 round_result.events,
+                 round_result.transactions
+               ) do
+            {:ok, :committed} ->
+              maybe_pause(round_result.state["round"], coordinator_state)
+              run_rounds(record, round_result.state, coordinator_state)
 
-              {:ok, :already_committed} ->
-                refreshed = RunStore.get_record!(record.id)
+            {:ok, :already_committed} ->
+              refreshed = RunStore.get_record!(record.id)
 
-                case RunStore.load_or_initialize(refreshed) do
-                  {:ok, latest, _mode} -> run_rounds(refreshed, latest, coordinator_state)
-                  {:error, reason} -> fail(refreshed, reason)
-                end
+              case RunStore.load_or_initialize(refreshed) do
+                {:ok, latest, _mode} -> run_rounds(refreshed, latest, coordinator_state)
+                {:error, reason} -> fail(refreshed, reason)
+              end
 
-              {:error, {:terminal_fence, _status} = reason} ->
-                {:error, reason}
+            {:error, {:terminal_fence, _status} = reason} ->
+              {:error, reason}
 
-              {:error, reason} ->
-                fail(record, reason)
-            end
-
-          {:error, reason} ->
-            fail(record, reason)
+            {:error, reason} ->
+              fail(record, reason)
+          end
+        else
+          {:error, reason} -> fail(record, reason)
         end
     end
   end

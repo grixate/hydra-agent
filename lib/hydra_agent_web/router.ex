@@ -205,6 +205,8 @@ defmodule HydraAgentWeb.Router do
     post "/simulations/:id/run/configuration", SimulationController, :configure_run
     post "/simulations/:id/run", SimulationController, :start_quick_run
     post "/simulations/:id/run/:run_id/cancel", SimulationController, :cancel_quick_run
+    post "/simulations/:id/run/:run_id/replay", SimulationController, :replay_run
+    post "/simulations/:id/run/:run_id/rerun", SimulationController, :rerun_fresh
     get "/simulations/:id/results", SimulationController, :results
     get "/simulations/:id/compare", SimulationController, :compare
     post "/simulations/:id/duplicate", SimulationController, :duplicate
