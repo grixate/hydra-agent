@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: hydra_agent_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d hydra_agent_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      MIX_ENV: test
+      TEST_DATABASE_URL: ecto://postgres:postgres@localhost/hydra_agent_test
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.3.4"
+          elixir-version: "1.18.4"
+          version-type: strict
+      - name: Cache dependencies and build
+        uses: actions/cache@v5
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-otp-27.3.4-elixir-1.18.4-${{ hashFiles('mix.lock') }}
+      - run: mix deps.get --only test
+      - run: mix precommit
+      - name: Enforce coverage floor
+        run: mix test --cover
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    needs: test
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: docker build --tag hydra-agent:${{ github.sha }} .
+      - run: docker build --tag hydra-browser-worker:${{ github.sha }} services/browser-worker
+      - run: docker build --tag hydra-agent-backup:${{ github.sha }} ops/backup
+      - name: Smoke-test the production release
+        env:
+          HYDRA_IMAGE: hydra-agent:${{ github.sha }}
+        run: ops/release-smoke
+      - name: Smoke-test the complete production Compose stack
+        env:
+          HYDRA_IMAGE: hydra-agent:${{ github.sha }}
+          HYDRA_BROWSER_WORKER_IMAGE: hydra-browser-worker:${{ github.sha }}
+          HYDRA_BACKUP_IMAGE: hydra-agent-backup:${{ github.sha }}
+        run: ops/compose-smoke

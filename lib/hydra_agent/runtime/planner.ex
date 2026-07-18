@@ -14,18 +14,11 @@ defmodule HydraAgent.Runtime.Planner do
     run = Runtime.get_run!(run.id)
 
     with %AgentProfile{} = agent <- run.supervisor_agent,
-         :ok <-
-           Budgets.check_available(run.workspace_id, agent_id: agent.id, category: "planning"),
-         {:ok, provider_response} <- Providers.chat(agent, build_request(run, agent, opts)),
+         request <- build_request(run, agent, opts),
+         {:ok, provider_response} <- call_provider_with_budget(run, agent, request),
          {:ok, steps} <- parse_plan(get_in(provider_response, ["message", "content"]) || ""),
          :ok <- validate_steps(steps),
          {:ok, planned_steps} <- Runner.plan_steps(run, steps) do
-      Usage.record_provider_response(
-        %{workspace_id: run.workspace_id, agent_id: agent.id, run_id: run.id},
-        provider_response,
-        "planning"
-      )
-
       {:ok,
        %{
          run: Runtime.get_run!(run.id),
@@ -41,6 +34,42 @@ defmodule HydraAgent.Runtime.Planner do
         Usage.record_error(%{workspace_id: run.workspace_id, run_id: run.id}, error, "planning")
         {:error, error}
     end
+  end
+
+  defp call_provider_with_budget(run, agent, request) do
+    requested_tokens = estimated_request_tokens(request)
+
+    with {:ok, reservation} <-
+           Budgets.reserve_provider_call(run.workspace_id,
+             agent_id: agent.id,
+             run_id: run.id,
+             category: "planning",
+             requested_tokens: requested_tokens
+           ) do
+      case Providers.chat(agent, request) do
+        {:ok, provider_response} ->
+          case Usage.complete_provider_reservation(reservation, provider_response) do
+            {:ok, _usage} -> {:ok, provider_response}
+            {:error, changeset} -> {:error, changeset}
+          end
+
+        {:error, error} ->
+          _ = Usage.fail_provider_reservation(reservation, error)
+          {:error, error}
+      end
+    end
+  end
+
+  defp estimated_request_tokens(request) do
+    input_tokens =
+      request
+      |> Map.get("messages", [])
+      |> Jason.encode!()
+      |> byte_size()
+      |> Kernel./(4)
+      |> ceil()
+
+    input_tokens + (request["max_tokens"] || 1_200)
   end
 
   def build_request(%Run{} = run, %AgentProfile{} = agent, opts \\ []) do

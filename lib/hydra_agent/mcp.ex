@@ -9,9 +9,17 @@ defmodule HydraAgent.MCP do
 
   import Ecto.Query
 
+  alias HydraAgent.MCP.SecurityPolicy
   alias HydraAgent.MCP.Server
   alias HydraAgent.Repo
+  alias HydraAgent.Security.{BoundedJsonHttp, WorkspacePath}
   alias HydraAgent.{Redaction, Runtime, Secrets}
+
+  @stdio_base_env %{
+    "LANG" => "C.UTF-8",
+    "LC_ALL" => "C.UTF-8",
+    "PATH" => "/usr/local/bin:/usr/bin:/bin"
+  }
 
   def list_servers(workspace_id) do
     Server
@@ -257,71 +265,61 @@ defmodule HydraAgent.MCP do
   defp maybe_discover_prompts(_server, _context, _opts), do: {:ok, %{"prompts" => []}}
 
   defp call_json_rpc(%Server{transport: "http"} = server, method, params, _context, opts) do
-    body = json_rpc_body(method, params)
+    with {:ok, headers} <- auth_headers(server),
+         {:ok, response} <-
+           public_mcp_request(server, json_rpc_body(method, params), headers, opts) do
+      case response do
+        %{status: status, body: response_body} when status in 200..299 ->
+          response_body
+          |> decode_body()
+          |> decode_json_rpc_response()
 
-    req_opts =
-      [
-        method: :post,
-        url: server.config["url"],
-        json: body,
-        headers: auth_headers(server),
-        receive_timeout: server.timeout_ms
-      ]
-      |> Keyword.merge(Keyword.get(opts, :req_options, []))
+        %{status: status, body: response_body} ->
+          {:error,
+           %{
+             "reason" => "mcp_http_error",
+             "status" => status,
+             "body" => response_body |> decode_body() |> Redaction.redact()
+           }}
 
-    case Req.request(req_opts) do
-      {:ok, %{status: status, body: response_body}} when status in 200..299 ->
-        response_body
-        |> decode_body()
-        |> decode_json_rpc_response()
-
-      {:ok, %{status: status, body: response_body}} ->
-        {:error,
-         %{
-           "reason" => "mcp_http_error",
-           "status" => status,
-           "body" => response_body |> decode_body() |> Redaction.redact()
-         }}
-
-      {:error, error} ->
-        {:error, %{"reason" => "mcp_request_failed", "error" => Exception.message(error)}}
+        _invalid ->
+          {:error, %{"reason" => "mcp_invalid_http_response"}}
+      end
     end
   end
 
   defp call_json_rpc(%Server{transport: "sse"} = server, method, params, _context, opts) do
-    body = json_rpc_body(method, params)
+    with {:ok, auth_headers} <- auth_headers(server),
+         {:ok, response} <-
+           public_mcp_request(
+             server,
+             json_rpc_body(method, params),
+             [{"accept", "text/event-stream"} | auth_headers],
+             opts
+           ) do
+      case response do
+        %{status: status, body: response_body} when status in 200..299 ->
+          response_body
+          |> decode_sse_json_rpc_body()
+          |> decode_json_rpc_response()
 
-    req_opts =
-      [
-        method: :post,
-        url: server.config["url"],
-        json: body,
-        headers: [{"accept", "text/event-stream"} | auth_headers(server)],
-        receive_timeout: server.timeout_ms
-      ]
-      |> Keyword.merge(Keyword.get(opts, :req_options, []))
+        %{status: status, body: response_body} ->
+          {:error,
+           %{
+             "reason" => "mcp_sse_http_error",
+             "status" => status,
+             "body" => response_body |> decode_body() |> Redaction.redact()
+           }}
 
-    case Req.request(req_opts) do
-      {:ok, %{status: status, body: response_body}} when status in 200..299 ->
-        response_body
-        |> decode_sse_json_rpc_body()
-        |> decode_json_rpc_response()
-
-      {:ok, %{status: status, body: response_body}} ->
-        {:error,
-         %{
-           "reason" => "mcp_sse_http_error",
-           "status" => status,
-           "body" => response_body |> decode_body() |> Redaction.redact()
-         }}
-
-      {:error, error} ->
-        {:error, %{"reason" => "mcp_sse_request_failed", "error" => Exception.message(error)}}
+        _invalid ->
+          {:error, %{"reason" => "mcp_invalid_sse_response"}}
+      end
     end
   end
 
   defp call_json_rpc(%Server{transport: "stdio"} = server, method, params, context, _opts) do
     with {:ok, {program, args}} <- stdio_command(server),
+         :ok <- SecurityPolicy.authorize_executable(program),
          {:ok, executable} <- executable_path(program),
          {:ok, cwd} <- stdio_cwd(server, context),
          {:ok, env} <- stdio_env(server),
@@ -337,6 +335,45 @@ defmodule HydraAgent.MCP do
   defp call_json_rpc(%Server{} = server, _method, _params, _context, _opts) do
     {:error, %{"reason" => "mcp_transport_not_executable", "transport" => server.transport}}
   end
+
+  defp public_mcp_request(server, body, headers, opts) do
+    request_options =
+      [json: body, headers: headers, receive_timeout: server.timeout_ms]
+      |> Keyword.merge(Keyword.get(opts, :req_options, []))
+
+    security_options = Keyword.take(opts, [:requester, :resolver])
+
+    case BoundedJsonHttp.request(
+           :post,
+           server.config["url"],
+           request_options,
+           security_options
+         ) do
+      {:ok, _response} = ok -> ok
+      {:error, reason} -> {:error, public_mcp_request_error(reason)}
+    end
+  end
+
+  defp public_mcp_request_error(reason)
+       when reason in [
+              :invalid_public_https_url,
+              :ip_literal_not_allowed,
+              :non_public_host,
+              :unresolvable_host
+            ] do
+    %{"reason" => "mcp_endpoint_rejected", "detail" => Atom.to_string(reason)}
+  end
+
+  defp public_mcp_request_error(:response_too_large),
+    do: %{"reason" => "mcp_response_too_large"}
+
+  defp public_mcp_request_error(%{__struct__: module}),
+    do: %{"reason" => "mcp_request_failed", "error_class" => inspect(module)}
+
+  defp public_mcp_request_error(reason) when is_atom(reason),
+    do: %{"reason" => "mcp_request_failed", "detail" => Atom.to_string(reason)}
+
+  defp public_mcp_request_error(_reason), do: %{"reason" => "mcp_request_failed"}
 
   defp json_rpc_body(method, params) do
     %{
@@ -373,40 +410,60 @@ defmodule HydraAgent.MCP do
   defp stdio_cwd(%Server{} = server, context) do
     root = Path.expand(context["workspace_root"] || File.cwd!())
     configured = server.config["cwd"]
-    cwd = Path.expand(configured || root)
 
-    cond do
-      not is_nil(configured) and not is_binary(configured) ->
+    case configured do
+      nil ->
+        WorkspacePath.resolve(root, ".", kind: :directory)
+
+      cwd when is_binary(cwd) ->
+        case WorkspacePath.resolve(root, cwd, kind: :directory) do
+          {:error, %{"reason" => "path_outside_workspace_root"}} ->
+            {:error,
+             %{
+               "reason" => "mcp_stdio_cwd_outside_workspace_root",
+               "cwd" => Path.expand(cwd, root),
+               "workspace_root" => root
+             }}
+
+          result ->
+            result
+        end
+
+      _invalid ->
         {:error, %{"reason" => "mcp_stdio_cwd_invalid"}}
-
-      cwd == root or String.starts_with?(cwd, root <> "/") ->
-        {:ok, cwd}
-
-      true ->
-        {:error,
-         %{
-           "reason" => "mcp_stdio_cwd_outside_workspace_root",
-           "cwd" => cwd,
-           "workspace_root" => root
-         }}
     end
   end
 
   defp stdio_env(%Server{} = server) do
-    server.env_refs
-    |> Enum.reduce_while({:ok, []}, fn env_ref, {:ok, acc} ->
-      case Secrets.fetch_env(env_ref) do
-        {:ok, value} ->
-          {:cont, {:ok, [{String.to_charlist(env_ref), String.to_charlist(value)} | acc]}}
+    with :ok <- SecurityPolicy.authorize_env_refs(server.env_refs) do
+      server.env_refs
+      |> Enum.reduce_while({:ok, %{}}, fn env_ref, {:ok, acc} ->
+        case Secrets.fetch_env(env_ref) do
+          {:ok, value} ->
+            {:cont, {:ok, Map.put(acc, env_ref, value)}}
 
-        {:error, error} ->
-          {:halt, {:error, error}}
+          {:error, error} ->
+            {:halt, {:error, error}}
+        end
+      end)
+      |> case do
+        {:ok, entries} -> {:ok, isolated_stdio_env(entries)}
+        {:error, error} -> {:error, error}
       end
-    end)
-    |> case do
-      {:ok, entries} -> {:ok, Enum.reverse(entries)}
-      {:error, error} -> {:error, error}
     end
+  end
+
+  defp isolated_stdio_env(declared) do
+    removals = Map.new(System.get_env(), fn {name, _value} -> {name, false} end)
+
+    removals
+    |> Map.merge(@stdio_base_env)
+    |> Map.merge(declared)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(fn
+      {name, false} -> {String.to_charlist(name), false}
+      {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
+    end)
   end
 
   defp encode_stdio_request(method, params) do
@@ -569,13 +626,16 @@ defmodule HydraAgent.MCP do
 
     cond do
       is_binary(bearer_env) and bearer_env in (server.env_refs || []) ->
-        case Secrets.fetch_env(bearer_env) do
-          {:ok, token} -> [{"authorization", "Bearer #{token}"}]
-          {:error, _error} -> []
+        with :ok <- SecurityPolicy.authorize_env_refs([bearer_env]),
+             {:ok, token} <- Secrets.fetch_env(bearer_env) do
+          {:ok, [{"authorization", "Bearer #{token}"}]}
         end
 
+      is_nil(bearer_env) ->
+        {:ok, []}
+
       true ->
-        []
+        {:error, %{"reason" => "mcp_bearer_env_invalid"}}
     end
   end
 

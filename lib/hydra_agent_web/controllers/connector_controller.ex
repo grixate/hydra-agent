@@ -3,6 +3,9 @@ defmodule HydraAgentWeb.ConnectorController do
 
   alias HydraAgent.{Connectors, Secrets}
 
+  plug HydraAgentWeb.Plugs.RequireOperatorAuthority
+       when action in [:create, :grant_agent, :approve_action]
+
   def specs(conn, _params) do
     json(conn, %{
       data: Connectors.provider_specs(),

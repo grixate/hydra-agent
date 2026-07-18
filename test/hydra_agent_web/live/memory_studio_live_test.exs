@@ -460,4 +460,70 @@ defmodule HydraAgentWeb.MemoryStudioLiveTest do
     assert html =~ "Archived 1 duplicate memories"
     assert html =~ "0 duplicate groups"
   end
+
+  test "forged memory ids cannot mutate another workspace", %{conn: conn} do
+    enable_browser_auth()
+
+    allowed = workspace_fixture(%{name: "Allowed", slug: "memory-mutation-allowed"})
+    denied = workspace_fixture(%{name: "Denied", slug: "memory-mutation-denied"})
+    operator = user_fixture()
+    membership_fixture(operator, allowed, "admin")
+    foreign_agent = agent_fixture(denied, %{slug: "foreign-memory-agent"})
+
+    {:ok, foreign_memory} =
+      Knowledge.create_node(%{
+        workspace_id: denied.id,
+        type_key: "memory",
+        title: "Foreign durable memory",
+        body: "Must remain isolated.",
+        status: "active",
+        confidence: 0.4,
+        importance: 0.5
+      })
+
+    {:ok, foreign_proposal} =
+      Memory.propose_node(foreign_agent, %{
+        title: "Foreign proposal",
+        body: "Must not be promoted from another workspace."
+      })
+
+    {:ok, view, _html} =
+      live(authenticated_session(conn, operator), ~p"/control/memory?workspace_id=#{allowed.id}")
+
+    assert render_click(view, "update-memory", %{
+             "memory_id" => foreign_memory.id,
+             "status" => "verified",
+             "confidence" => "0.99",
+             "importance" => "0.99"
+           }) =~ "Memory not found in this workspace"
+
+    assert render_click(view, "review-memory", %{
+             "proposal_id" => foreign_proposal.id,
+             "decision" => "promote",
+             "reason" => "forged"
+           }) =~ "Memory not found in this workspace"
+
+    unchanged_memory = Knowledge.get_node!(foreign_memory.id)
+    assert unchanged_memory.status == "active"
+    assert unchanged_memory.confidence == 0.4
+
+    unchanged_proposal = Knowledge.get_node!(foreign_proposal.id)
+    assert unchanged_proposal.status == "draft"
+    assert unchanged_proposal.attributes["proposal_status"] == "pending"
+  end
+
+  defp enable_browser_auth do
+    original = Application.get_env(:hydra_agent, :browser_auth)
+    Application.put_env(:hydra_agent, :browser_auth, enabled?: true)
+
+    on_exit(fn ->
+      if original,
+        do: Application.put_env(:hydra_agent, :browser_auth, original),
+        else: Application.delete_env(:hydra_agent, :browser_auth)
+    end)
+  end
+
+  defp authenticated_session(conn, user) do
+    init_test_session(conn, user_id: user.id, session_version: user.session_version)
+  end
 end

@@ -43,7 +43,11 @@ defmodule HydraAgentWeb.ToolsProtocolsLive do
           put_flash(socket, :info, "MCP discovery updated")
 
         {:error, error} ->
-          put_flash(socket, :error, "MCP discovery failed: #{inspect(error)}")
+          put_flash(
+            socket,
+            :error,
+            HydraAgentWeb.UserError.message("discover MCP servers", error)
+          )
       end
 
     {:noreply, load_workspace_state(socket)}
@@ -61,7 +65,11 @@ defmodule HydraAgentWeb.ToolsProtocolsLive do
           put_flash(socket, :info, "No active MCP stdio session")
 
         {:error, error} ->
-          put_flash(socket, :error, "MCP stdio session stop failed: #{inspect(error)}")
+          put_flash(
+            socket,
+            :error,
+            HydraAgentWeb.UserError.message("stop the MCP session", error)
+          )
       end
 
     {:noreply, load_workspace_state(socket)}
@@ -140,8 +148,15 @@ defmodule HydraAgentWeb.ToolsProtocolsLive do
              }) do
         socket |> put_flash(:info, "Connector permission granted") |> load_workspace_state()
       else
-        nil -> put_flash(socket, :error, "Select a connector account")
-        {:error, error} -> put_flash(socket, :error, "Connector grant failed: #{inspect(error)}")
+        nil ->
+          put_flash(socket, :error, "Select a connector account")
+
+        {:error, error} ->
+          put_flash(
+            socket,
+            :error,
+            HydraAgentWeb.UserError.message("save the connector grant", error)
+          )
       end
 
     {:noreply, socket}
@@ -164,8 +179,15 @@ defmodule HydraAgentWeb.ToolsProtocolsLive do
              }) do
         socket |> put_flash(:info, "Connector action recorded") |> load_workspace_state()
       else
-        nil -> put_flash(socket, :error, "Select a connector account")
-        {:error, error} -> put_flash(socket, :error, "Connector action failed: #{inspect(error)}")
+        nil ->
+          put_flash(socket, :error, "Select a connector account")
+
+        {:error, error} ->
+          put_flash(
+            socket,
+            :error,
+            HydraAgentWeb.UserError.message("run the connector action", error)
+          )
       end
 
     {:noreply, socket}
@@ -176,11 +198,23 @@ defmodule HydraAgentWeb.ToolsProtocolsLive do
 
     socket =
       case Connectors.approve_action(action, %{"approved_by" => "tools_protocols_live"}) do
-        {:ok, _action} ->
-          socket |> put_flash(:info, "Connector action approved") |> load_workspace_state()
+        {:ok, %{status: "completed"}} ->
+          socket
+          |> put_flash(:info, "Approval recorded and connector action completed")
+          |> load_workspace_state()
+
+        {:ok, %{status: "blocked"}} ->
+          socket
+          |> put_flash(:error, "Approval recorded, but connector setup is incomplete")
+          |> load_workspace_state()
+
+        {:ok, approved_action} ->
+          socket
+          |> put_flash(:info, "Approval recorded · #{approved_action.status}")
+          |> load_workspace_state()
 
         {:error, error} ->
-          put_flash(socket, :error, "Approval failed: #{inspect(error)}")
+          put_flash(socket, :error, HydraAgentWeb.UserError.message("approve the request", error))
       end
 
     {:noreply, socket}
@@ -195,7 +229,7 @@ defmodule HydraAgentWeb.ToolsProtocolsLive do
           socket |> put_flash(:info, "Connector action rejected") |> load_workspace_state()
 
         {:error, error} ->
-          put_flash(socket, :error, "Reject failed: #{inspect(error)}")
+          put_flash(socket, :error, HydraAgentWeb.UserError.message("reject the request", error))
       end
 
     {:noreply, socket}
@@ -208,7 +242,7 @@ defmodule HydraAgentWeb.ToolsProtocolsLive do
           socket |> put_flash(:info, "Skill import scanned") |> load_workspace_state()
 
         {:error, error} ->
-          put_flash(socket, :error, "Skill scan failed: #{inspect(error)}")
+          put_flash(socket, :error, HydraAgentWeb.UserError.message("scan the skill", error))
       end
 
     {:noreply, socket}
@@ -223,7 +257,7 @@ defmodule HydraAgentWeb.ToolsProtocolsLive do
           socket |> put_flash(:info, "Skill import installed") |> load_workspace_state()
 
         {:error, error} ->
-          put_flash(socket, :error, "Skill install failed: #{inspect(error)}")
+          put_flash(socket, :error, HydraAgentWeb.UserError.message("install the skill", error))
       end
 
     {:noreply, socket}
@@ -238,14 +272,14 @@ defmodule HydraAgentWeb.ToolsProtocolsLive do
           socket |> put_flash(:info, "Skill import rejected") |> load_workspace_state()
 
         {:error, error} ->
-          put_flash(socket, :error, "Skill reject failed: #{inspect(error)}")
+          put_flash(socket, :error, HydraAgentWeb.UserError.message("reject the skill", error))
       end
 
     {:noreply, socket}
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
 
   defp load_workspace_state(%{assigns: %{workspace_id: nil}} = socket) do

@@ -3,6 +3,8 @@ defmodule HydraAgentWeb.AgentBuilderController do
 
   alias HydraAgent.AgentBuilder
 
+  plug HydraAgentWeb.Plugs.RequireOperatorAuthority when action in [:create]
+
   def preview(conn, %{"workspace_id" => workspace_id} = params) do
     json(conn, %{data: AgentBuilder.preview(workspace_id, params)})
   end

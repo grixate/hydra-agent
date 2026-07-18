@@ -117,6 +117,27 @@ defmodule HydraAgent.AgentPackTest do
     assert "tool_bundles contains unknown bundles: imaginary" in errors
   end
 
+  test "rejects traversal-like pack slugs before they can become paths" do
+    pack = %{
+      "agent_pack_version" => 1,
+      "slug" => "../../operator",
+      "name" => "Operator",
+      "role" => "operator",
+      "description" => "Invalid path-like slug.",
+      "model_route" => %{},
+      "tools" => [],
+      "skills" => [],
+      "memory_scopes" => ["agent"],
+      "knowledge_scopes" => ["workspace"],
+      "permissions" => %{"side_effect_classes" => ["read_only"], "requires_approval" => true},
+      "autonomy" => %{"level" => "recommend"},
+      "approval_policy" => %{"mode" => "required_for_sensitive"}
+    }
+
+    assert {:error, errors} = AgentPack.validate(pack)
+    assert "slug must use lowercase letters, numbers, and hyphens" in errors
+  end
+
   test "returns structured validation details for authoring tools" do
     pack = %{
       "agent_pack_version" => 99,

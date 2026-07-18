@@ -15,6 +15,9 @@ defmodule HydraAgent.Runtime.Workspace do
     has_many :runs, HydraAgent.Runtime.Run
     has_many :conversations, HydraAgent.Runtime.Conversation
     has_many :knowledge_nodes, HydraAgent.Knowledge.Node
+    has_many :sim_lab_studies, HydraAgent.SimLab.Schemas.Study
+    has_many :workspace_memberships, HydraAgent.Accounts.WorkspaceMembership
+    has_many :users, through: [:workspace_memberships, :user]
 
     timestamps(type: :utc_datetime_usec)
   end

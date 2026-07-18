@@ -1,0 +1,276 @@
+<main class="study-workspace" id="study-workspace">
+  <header class="study-workspace-bar">
+    <a class="simlab-brand" href="/demo/simulations">
+      <span class="brand-mark">H</span><span>Hydra <em>Simulations</em></span>
+    </a>
+    <div class="workspace-crumb">
+      <a href="/demo/simulations">Demo</a><span>/</span><strong><%= @study.title %></strong>
+    </div>
+    <a href="/demo/simulations/certificate-visibility/observatory" class="workspace-run-link">
+      Open observatory <span>↗</span>
+    </a>
+  </header>
+
+  <div class="study-workspace-grid">
+    <aside class="study-rail" aria-label="Study sections">
+      <div class="study-rail-label">Study progress</div>
+      <div class="rail-study-name">{@study.title}</div>
+      <div class="rail-confidence">
+        <span class="confidence-orb"></span><span><b>62%</b> directional confidence</span>
+      </div>
+      <nav class="study-tabs" role="tablist">
+        <button class="study-tab" data-study-tab="brief" role="tab">
+          <span class="tab-index">01</span><span>Brief</span><i>✓</i>
+        </button>
+        <button class="study-tab active" data-study-tab="context" role="tab">
+          <span class="tab-index">02</span><span>Context</span><i>✓</i>
+        </button>
+        <button class="study-tab" data-study-tab="personas" role="tab">
+          <span class="tab-index">03</span><span>Personas</span><i><%= length(@study.personas) %></i>
+        </button>
+        <button class="study-tab" data-study-tab="patterns" role="tab">
+          <span class="tab-index">04</span><span>Patterns</span><i><%= length(@study.patterns) %></i>
+        </button>
+        <button class="study-tab" data-study-tab="simulation" role="tab">
+          <span class="tab-index">05</span><span>Simulation</span><i>↗</i>
+        </button>
+        <button class="study-tab" data-study-tab="report" role="tab">
+          <span class="tab-index">06</span><span>Forecast</span><i>✓</i>
+        </button>
+      </nav>
+      <div class="rail-bottom">
+        <span>LIVE RESEARCH</span><b>Off in demo</b>
+        <p>This guided example sends no provider requests and uses no private workspace data.</p>
+      </div>
+    </aside>
+
+    <section class="study-canvas">
+      <section class="study-panel" data-study-panel="brief" hidden>
+        <div class="panel-overline">Study brief</div>
+        <h1>What do you want to simulate?</h1>
+        <p class="panel-lede">{@study.question}</p>
+        <div class="brief-facts">
+          <div><span>Audience</span><b>Employees in large enterprise</b></div>
+          <div><span>Market</span><b><%= @study.domain %></b></div>
+          <div><span>Region</span><b><%= @study.region %></b></div>
+          <div><span>Horizon</span><b>60 days</b></div>
+        </div>
+      </section>
+
+      <section class="study-panel active" data-study-panel="context">
+        <div class="panel-heading-row">
+          <div>
+            <p class="panel-overline">Research context pack · v1</p>
+            <h1>What we know, <i>what we infer.</i></h1>
+          </div>
+          <button class="outline-button" id="toggle-research-trace">
+            Demo research trace <span>⌄</span>
+          </button>
+        </div>
+        <p class="panel-lede">
+          The model separates evidence from assumptions so a useful first forecast never pretends to be a fact.
+        </p>
+        <div class="grounding-overview">
+          <div class="grounding-stat data">
+            <span>FROM YOUR DATA</span><b>2</b><small>notes</small>
+          </div>
+          <div class="grounding-stat web">
+            <span>ILLUSTRATIVE SOURCES</span><b>8</b><small>examples</small>
+          </div>
+          <div class="grounding-stat assumption">
+            <span>ASSUMPTIONS</span><b>3</b><small>visible</small>
+          </div>
+          <div class="grounding-stat question">
+            <span>OPEN QUESTIONS</span><b>2</b><small>to validate</small>
+          </div>
+        </div>
+        <div class="context-columns">
+          <div class="context-list">
+            <div class="context-list-title">
+              <span class="list-dot green"></span>
+              <h2>Evidence with impact</h2>
+            </div>
+            <article class="evidence-row">
+              <span class="evidence-number">01</span>
+              <div>
+                <b>Career signals work when managers use them.</b>
+                <p>
+                  Raises adoption among employees who can connect certificates to progression.
+                </p>
+              </div>
+              <span class="source-pill web">Illustrative</span>
+            </article>
+            <article class="evidence-row">
+              <span class="evidence-number">02</span>
+              <div>
+                <b>Visibility controls change the interpretation.</b>
+                <p>Default visibility can shift a growth signal into a surveillance concern.</p>
+              </div>
+              <span class="source-pill data">Your note</span>
+            </article>
+            <article class="evidence-row">
+              <span class="evidence-number">03</span>
+              <div>
+                <b>Mandatory-learning fatigue delays action.</b>
+                <p>Expect lower early movement until the manager prompt.</p>
+              </div>
+              <span class="source-pill web">Illustrative</span>
+            </article>
+          </div>
+          <div class="context-list assumptions">
+            <div class="context-list-title">
+              <span class="list-dot amber"></span>
+              <h2>Assumptions to watch</h2>
+            </div>
+            <article class="assumption-row">
+              <span>?</span>
+              <p>Managers see enough value in certificates to reinforce the launch.</p>
+            </article>
+            <article class="assumption-row">
+              <span>?</span>
+              <p>Employees expect visibility controls in the existing profile.</p>
+            </article>
+            <p class="demo-fixed-note">
+              Demo assumptions are fixed. Sign in to create and edit your own.
+            </p>
+          </div>
+        </div>
+        <div class="research-trace" id="research-trace" hidden>
+          <span>7 example research lanes</span><span>Contrary evidence represented</span><span>No provider requests sent</span>
+        </div>
+      </section>
+
+      <section class="study-panel" data-study-panel="personas" hidden>
+        <div class="panel-heading-row">
+          <div>
+            <p class="panel-overline">Behavior models</p>
+            <h1>People with a reason <i>to move.</i></h1>
+          </div>
+          <a class="outline-button" href="/login">Build your own model</a>
+        </div>
+        <p class="panel-lede">
+          These are not decorative profiles. Each segment has a job, a friction, and linked evidence.
+        </p>
+        <div class="persona-grid">
+          <%= for {persona, index} <- Enum.with_index(@study.personas) do %>
+            <article class="persona-work-card">
+              <div class="persona-top">
+                <span class={["persona-swatch", "persona-swatch-#{rem(index, 6)}"]}></span><span class="source-pill web"><%= persona.grounding %></span>
+              </div>
+              <h2>{persona.name}</h2>
+              <span class="persona-weight">
+                {round(persona.weight * 100)}% of population · {round(persona.confidence * 100)}% confidence
+              </span>
+              <dl>
+                <div>
+                  <dt>Goal</dt>
+                  <dd>{persona.goal}</dd>
+                </div>
+                <div>
+                  <dt>Friction</dt>
+                  <dd>{persona.friction}</dd>
+                </div>
+              </dl>
+            </article>
+          <% end %>
+        </div>
+      </section>
+
+      <section class="study-panel" data-study-panel="patterns" hidden>
+        <div class="panel-heading-row">
+          <div>
+            <p class="panel-overline">Executable action patterns</p>
+            <h1>Small rules, <i>large behavior.</i></h1>
+          </div>
+          <a class="outline-button" href="/login">Create your own patterns</a>
+        </div>
+        <p class="panel-lede">
+          Patterns decide most of the simulation cheaply, while edge cases remain visible.
+        </p>
+        <div class="pattern-work-list">
+          <%= for pattern <- @study.patterns do %>
+            <article class="pattern-work-card">
+              <div class="pattern-work-meta">
+                <span>{String.upcase(pattern.persona)}</span><span><%= round(pattern.probability * 100) %>% BASE</span>
+              </div>
+              <h2>{pattern.name}</h2>
+              <p>
+                When this scenario event happens, this segment is likely to move toward <b><%= pattern.action %></b>.
+              </p>
+              <div>
+                <span class="source-pill web">Evidence-linked</span><span class="pattern-confidence"><%= round(pattern.confidence * 100) %>% confidence</span>
+              </div>
+            </article>
+          <% end %>
+        </div>
+      </section>
+
+      <section class="study-panel" data-study-panel="simulation" hidden>
+        <div class="panel-heading-row">
+          <div>
+            <p class="panel-overline">Simulation setup</p>
+            <h1>Ready to observe <i>the system move.</i></h1>
+          </div>
+          <span class="prepared-badge">Ready</span>
+        </div>
+        <div class="run-setup-card">
+          <div>
+            <span class="cost-label">LARGE RUN · 5,000 MODELED POPULATION</span>
+            <h2>Most decisions are pattern-based.</h2>
+            <p>Deterministic aggregate rules · no provider calls during simulation.</p>
+          </div>
+          <div class="run-metrics">
+            <div><span>PROVIDER COST</span><b>$0.00</b></div>
+            <div><span>RULE DECISIONS</span><b>100%</b></div>
+            <div><span>CONFIDENCE</span><b>Directional · 62%</b></div>
+          </div>
+          <a
+            href="/demo/simulations/certificate-visibility/observatory"
+            class="launch-observatory"
+          >
+            Open observatory <span>→</span>
+          </a>
+        </div>
+        <div class="scenario-mini">
+          <span>DAY 1</span><b>Announcement</b><span>DAY 14</span><b>Certificate block appears</b><span>DAY 30</span><b>Manager prompt</b><span>DAY 60</span><b>Portfolio framing</b>
+        </div>
+      </section>
+
+      <section class="study-panel" data-study-panel="report" hidden>
+        <div class="panel-heading-row">
+          <div>
+            <p class="panel-overline">Forecast · replay complete</p>
+            <h1>Recommendation, <i>with uncertainty.</i></h1>
+          </div>
+          <a
+            class="outline-button"
+            href="/demo/simulations/certificate-visibility/forecast.md"
+          >
+            Export markdown
+          </a>
+        </div>
+        <div class="report-hero">
+          <span class="source-pill assumption">Directional forecast</span>
+          <h2>{@forecast.executive_summary}</h2>
+          <p>
+            The strongest counterfactual is to make certificate visibility opt-in and present it as a portfolio signal.
+          </p>
+        </div>
+        <div class="report-grid">
+          <article>
+            <span>FORECAST</span><b><%= round(@forecast.outcome_probabilities["adopt"] * 100) %>% adopt</b>
+            <p>Career Builders and Certificate Collectors move early.</p>
+          </article>
+          <article>
+            <span>RISK</span><b><%= round(@forecast.outcome_probabilities["resist"] * 100) %>% resist</b>
+            <p>Control uncertainty is the primary resistance driver.</p>
+          </article>
+          <article>
+            <span>VALIDATE NEXT</span><b>Privacy expectations</b>
+            <p>Test opt-in framing with privacy-sensitive employees.</p>
+          </article>
+        </div>
+      </section>
+    </section>
+  </div>
+</main>

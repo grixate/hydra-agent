@@ -64,4 +64,36 @@ defmodule HydraAgent.Tools.CheckpointsTest do
     assert {:ok, _restored} = Checkpoints.restore_record(record_id, context)
     assert File.read!(Path.join(root, "notes.txt")) == "old"
   end
+
+  test "restore refuses symlinked targets and checkpoint files", %{root: root} do
+    workspace = workspace_fixture()
+    run = run_fixture(workspace)
+    context = %{"workspace_root" => root, "workspace_id" => workspace.id, "run_id" => run.id}
+    target = Path.join(root, "notes.txt")
+    outside = root <> "-outside.txt"
+    File.write!(target, "before")
+    File.write!(outside, "outside")
+
+    assert {:ok, write} =
+             FileWrite.execute(%{"path" => "notes.txt", "content" => "after"}, context)
+
+    record_id = write["checkpoint"]["record_id"]
+    checkpoint_path = write["checkpoint"]["checkpoint_path"]
+    File.rm!(target)
+    File.ln_s!(outside, target)
+
+    assert {:error, %{"reason" => "workspace_path_symlink"}} =
+             Checkpoints.restore_record(record_id, context)
+
+    File.rm!(target)
+    File.write!(target, "after")
+    File.rm!(checkpoint_path)
+    File.ln_s!(outside, checkpoint_path)
+
+    assert {:error, %{"reason" => "workspace_path_symlink"}} =
+             Checkpoints.restore_record(record_id, context)
+
+    assert File.read!(outside) == "outside"
+    File.rm!(outside)
+  end
 end

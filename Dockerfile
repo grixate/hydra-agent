@@ -20,12 +20,14 @@ RUN mix deps.compile
 
 COPY lib lib
 COPY priv priv
+COPY assets assets
+RUN mix assets.deploy
 RUN mix compile
 RUN mix release
 
 FROM debian:${DEBIAN_VERSION} AS app
 
-RUN apt-get update -y && apt-get install -y libstdc++6 openssl libncurses6 locales ca-certificates \
+RUN apt-get update -y && apt-get install -y libstdc++6 openssl libncurses6 locales ca-certificates curl \
   && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
 ENV LANG=C.UTF-8
@@ -34,5 +36,14 @@ ENV PHX_SERVER=true
 
 WORKDIR /app
 COPY --from=build /app/_build/prod/rel/hydra_agent ./
+
+RUN groupadd --system hydra \
+  && useradd --system --gid hydra --home-dir /app hydra \
+  && chown -R hydra:hydra /app
+
+USER hydra
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+  CMD curl -fsS -H 'x-forwarded-proto: https' http://127.0.0.1:4000/readyz || exit 1
 
 CMD ["/app/bin/hydra_agent", "start"]

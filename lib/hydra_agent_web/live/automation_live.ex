@@ -60,16 +60,17 @@ defmodule HydraAgentWeb.AutomationLive do
   end
 
   def handle_event("edit-automation", %{"id" => id}, socket) do
-    automation = automation(id)
-    attrs = automation_form_attrs(automation)
+    with_scoped_automation(socket, id, fn automation ->
+      attrs = automation_form_attrs(automation)
 
-    {:noreply,
-     socket
-     |> assign(:form_mode, :edit)
-     |> assign(:editing_automation_id, automation.id)
-     |> assign(:form_attrs, attrs)
-     |> assign(:form_errors, %{})
-     |> assign(:schedule_preview, schedule_preview(attrs))}
+      {:noreply,
+       socket
+       |> assign(:form_mode, :edit)
+       |> assign(:editing_automation_id, automation.id)
+       |> assign(:form_attrs, attrs)
+       |> assign(:form_errors, %{})
+       |> assign(:schedule_preview, schedule_preview(attrs))}
+    end)
   end
 
   def handle_event("cancel-automation-form", _params, socket) do
@@ -100,9 +101,10 @@ defmodule HydraAgentWeb.AutomationLive do
     result =
       case socket.assigns.form_mode do
         :edit ->
-          socket.assigns.editing_automation_id
-          |> automation()
-          |> Automations.update_automation(attrs)
+          case automation(socket.assigns.editing_automation_id, socket) do
+            nil -> {:error, :automation_not_found}
+            automation -> Automations.update_automation(automation, attrs)
+          end
 
         :create ->
           Automations.create_automation(attrs)
@@ -126,6 +128,9 @@ defmodule HydraAgentWeb.AutomationLive do
          |> assign(:form_errors, %{})
          |> assign(:schedule_preview, schedule_preview(next_attrs))
          |> load_workspace_state()}
+
+      {:error, :automation_not_found} ->
+        {:noreply, put_flash(socket, :error, "Automation not found in this workspace")}
 
       {:error, changeset} ->
         {:noreply,
@@ -153,47 +158,53 @@ defmodule HydraAgentWeb.AutomationLive do
          socket |> put_flash(:info, "Recipe automation created") |> load_workspace_state()}
 
       {:error, error} ->
-        {:noreply, put_flash(socket, :error, "Recipe could not be created: #{inspect(error)}")}
+        {:noreply,
+         put_flash(socket, :error, HydraAgentWeb.UserError.message("create the recipe", error))}
     end
   end
 
   def handle_event("pause-automation", %{"id" => id}, socket) do
-    id
-    |> automation()
-    |> Automations.update_automation(%{"status" => "paused"})
-    |> handle_automation_result(socket, "Automation paused")
+    with_scoped_automation(socket, id, fn automation ->
+      automation
+      |> Automations.update_automation(%{"status" => "paused"})
+      |> handle_automation_result(socket, "Automation paused")
+    end)
   end
 
   def handle_event("resume-automation", %{"id" => id}, socket) do
-    id
-    |> automation()
-    |> Automations.update_automation(%{"status" => "active"})
-    |> handle_automation_result(socket, "Automation resumed")
+    with_scoped_automation(socket, id, fn automation ->
+      automation
+      |> Automations.update_automation(%{"status" => "active"})
+      |> handle_automation_result(socket, "Automation resumed")
+    end)
   end
 
   def handle_event("archive-automation", %{"id" => id}, socket) do
-    id
-    |> automation()
-    |> Automations.update_automation(%{"status" => "archived"})
-    |> handle_automation_result(socket, "Automation archived")
+    with_scoped_automation(socket, id, fn automation ->
+      automation
+      |> Automations.update_automation(%{"status" => "archived"})
+      |> handle_automation_result(socket, "Automation archived")
+    end)
   end
 
   def handle_event("run-automation", %{"id" => id}, socket) do
-    id
-    |> automation()
-    |> Automations.run_automation()
-    |> handle_automation_result(socket, "Automation triggered")
+    with_scoped_automation(socket, id, fn automation ->
+      automation
+      |> Automations.run_automation()
+      |> handle_automation_result(socket, "Automation triggered")
+    end)
   end
 
   def handle_event("clear-automation-error", %{"id" => id}, socket) do
-    id
-    |> automation()
-    |> Automations.clear_last_error()
-    |> handle_automation_result(socket, "Automation error cleared")
+    with_scoped_automation(socket, id, fn automation ->
+      automation
+      |> Automations.clear_last_error()
+      |> handle_automation_result(socket, "Automation error cleared")
+    end)
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
 
   defp load_workspace_state(%{assigns: %{workspace_id: nil}} = socket) do
@@ -245,7 +256,11 @@ defmodule HydraAgentWeb.AutomationLive do
 
   defp handle_automation_result({:error, changeset}, socket, _message) do
     {:noreply,
-     put_flash(socket, :error, "Automation update failed: #{inspect(changeset.errors)}")}
+     put_flash(
+       socket,
+       :error,
+       HydraAgentWeb.UserError.message("update the automation", changeset)
+     )}
   end
 
   defp selected_workspace_id([], _param), do: nil
@@ -272,7 +287,16 @@ defmodule HydraAgentWeb.AutomationLive do
 
   defp parse_id(_id), do: nil
 
-  defp automation(id), do: id |> parse_id() |> Automations.get_automation!()
+  defp automation(id, socket) do
+    Automations.get_automation_for_workspace(socket.assigns.workspace_id, parse_id(id))
+  end
+
+  defp with_scoped_automation(socket, id, callback) do
+    case automation(id, socket) do
+      nil -> {:noreply, put_flash(socket, :error, "Automation not found in this workspace")}
+      automation -> callback.(automation)
+    end
+  end
 
   defp status_param(status) when status in @statuses, do: status
   defp status_param(_status), do: "all"
@@ -648,6 +672,27 @@ defmodule HydraAgentWeb.AutomationLive do
       />
 
       <%= if @workspace_id do %>
+        <aside
+          :if={@agents == []}
+          class="flex flex-col gap-4 rounded-lg border border-amber-200 bg-amber-50 p-5 md:flex-row md:items-center md:justify-between"
+          aria-label="Automation prerequisite"
+        >
+          <div>
+            <p class="text-sm font-semibold text-amber-950">
+              Create an agent before scheduling work.
+            </p>
+            <p class="mt-1 text-sm leading-6 text-amber-800">
+              Every automation needs an explicit owner, policy, and audit trail. Nothing will run until that owner exists.
+            </p>
+          </div>
+          <.link
+            href={"/agent-studio?workspace_id=#{@workspace_id}#agent-builder"}
+            class="shrink-0 rounded-md bg-amber-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-900"
+          >
+            Create agent
+          </.link>
+        </aside>
+
         <section class="rounded-lg border border-zinc-200 bg-white p-5">
           <div class="flex items-start justify-between gap-4">
             <div>
@@ -686,13 +731,18 @@ defmodule HydraAgentWeb.AutomationLive do
                 class="mt-3 grid gap-2 md:grid-cols-[1fr_110px]"
               >
                 <input type="hidden" name="recipe[recipe_id]" value={recipe["id"]} />
-                <select name="recipe[agent_id]" class="rounded-md border-zinc-300 text-sm">
+                <select
+                  name="recipe[agent_id]"
+                  disabled={@agents == []}
+                  class="rounded-md border-zinc-300 text-sm disabled:cursor-not-allowed disabled:bg-zinc-100"
+                >
                   <option value="">Select agent</option>
                   <option :for={agent <- @agents} value={agent.id}>{agent.name}</option>
                 </select>
                 <button
                   type="submit"
-                  class="rounded-md bg-zinc-950 px-3 py-2 text-xs font-semibold text-white"
+                  disabled={@agents == []}
+                  class="rounded-md bg-zinc-950 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500"
                 >
                   Create
                 </button>
@@ -905,7 +955,8 @@ defmodule HydraAgentWeb.AutomationLive do
                 <button
                   id="automation-save"
                   type="submit"
-                  class="rounded-md border border-zinc-950 bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800"
+                  disabled={@agents == []}
+                  class="rounded-md border border-zinc-950 bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:border-zinc-200 disabled:bg-zinc-200 disabled:text-zinc-500"
                 >
                   {if @form_mode == :edit, do: "Update", else: "Create"}
                 </button>

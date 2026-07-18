@@ -1,0 +1,45 @@
+groups:
+  - name: hydra-production
+    rules:
+      - alert: HydraTargetDown
+        expr: up{job="hydra"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hydra is not responding to telemetry scrapes
+
+      - alert: HydraServerErrors
+        expr: sum(rate(hydra_http_requests_total{status_class="5xx"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Hydra is returning sustained server errors
+
+      - alert: HydraObanJobExceptions
+        expr: sum(increase(hydra_oban_jobs_total{outcome="exception"}[10m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: One or more Hydra background jobs raised an exception
+
+      - alert: HydraSlowAverageResponse
+        expr: >-
+          sum(rate(hydra_http_requests_duration_milliseconds_sum[5m]))
+          /
+          clamp_min(sum(rate(hydra_http_requests_duration_milliseconds_count[5m])), 0.001)
+          > 2000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hydra average response latency is above two seconds
+
+      - alert: HydraBeamProcessCapacity
+        expr: hydra_beam_process_count / hydra_beam_process_limit > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Hydra is using more than 80% of its BEAM process capacity

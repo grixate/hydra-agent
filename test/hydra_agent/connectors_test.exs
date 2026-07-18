@@ -3,7 +3,7 @@ defmodule HydraAgent.ConnectorsTest do
 
   import HydraAgent.RuntimeFixtures
 
-  alias HydraAgent.{Connectors, Knowledge}
+  alias HydraAgent.{Connectors, Knowledge, Repo}
 
   setup do
     workspace = workspace_fixture(%{slug: "connectors-v4"})
@@ -91,9 +91,10 @@ defmodule HydraAgent.ConnectorsTest do
     assert action.side_effect_class == "external_delivery"
 
     assert {:ok, approved} = Connectors.approve_action(action, %{"approved_by" => "operator"})
-    assert approved.status == "completed"
+    assert approved.status == "blocked"
     assert approved.approved_by == "operator"
-    assert approved.result["mode"] == "approved_recorded"
+    assert approved.last_error["reason"] == "credentials_or_endpoint_not_configured"
+    assert approved.result["executed"] == false
   end
 
   test "agent connector writes fail closed until explicitly granted", %{workspace: workspace} do
@@ -183,8 +184,8 @@ defmodule HydraAgent.ConnectorsTest do
                input: %{"text" => "Trusted publish path."}
              })
 
-    assert action.status == "completed"
-    assert action.result["mode"] == "approved_recorded"
+    assert action.status == "blocked"
+    assert action.last_error["reason"] == "credentials_or_endpoint_not_configured"
   end
 
   test "workspace scoped getters reject cross-workspace connector ids", %{workspace: workspace} do
@@ -216,7 +217,7 @@ defmodule HydraAgent.ConnectorsTest do
     end
   end
 
-  test "unconfigured read connectors return safe stubs", %{workspace: workspace} do
+  test "unconfigured read connectors are explicitly blocked", %{workspace: workspace} do
     {:ok, account} =
       Connectors.create_account(%{
         workspace_id: workspace.id,
@@ -231,12 +232,12 @@ defmodule HydraAgent.ConnectorsTest do
                input: %{"query" => "hydra agents"}
              })
 
-    assert action.status == "completed"
-    assert action.result["mode"] == "research_stub"
-    assert action.result["configured"] == false
+    assert action.status == "blocked"
+    assert action.result["executed"] == false
+    assert action.last_error["reason"] == "connector_not_configured"
   end
 
-  test "social post actions are approval gated and safely recorded without credentials", %{
+  test "social post actions are approval gated and blocked without credentials", %{
     workspace: workspace
   } do
     {:ok, account} =
@@ -256,10 +257,10 @@ defmodule HydraAgent.ConnectorsTest do
     assert action.status == "awaiting_approval"
     assert action.side_effect_class == "external_delivery"
 
-    assert {:ok, completed} = Connectors.approve_action(action)
-    assert completed.status == "completed"
-    assert completed.result["mode"] == "approved_recorded"
-    assert completed.result["delivered"] == false
+    assert {:ok, blocked} = Connectors.approve_action(action)
+    assert blocked.status == "blocked"
+    assert blocked.result["executed"] == false
+    assert blocked.last_error["reason"] == "credentials_or_endpoint_not_configured"
   end
 
   test "linkedin health checks required author configuration", %{workspace: workspace} do
@@ -326,5 +327,47 @@ defmodule HydraAgent.ConnectorsTest do
     [node] = Knowledge.list_nodes(workspace.id, type_key: "note")
     assert node.title == "Research Note"
     assert node.body == "Hydra remembers this."
+  end
+
+  test "concurrent approvals claim an external action only once", %{workspace: workspace} do
+    {:ok, account} =
+      Connectors.create_account(%{
+        workspace_id: workspace.id,
+        provider: "notes",
+        slug: "single-delivery-notes",
+        display_name: "Single Delivery Notes"
+      })
+
+    {:ok, action} =
+      Connectors.request_action(account, %{
+        action: "append",
+        input: %{"title" => "Only Once", "content" => "One durable effect."}
+      })
+
+    parent = self()
+
+    tasks =
+      for _index <- 1..2 do
+        Task.async(fn ->
+          send(parent, {:ready, self()})
+          receive do: (:go -> Connectors.approve_action(action))
+        end)
+      end
+
+    Enum.each(tasks, fn _task ->
+      assert_receive {:ready, pid}
+      Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
+      send(pid, :go)
+    end)
+
+    results = Enum.map(tasks, &Task.await(&1, 5_000))
+    assert Enum.count(results, &match?({:ok, %{status: "completed"}}, &1)) == 1
+
+    assert Enum.count(
+             results,
+             &match?({:error, %{"reason" => "action_not_awaiting_approval"}}, &1)
+           ) == 1
+
+    assert [%{title: "Only Once"}] = Knowledge.list_nodes(workspace.id, type_key: "note")
   end
 end

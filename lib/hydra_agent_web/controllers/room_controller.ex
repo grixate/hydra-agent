@@ -3,6 +3,14 @@ defmodule HydraAgentWeb.RoomController do
 
   alias HydraAgent.{Rooms, Secrets}
 
+  plug HydraAgentWeb.Plugs.RequireOperatorAuthority
+       when action in [
+              :approve_proposal,
+              :retry_delivery,
+              :create_channel_binding,
+              :retry_channel_binding
+            ]
+
   def index(conn, %{"workspace_id" => workspace_id}) do
     rooms = Rooms.list_rooms(workspace_id)
     json(conn, %{data: Enum.map(rooms, &room_json/1)})

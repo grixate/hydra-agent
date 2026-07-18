@@ -1,6 +1,9 @@
 defmodule HydraAgent.Gateways.WebhookEndpoint do
   use Ecto.Schema
   import Ecto.Changeset
+  import Ecto.Query
+
+  alias HydraAgent.Runtime.AgentProfile
 
   @statuses ~w(active paused archived)
   @target_types ~w(agent_chat run_create)
@@ -45,9 +48,10 @@ defmodule HydraAgent.Gateways.WebhookEndpoint do
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:target_type, @target_types)
     |> validate_agent_for_target()
+    |> validate_agent_workspace()
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:agent)
-    |> unique_constraint([:workspace_id, :slug])
+    |> unique_constraint(:slug, name: :webhook_endpoints_slug_index)
   end
 
   defp validate_agent_for_target(changeset) do
@@ -59,5 +63,27 @@ defmodule HydraAgent.Gateways.WebhookEndpoint do
     else
       changeset
     end
+  end
+
+  defp validate_agent_workspace(changeset) do
+    prepare_changes(changeset, fn prepared ->
+      workspace_id = get_field(prepared, :workspace_id)
+      agent_id = get_field(prepared, :agent_id)
+
+      cond do
+        is_nil(workspace_id) or is_nil(agent_id) ->
+          prepared
+
+        prepared.repo.exists?(
+          from(agent in AgentProfile,
+            where: agent.id == ^agent_id and agent.workspace_id == ^workspace_id
+          )
+        ) ->
+          prepared
+
+        true ->
+          add_error(prepared, :agent_id, "must belong to the same workspace")
+      end
+    end)
   end
 end

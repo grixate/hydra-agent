@@ -1,0 +1,80 @@
+<section class="account-security" aria-labelledby="security-title">
+  <header class="account-security-header">
+    <p>Account</p>
+    <h1 id="security-title">Security that stays understandable.</h1>
+    <span>
+      Change your password or end this session. Nothing here changes workspace evidence or agent runs.
+    </span>
+  </header>
+
+  <div class="account-security-grid">
+    <article class="account-security-card account-security-primary">
+      <div class="account-card-heading">
+        <span>01</span>
+        <div>
+          <p>Credentials</p>
+          <h2>Change password</h2>
+        </div>
+      </div>
+
+      <.form
+        for={%{}}
+        as={:security}
+        action={~p"/account/security"}
+        method="put"
+        class="account-security-form"
+      >
+        <label>
+          <span>Current password</span>
+          <input
+            type="password"
+            name="security[current_password]"
+            autocomplete="current-password"
+            required
+          />
+        </label>
+        <label>
+          <span>New password</span>
+          <input
+            type="password"
+            name="security[new_password]"
+            autocomplete="new-password"
+            minlength="12"
+            required
+          />
+        </label>
+        <label>
+          <span>Confirm new password</span>
+          <input
+            type="password"
+            name="security[new_password_confirmation]"
+            autocomplete="new-password"
+            minlength="12"
+            required
+          />
+        </label>
+
+        <div class="account-form-footer">
+          <p>Use at least 12 characters. Changing it signs out every other browser session.</p>
+          <button type="submit">Change password <span aria-hidden="true">→</span></button>
+        </div>
+      </.form>
+    </article>
+
+    <article class="account-security-card account-session-card">
+      <div class="account-card-heading">
+        <span>02</span>
+        <div>
+          <p>This device</p>
+          <h2>Current session</h2>
+        </div>
+      </div>
+      <p>End this session without interrupting work on another signed-in device.</p>
+      <form action={~p"/logout"} method="post">
+        <input type="hidden" name="_method" value="delete" />
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <button type="submit">Sign out</button>
+      </form>
+    </article>
+  </div>
+</section>

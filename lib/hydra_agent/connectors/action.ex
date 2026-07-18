@@ -2,7 +2,9 @@ defmodule HydraAgent.Connectors.Action do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @statuses ~w(queued awaiting_approval approved completed failed rejected)
+  alias HydraAgent.Security.WorkspaceAssociation
+
+  @statuses ~w(queued awaiting_approval approved executing completed blocked failed rejected)
   @side_effect_classes ~w(read_only workspace_write external_delivery network)
 
   schema "connector_actions" do
@@ -62,5 +64,8 @@ defmodule HydraAgent.Connectors.Action do
     |> assoc_constraint(:connector_account)
     |> assoc_constraint(:agent)
     |> assoc_constraint(:automation)
+    |> WorkspaceAssociation.validate(:connector_account_id, HydraAgent.Connectors.Account)
+    |> WorkspaceAssociation.validate(:agent_id, HydraAgent.Runtime.AgentProfile)
+    |> WorkspaceAssociation.validate(:automation_id, HydraAgent.Automations.Automation)
   end
 end

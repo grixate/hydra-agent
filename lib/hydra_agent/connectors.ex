@@ -11,6 +11,7 @@ defmodule HydraAgent.Connectors do
 
   alias HydraAgent.Connectors.{Account, Action}
   alias HydraAgent.Runtime.AgentProfile
+  alias HydraAgent.Security.PublicEndpoint
   alias HydraAgent.{Knowledge, Repo, Secrets}
 
   @provider_specs [
@@ -421,65 +422,85 @@ defmodule HydraAgent.Connectors do
 
   def approve_action(%Action{} = action), do: approve_action(action, %{})
 
-  def approve_action(%Action{status: "awaiting_approval"} = action, attrs) do
+  def approve_action(%Action{} = action, attrs) do
     attrs = stringify_keys(attrs)
 
-    action
-    |> Action.changeset(%{
-      "status" => "approved",
-      "approved_by" => attrs["approved_by"] || "operator",
-      "approved_at" => now()
-    })
-    |> Repo.update()
+    Repo.transaction(fn ->
+      current = lock_action!(action.id)
+
+      unless current.status == "awaiting_approval" do
+        Repo.rollback(%{"reason" => "action_not_awaiting_approval", "status" => current.status})
+      end
+
+      current
+      |> Action.changeset(%{
+        "status" => "approved",
+        "approved_by" => attrs["approved_by"] || "operator",
+        "approved_at" => now()
+      })
+      |> Repo.update!()
+    end)
     |> case do
       {:ok, action} -> execute_action(action)
-      error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  def approve_action(%Action{} = action, _attrs),
-    do: {:error, %{"reason" => "action_not_awaiting_approval", "status" => action.status}}
-
   def reject_action(%Action{} = action), do: reject_action(action, %{})
 
-  def reject_action(%Action{status: "awaiting_approval"} = action, attrs) do
+  def reject_action(%Action{} = action, attrs) do
     attrs = stringify_keys(attrs)
 
-    action
-    |> Action.changeset(%{
-      "status" => "rejected",
-      "approved_by" => attrs["rejected_by"] || attrs["approved_by"] || "operator",
-      "approved_at" => now(),
-      "last_error" => %{"reason" => "rejected", "detail" => attrs["reason"]}
-    })
-    |> Repo.update()
+    Repo.transaction(fn ->
+      current = lock_action!(action.id)
+
+      unless current.status == "awaiting_approval" do
+        Repo.rollback(%{"reason" => "action_not_awaiting_approval", "status" => current.status})
+      end
+
+      current
+      |> Action.changeset(%{
+        "status" => "rejected",
+        "approved_by" => attrs["rejected_by"] || attrs["approved_by"] || "operator",
+        "approved_at" => now(),
+        "last_error" => %{"reason" => "rejected", "detail" => attrs["reason"]}
+      })
+      |> Repo.update!()
+    end)
+    |> case do
+      {:ok, rejected} -> {:ok, rejected}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  def reject_action(%Action{} = action, _attrs),
-    do: {:error, %{"reason" => "action_not_awaiting_approval", "status" => action.status}}
-
   def execute_action(%Action{} = action) do
-    action = Repo.preload(action, [:connector_account])
+    with {:ok, claimed} <- claim_action(action) do
+      claimed = Repo.preload(claimed, [:connector_account])
 
-    case perform_action(action.connector_account, action) do
-      {:ok, result} ->
-        action
-        |> Action.changeset(%{
-          "status" => "completed",
-          "result" => result,
-          "last_error" => %{},
-          "executed_at" => now()
-        })
-        |> Repo.update()
+      case perform_action(claimed.connector_account, claimed) do
+        {:ok, result} ->
+          finalize_action(claimed, %{
+            "status" => "completed",
+            "result" => result,
+            "last_error" => %{},
+            "executed_at" => now()
+          })
 
-      {:error, error} ->
-        action
-        |> Action.changeset(%{
-          "status" => "failed",
-          "last_error" => normalize_error(error),
-          "executed_at" => now()
-        })
-        |> Repo.update()
+        {:blocked, error} ->
+          finalize_action(claimed, %{
+            "status" => "blocked",
+            "result" => %{"executed" => false},
+            "last_error" => normalize_error(error),
+            "executed_at" => nil
+          })
+
+        {:error, error} ->
+          finalize_action(claimed, %{
+            "status" => "failed",
+            "last_error" => normalize_error(error),
+            "executed_at" => now()
+          })
+      end
     end
   end
 
@@ -641,13 +662,12 @@ defmodule HydraAgent.Connectors do
         perform_linkedin_publish_post(account, action)
 
       true ->
-        {:ok,
+        {:blocked,
          %{
-           "mode" => "approved_recorded",
+           "reason" => "no_action_endpoint_configured",
            "provider" => account.provider,
            "action" => action.action,
-           "delivered" => false,
-           "reason" => "no_action_endpoint_configured"
+           "executed" => false
          }}
     end
   end
@@ -661,7 +681,7 @@ defmodule HydraAgent.Connectors do
       )
       |> response_result("gmail_send")
     else
-      {:error, %{"reason" => "missing_secret_env"}} -> approved_recorded(account, action)
+      {:error, %{"reason" => "missing_secret_env"}} -> blocked_unconfigured(account, action)
       {:error, error} -> {:error, error}
     end
   end
@@ -678,7 +698,7 @@ defmodule HydraAgent.Connectors do
       )
       |> response_result("calendar_create_event")
     else
-      {:error, %{"reason" => "missing_secret_env"}} -> approved_recorded(account, action)
+      {:error, %{"reason" => "missing_secret_env"}} -> blocked_unconfigured(account, action)
       {:error, error} -> {:error, error}
     end
   end
@@ -692,7 +712,7 @@ defmodule HydraAgent.Connectors do
       )
       |> response_result("notion_create_page")
     else
-      {:error, %{"reason" => "missing_secret_env"}} -> approved_recorded(account, action)
+      {:error, %{"reason" => "missing_secret_env"}} -> blocked_unconfigured(account, action)
       {:error, error} -> {:error, error}
     end
   end
@@ -713,7 +733,7 @@ defmodule HydraAgent.Connectors do
       |> response_result("notion_append_note")
     else
       false -> {:error, %{"reason" => "notion_page_or_block_id_required"}}
-      {:error, %{"reason" => "missing_secret_env"}} -> approved_recorded(account, action)
+      {:error, %{"reason" => "missing_secret_env"}} -> blocked_unconfigured(account, action)
       {:error, error} -> {:error, error}
     end
   end
@@ -757,7 +777,7 @@ defmodule HydraAgent.Connectors do
       )
       |> response_result("x_publish_post")
     else
-      {:error, %{"reason" => "missing_secret_env"}} -> approved_recorded(account, action)
+      {:error, %{"reason" => "missing_secret_env"}} -> blocked_unconfigured(account, action)
       {:error, error} -> {:error, error}
     end
   end
@@ -772,7 +792,7 @@ defmodule HydraAgent.Connectors do
       )
       |> response_result("linkedin_publish_post")
     else
-      {:error, %{"reason" => "missing_secret_env"}} -> approved_recorded(account, action)
+      {:error, %{"reason" => "missing_secret_env"}} -> blocked_unconfigured(account, action)
       {:error, error} -> {:error, error}
     end
   end
@@ -784,30 +804,43 @@ defmodule HydraAgent.Connectors do
         {:error, _error} -> []
       end
 
-    Req.post(endpoint,
-      headers: headers,
-      json: %{
-        provider: account.provider,
-        action: action.action,
-        input: action.input || %{},
-        metadata: action.metadata || %{}
-      }
-    )
-    |> case do
-      {:ok, response} when response.status in 200..299 ->
-        {:ok,
-         %{"mode" => "provider_response", "status" => response.status, "body" => response.body}}
+    headers = [{"idempotency-key", "hydra-connector-action-#{action.id}"} | headers]
 
-      {:ok, response} ->
-        {:error,
-         %{
-           "reason" => "connector_http_error",
-           "status" => response.status,
-           "body" => response.body
-         }}
+    with {:ok, target} <- PublicEndpoint.validate(endpoint) do
+      Req.post(target.pinned_url,
+        headers: [{"host", target.host} | headers],
+        redirect: false,
+        receive_timeout: 8_000,
+        connect_options: target.connect_options,
+        json: %{
+          provider: account.provider,
+          action: action.action,
+          input: action.input || %{},
+          metadata: action.metadata || %{}
+        }
+      )
+      |> case do
+        {:ok, response} when response.status in 200..299 ->
+          {:ok,
+           %{
+             "mode" => "provider_response",
+             "status" => response.status,
+             "body" => response.body
+           }}
 
-      {:error, error} ->
-        {:error, normalize_error(error)}
+        {:ok, response} ->
+          {:error,
+           %{
+             "reason" => "connector_http_error",
+             "status" => response.status,
+             "body" => response.body
+           }}
+
+        {:error, error} ->
+          {:error, normalize_error(error)}
+      end
+    else
+      {:error, reason} -> {:blocked, %{"reason" => to_string(reason), "executed" => false}}
     end
   end
 
@@ -827,9 +860,10 @@ defmodule HydraAgent.Connectors do
   defp response_result({:error, error}, _mode), do: {:error, normalize_error(error)}
 
   defp read_stub(%Account{} = account, %Action{} = action, mode \\ "read") do
-    {:ok,
+    {:blocked,
      %{
        "mode" => mode,
+       "reason" => "connector_not_configured",
        "provider" => account.provider,
        "action" => action.action,
        "configured" => false,
@@ -837,14 +871,13 @@ defmodule HydraAgent.Connectors do
      }}
   end
 
-  defp approved_recorded(%Account{} = account, %Action{} = action) do
-    {:ok,
+  defp blocked_unconfigured(%Account{} = account, %Action{} = action) do
+    {:blocked,
      %{
-       "mode" => "approved_recorded",
+       "reason" => "credentials_or_endpoint_not_configured",
        "provider" => account.provider,
        "action" => action.action,
-       "delivered" => false,
-       "reason" => "credentials_or_endpoint_not_configured"
+       "executed" => false
      }}
   end
 
@@ -1205,6 +1238,47 @@ defmodule HydraAgent.Connectors do
       findings != [] -> "setup_pending"
       true -> "ready"
     end
+  end
+
+  defp claim_action(%Action{} = action) do
+    Repo.transaction(fn ->
+      current = lock_action!(action.id)
+
+      unless current.status in ["queued", "approved"] do
+        Repo.rollback(%{"reason" => "action_not_executable", "status" => current.status})
+      end
+
+      current
+      |> Action.changeset(%{"status" => "executing", "last_error" => %{}})
+      |> Repo.update!()
+    end)
+    |> case do
+      {:ok, claimed} -> {:ok, claimed}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp finalize_action(%Action{} = action, attrs) do
+    Repo.transaction(fn ->
+      current = lock_action!(action.id)
+
+      unless current.status == "executing" do
+        Repo.rollback(%{"reason" => "action_execution_claim_lost", "status" => current.status})
+      end
+
+      current |> Action.changeset(attrs) |> Repo.update!()
+    end)
+    |> case do
+      {:ok, finalized} -> {:ok, finalized}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp lock_action!(id) do
+    Action
+    |> where([action], action.id == ^id)
+    |> lock("FOR UPDATE")
+    |> Repo.one!()
   end
 
   defp blank?(value), do: is_nil(value) or value == ""

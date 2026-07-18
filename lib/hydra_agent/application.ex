@@ -10,10 +10,13 @@ defmodule HydraAgent.Application do
     children = [
       HydraAgentWeb.Telemetry,
       HydraAgent.Repo,
+      HydraAgent.Security.RateLimitPruner,
+      HydraAgent.Accounts.Bootstrap,
       {DNSCluster, query: Application.get_env(:hydra_agent, :dns_cluster_query) || :ignore},
       {Registry, keys: :unique, name: HydraAgent.ProcessRegistry},
       {Phoenix.PubSub, name: HydraAgent.PubSub},
       {Task.Supervisor, name: HydraAgent.TaskSupervisor},
+      {Oban, Application.fetch_env!(:hydra_agent, Oban)},
       HydraAgent.Agent.Supervisor,
       HydraAgent.MCP.SessionSupervisor,
       HydraAgent.Runtime.RecoveryWorker,

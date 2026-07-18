@@ -25,7 +25,10 @@ config :hydra_agent, HydraAgentWeb.Endpoint,
   code_reloader: true,
   debug_errors: true,
   secret_key_base: "Dd5V1Aioq+o33k56wvLh8qrvQrgAp7A9WMMZtWBmQv/JbLpE7hImy6w5n7QZEqbi",
-  watchers: []
+  watchers: [
+    tailwind: {Tailwind, :install_and_run, [:default, ~w(--watch)]},
+    esbuild: {Esbuild, :install_and_run, [:default, ~w(--sourcemap=inline --watch)]}
+  ]
 
 # ## SSL Support
 #

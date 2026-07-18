@@ -19,12 +19,8 @@ defmodule HydraAgent.AgentChat do
              metadata: %{"source" => Keyword.get(opts, :source, "api")}
            }),
          request <- build_request(conversation, agent, content, opts),
-         :ok <-
-           Budgets.check_available(conversation.workspace_id,
-             agent_id: agent.id,
-             category: usage_category
-           ),
-         {:ok, provider_response} <- Providers.chat(agent, request),
+         {:ok, {provider_response, reservation}} <-
+           call_provider_with_budget(conversation, agent, request, usage_category, :sync),
          {:ok, assistant_turn} <-
            Runtime.append_turn(conversation, %{
              role: "assistant",
@@ -36,18 +32,12 @@ defmodule HydraAgent.AgentChat do
                "usage" => provider_response["usage"],
                "memory" => request["metadata"]["memory"]
              }
+           }),
+         {:ok, _usage} <-
+           Usage.attach_provider_context(reservation, %{
+             "turn_id" => assistant_turn.id,
+             "conversation_id" => conversation.id
            }) do
-      Usage.record_provider_response(
-        %{
-          workspace_id: conversation.workspace_id,
-          agent_id: agent.id,
-          conversation_id: conversation.id,
-          turn_id: assistant_turn.id
-        },
-        provider_response,
-        usage_category
-      )
-
       {:ok,
        %{
          conversation: Runtime.get_conversation!(conversation.id),
@@ -58,16 +48,6 @@ defmodule HydraAgent.AgentChat do
     else
       {:error, error} when is_map(error) ->
         record_error_event(conversation, agent, error)
-
-        Usage.record_error(
-          %{
-            workspace_id: conversation.workspace_id,
-            agent_id: agent.id,
-            conversation_id: conversation.id
-          },
-          error,
-          usage_category
-        )
 
         {:error, error}
 
@@ -91,17 +71,19 @@ defmodule HydraAgent.AgentChat do
              metadata: %{"source" => Keyword.get(opts, :source, "api_stream")}
            }),
          request <- build_request(conversation, agent, content, opts),
-         :ok <-
-           Budgets.check_available(conversation.workspace_id,
-             agent_id: agent.id,
-             category: usage_category
+         {:ok, {provider_response, reservation}} <-
+           call_provider_with_budget(
+             conversation,
+             agent,
+             request,
+             usage_category,
+             {:stream,
+              fn delta ->
+                delta = normalize_delta(delta, conversation, agent)
+                HydraAgent.Runtime.PubSub.broadcast_conversation_delta(conversation, delta)
+                on_delta.(delta)
+              end}
            ),
-         {:ok, provider_response} <-
-           Providers.stream_chat(agent, request, fn delta ->
-             delta = normalize_delta(delta, conversation, agent)
-             HydraAgent.Runtime.PubSub.broadcast_conversation_delta(conversation, delta)
-             on_delta.(delta)
-           end),
          {:ok, assistant_turn} <-
            Runtime.append_turn(conversation, %{
              role: "assistant",
@@ -114,18 +96,12 @@ defmodule HydraAgent.AgentChat do
                "memory" => request["metadata"]["memory"],
                "streamed" => true
              }
+           }),
+         {:ok, _usage} <-
+           Usage.attach_provider_context(reservation, %{
+             "turn_id" => assistant_turn.id,
+             "conversation_id" => conversation.id
            }) do
-      Usage.record_provider_response(
-        %{
-          workspace_id: conversation.workspace_id,
-          agent_id: agent.id,
-          conversation_id: conversation.id,
-          turn_id: assistant_turn.id
-        },
-        provider_response,
-        usage_category
-      )
-
       final_delta =
         normalize_delta(
           %{
@@ -150,16 +126,6 @@ defmodule HydraAgent.AgentChat do
     else
       {:error, error} when is_map(error) ->
         record_error_event(conversation, agent, error)
-
-        Usage.record_error(
-          %{
-            workspace_id: conversation.workspace_id,
-            agent_id: agent.id,
-            conversation_id: conversation.id
-          },
-          error,
-          usage_category
-        )
 
         {:error, error}
 
@@ -200,6 +166,48 @@ defmodule HydraAgent.AgentChat do
       "max_tokens" => Keyword.get(opts, :max_tokens),
       "metadata" => %{"memory" => memory}
     }
+  end
+
+  defp call_provider_with_budget(conversation, agent, request, category, mode) do
+    reservation_opts = [
+      agent_id: agent.id,
+      conversation_id: conversation.id,
+      category: category,
+      requested_tokens: estimated_request_tokens(request)
+    ]
+
+    with {:ok, reservation} <-
+           Budgets.reserve_provider_call(conversation.workspace_id, reservation_opts) do
+      result =
+        case mode do
+          :sync -> Providers.chat(agent, request)
+          {:stream, on_delta} -> Providers.stream_chat(agent, request, on_delta)
+        end
+
+      case result do
+        {:ok, provider_response} ->
+          case Usage.complete_provider_reservation(reservation, provider_response) do
+            {:ok, usage} -> {:ok, {provider_response, usage}}
+            {:error, changeset} -> {:error, changeset}
+          end
+
+        {:error, error} ->
+          _ = Usage.fail_provider_reservation(reservation, error)
+          {:error, error}
+      end
+    end
+  end
+
+  defp estimated_request_tokens(request) do
+    input_tokens =
+      request
+      |> Map.get("messages", [])
+      |> Jason.encode!()
+      |> byte_size()
+      |> Kernel./(4)
+      |> ceil()
+
+    input_tokens + (request["max_tokens"] || 1_024)
   end
 
   defp history_messages(%Conversation{} = conversation, limit) do

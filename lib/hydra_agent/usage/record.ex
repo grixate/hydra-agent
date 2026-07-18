@@ -3,7 +3,7 @@ defmodule HydraAgent.Usage.Record do
   import Ecto.Changeset
 
   @categories ~w(chat planning eval embedding tool)
-  @statuses ~w(ok error)
+  @statuses ~w(reserved ok error)
 
   schema "usage_records" do
     field :provider, :string

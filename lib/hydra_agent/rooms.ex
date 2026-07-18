@@ -339,7 +339,7 @@ defmodule HydraAgent.Rooms do
       setup_item("Public host", public_host_status(), public_host_message()),
       setup_item("Webhook URL", "ok", telegram_webhook_url(binding)),
       env_setup_item("Bot token", binding.token_env, required?: true),
-      env_setup_item("Secret token", binding.secret_env, required?: false),
+      env_setup_item("Secret token", binding.secret_env, required?: true),
       chat_setup_item(binding),
       timestamp_setup_item(
         "Inbound proof",
@@ -917,7 +917,7 @@ defmodule HydraAgent.Rooms do
 
   defp verify_telegram_secret(%ChannelBinding{secret_env: secret_env}, _headers)
        when secret_env in [nil, ""],
-       do: :ok
+       do: {:error, %{"reason" => "missing_telegram_secret_env"}}
 
   defp verify_telegram_secret(%ChannelBinding{secret_env: secret_env}, headers) do
     headers = Map.new(headers, fn {key, value} -> {String.downcase(to_string(key)), value} end)
@@ -947,9 +947,11 @@ defmodule HydraAgent.Rooms do
   end
 
   defp preload_room(room) do
+    members_query = from(member in Member, order_by: [asc: member.inserted_at, asc: member.id])
+
     Repo.preload(room, [
       :coordinator_agent,
-      members: [:agent],
+      members: {members_query, [:agent]},
       messages: [:agent],
       channel_bindings: []
     ])

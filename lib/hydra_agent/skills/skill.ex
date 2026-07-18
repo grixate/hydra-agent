@@ -3,6 +3,7 @@ defmodule HydraAgent.Skills.Skill do
   import Ecto.Changeset
 
   alias HydraAgent.Tools.Registry
+  alias HydraAgent.Security.WorkspaceAssociation
 
   @statuses ~w(proposed testing active deprecated archived)
 
@@ -58,6 +59,8 @@ defmodule HydraAgent.Skills.Skill do
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:owner_agent)
     |> assoc_constraint(:source_run)
+    |> WorkspaceAssociation.validate(:owner_agent_id, HydraAgent.Runtime.AgentProfile)
+    |> WorkspaceAssociation.validate(:source_run_id, HydraAgent.Runtime.Run)
     |> unique_constraint([:workspace_id, :slug])
   end
 

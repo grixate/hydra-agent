@@ -68,7 +68,7 @@ defmodule HydraAgentWeb.MissionLive do
   end
 
   def handle_event("start-mission", %{"id" => id}, socket) do
-    mission = Runtime.get_mission!(id)
+    mission = Runtime.get_mission_for_workspace!(socket.assigns.workspace_id, id)
 
     socket =
       case Runtime.start_mission(mission) do
@@ -76,26 +76,30 @@ defmodule HydraAgentWeb.MissionLive do
           put_flash(socket, :info, "Mission started")
 
         {:error, changeset} ->
-          put_flash(socket, :error, "Mission start failed: #{inspect(changeset.errors)}")
+          put_flash(
+            socket,
+            :error,
+            HydraAgentWeb.UserError.message("start the mission", changeset)
+          )
       end
 
     {:noreply, load_workspace_state(socket, %{"id" => id})}
   end
 
   def handle_event("retry-run", %{"id" => id}, socket) do
-    run = Runtime.get_run!(id)
+    run = Runtime.get_run_for_workspace!(socket.assigns.workspace_id, id)
     socket = handle_run_clone(Runtime.retry_run(run), socket, "Retry created")
     {:noreply, load_workspace_state(socket, %{"id" => run.mission_id})}
   end
 
   def handle_event("fork-run", %{"id" => id}, socket) do
-    run = Runtime.get_run!(id)
+    run = Runtime.get_run_for_workspace!(socket.assigns.workspace_id, id)
     socket = handle_run_clone(Runtime.fork_run(run), socket, "Fork created")
     {:noreply, load_workspace_state(socket, %{"id" => run.mission_id})}
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
 
   defp load_workspace_state(%{assigns: %{workspace_id: nil}} = socket, _params) do
@@ -110,7 +114,7 @@ defmodule HydraAgentWeb.MissionLive do
     filters = socket.assigns.filters
     missions = Runtime.list_missions(workspace_id, filters)
     runs = Runtime.list_runs(workspace_id, limit: 12)
-    mission = selected_mission(params["id"], missions)
+    mission = selected_mission(params["id"], missions, workspace_id)
 
     socket
     |> assign(:missions, missions)
@@ -119,13 +123,13 @@ defmodule HydraAgentWeb.MissionLive do
     |> assign(:agents, Runtime.list_agents(workspace_id))
   end
 
-  defp selected_mission(nil, _missions), do: nil
+  defp selected_mission(nil, _missions, _workspace_id), do: nil
 
-  defp selected_mission(id, missions) do
+  defp selected_mission(id, missions, workspace_id) do
     parsed_id = parse_id(id)
 
     if Enum.any?(missions, &(&1.id == parsed_id)) do
-      Runtime.get_mission!(parsed_id)
+      Runtime.get_mission_for_workspace!(workspace_id, parsed_id)
     end
   end
 
@@ -166,7 +170,7 @@ defmodule HydraAgentWeb.MissionLive do
   defp handle_run_clone({:ok, _run}, socket, message), do: put_flash(socket, :info, message)
 
   defp handle_run_clone({:error, changeset}, socket, _message),
-    do: put_flash(socket, :error, "Run clone failed: #{inspect(changeset.errors)}")
+    do: put_flash(socket, :error, HydraAgentWeb.UserError.message("clone the run", changeset))
 
   @impl true
   def render(assigns) do
@@ -222,30 +226,40 @@ defmodule HydraAgentWeb.MissionLive do
                   ]}
                 />
                 <.input field={@mission_form[:deadline_at]} label="Deadline" type="datetime-local" />
-                <label class="block text-sm font-semibold leading-6 text-zinc-800">
-                  Success criteria JSON <textarea
-                    name="mission[success_criteria_json]"
-                    class="mt-2 block min-h-[5rem] w-full rounded-lg border-zinc-300 text-zinc-900 focus:border-zinc-400 focus:ring-0 sm:text-sm"
-                  >{}</textarea>
-                </label>
-                <label class="block text-sm font-semibold leading-6 text-zinc-800">
-                  Context JSON <textarea
-                    name="mission[context_json]"
-                    class="mt-2 block min-h-[5rem] w-full rounded-lg border-zinc-300 text-zinc-900 focus:border-zinc-400 focus:ring-0 sm:text-sm"
-                  >{}</textarea>
-                </label>
-                <label class="block text-sm font-semibold leading-6 text-zinc-800">
-                  Team JSON <textarea
-                    name="mission[team_json]"
-                    class="mt-2 block min-h-[4rem] w-full rounded-lg border-zinc-300 text-zinc-900 focus:border-zinc-400 focus:ring-0 sm:text-sm"
-                  >{}</textarea>
-                </label>
-                <label class="block text-sm font-semibold leading-6 text-zinc-800">
-                  Permissions JSON <textarea
-                    name="mission[permissions_json]"
-                    class="mt-2 block min-h-[4rem] w-full rounded-lg border-zinc-300 text-zinc-900 focus:border-zinc-400 focus:ring-0 sm:text-sm"
-                  >{}</textarea>
-                </label>
+                <details class="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                  <summary class="cursor-pointer text-sm font-semibold text-zinc-700">
+                    Advanced mission data
+                  </summary>
+                  <p class="mt-2 text-xs leading-5 text-zinc-500">
+                    Optional structured data for API-driven teams. Leave these defaults unchanged for a standard mission.
+                  </p>
+                  <div class="mt-3 space-y-3">
+                    <label class="block text-sm font-semibold leading-6 text-zinc-800">
+                      Success criteria (JSON) <textarea
+                        name="mission[success_criteria_json]"
+                        class="mt-2 block min-h-[5rem] w-full rounded-lg border-zinc-300 text-zinc-900 focus:border-zinc-400 focus:ring-0 sm:text-sm"
+                      >{}</textarea>
+                    </label>
+                    <label class="block text-sm font-semibold leading-6 text-zinc-800">
+                      Context (JSON) <textarea
+                        name="mission[context_json]"
+                        class="mt-2 block min-h-[5rem] w-full rounded-lg border-zinc-300 text-zinc-900 focus:border-zinc-400 focus:ring-0 sm:text-sm"
+                      >{}</textarea>
+                    </label>
+                    <label class="block text-sm font-semibold leading-6 text-zinc-800">
+                      Team (JSON) <textarea
+                        name="mission[team_json]"
+                        class="mt-2 block min-h-[4rem] w-full rounded-lg border-zinc-300 text-zinc-900 focus:border-zinc-400 focus:ring-0 sm:text-sm"
+                      >{}</textarea>
+                    </label>
+                    <label class="block text-sm font-semibold leading-6 text-zinc-800">
+                      Permissions (JSON) <textarea
+                        name="mission[permissions_json]"
+                        class="mt-2 block min-h-[4rem] w-full rounded-lg border-zinc-300 text-zinc-900 focus:border-zinc-400 focus:ring-0 sm:text-sm"
+                      >{}</textarea>
+                    </label>
+                  </div>
+                </details>
                 <.button class="w-full">Create mission</.button>
               </.form>
             </section>

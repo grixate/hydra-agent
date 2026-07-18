@@ -38,10 +38,30 @@ defmodule HydraAgent.Runtime.RecoveryWorker do
   end
 
   def recover(state \\ %{max_attempts: @default_max_attempts}) do
-    Runtime.list_workspace_ids()
-    |> Enum.flat_map(fn workspace_id ->
-      Runtime.recover_stale_steps(workspace_id, max_attempts: state.max_attempts)
+    recovered_steps =
+      Runtime.list_workspace_ids()
+      |> Enum.flat_map(fn workspace_id ->
+        Runtime.recover_stale_steps(workspace_id, max_attempts: state.max_attempts)
+      end)
+
+    recovered_steps
+    |> Enum.filter(&(&1.status == "planned"))
+    |> Enum.map(& &1.run_id)
+    |> Enum.uniq()
+    |> Enum.each(fn run_id ->
+      case HydraAgent.Agent.Supervisor.start_run_worker(run_id) do
+        {:ok, _pid} ->
+          :ok
+
+        {:error, {:already_started, _pid}} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("runtime recovery could not restart run #{run_id}: #{inspect(reason)}")
+      end
     end)
+
+    recovered_steps
   rescue
     error ->
       Logger.warning("runtime recovery worker skipped tick: #{Exception.message(error)}")

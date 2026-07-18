@@ -8,9 +8,9 @@ defmodule HydraAgentWeb.ControlComponents do
         <p class="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
           Operator control
         </p>
-        <h1 class="text-3xl font-semibold tracking-normal text-zinc-950">Runtime Console</h1>
+        <h1 class="text-3xl font-semibold tracking-normal text-zinc-950">Runtime console</h1>
         <p class="max-w-3xl text-sm leading-6 text-zinc-600">
-          Durable orchestration, policy pressure, budgets, and graph state for the selected workspace.
+          Durable runs, approvals, budgets, and knowledge for the selected workspace.
         </p>
       </div>
 
@@ -98,15 +98,15 @@ defmodule HydraAgentWeb.ControlComponents do
 
   def runs_panel(assigns) do
     ~H"""
-    <section class="space-y-3">
+    <section class="min-w-0 space-y-3">
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-zinc-950">Runs</h2>
         <p class="text-sm text-zinc-500">
           latest: {(@runs |> latest_run() || %{inserted_at: nil}).inserted_at |> timestamp()}
         </p>
       </div>
-      <div id="control-runs" class="overflow-hidden rounded-lg border border-zinc-200 bg-white">
-        <div class="grid grid-cols-[72px_1fr_120px_120px_150px_280px] border-b border-zinc-100 px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+      <div id="control-runs" class="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
+        <div class="grid min-w-[900px] grid-cols-[72px_1fr_120px_120px_150px_280px] gap-3 border-b border-zinc-100 px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
           <span>ID</span>
           <span>Goal</span>
           <span>Status</span>
@@ -117,7 +117,7 @@ defmodule HydraAgentWeb.ControlComponents do
         <div
           :for={run <- Enum.take(@runs, 8)}
           id={"control-run-#{run.id}"}
-          class="grid grid-cols-[72px_1fr_120px_120px_150px_280px] gap-3 border-b border-zinc-100 px-4 py-3 last:border-b-0"
+          class="grid min-w-[900px] grid-cols-[72px_1fr_120px_120px_150px_280px] gap-3 border-b border-zinc-100 px-4 py-3 last:border-b-0"
         >
           <span class="text-sm font-medium text-zinc-500">{run.id}</span>
           <div class="min-w-0">
@@ -254,7 +254,7 @@ defmodule HydraAgentWeb.ControlComponents do
 
   def operations_grid(assigns) do
     ~H"""
-    <div class="grid gap-6 xl:grid-cols-4">
+    <div class="grid gap-6 xl:grid-cols-3">
       <.safety_panel safety_events={@safety_events} />
       <.budgets_panel budget_statuses={@budget_statuses} />
       <.providers_panel providers={@providers} />
@@ -373,9 +373,9 @@ defmodule HydraAgentWeb.ControlComponents do
 
   defp tools_panel(assigns) do
     ~H"""
-    <section class="space-y-3">
+    <section class="space-y-3 xl:col-span-3">
       <h2 class="text-lg font-semibold text-zinc-950">Tools</h2>
-      <div id="control-tool-bundles" class="space-y-2">
+      <div id="control-tool-bundles" class="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         <div
           :for={bundle <- @tool_bundles}
           id={"control-tool-bundle-#{bundle.name}"}
@@ -400,8 +400,10 @@ defmodule HydraAgentWeb.ControlComponents do
         </div>
       </div>
 
-      <.tool_policies tool_policies={@tool_policies} />
-      <.mcp_servers mcp_servers={@mcp_servers} />
+      <div class="grid gap-4 pt-2 md:grid-cols-2">
+        <.tool_policies tool_policies={@tool_policies} />
+        <.mcp_servers mcp_servers={@mcp_servers} />
+      </div>
     </section>
     """
   end

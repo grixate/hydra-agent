@@ -3,6 +3,8 @@ defmodule HydraAgentWeb.AgentController do
 
   alias HydraAgent.{AgentChat, AgentPack, Runtime}
 
+  plug HydraAgentWeb.Plugs.RequireOperatorAuthority when action in [:create, :import_pack]
+
   def index(conn, %{"workspace_id" => workspace_id}) do
     agents = Runtime.list_agents(workspace_id)
     json(conn, %{data: Enum.map(agents, &agent_json/1)})

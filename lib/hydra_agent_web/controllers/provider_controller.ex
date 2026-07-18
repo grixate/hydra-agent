@@ -3,6 +3,9 @@ defmodule HydraAgentWeb.ProviderController do
 
   alias HydraAgent.{Providers, Runtime}
 
+  plug HydraAgentWeb.Plugs.RequireOperatorAuthority
+       when action in [:create, :create_credential_pool, :create_credential_pool_item]
+
   def index(conn, %{"workspace_id" => workspace_id}) do
     providers = Runtime.list_providers(workspace_id)
     json(conn, %{data: Enum.map(providers, &provider_json/1)})

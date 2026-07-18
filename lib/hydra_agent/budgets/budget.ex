@@ -2,6 +2,8 @@ defmodule HydraAgent.Budgets.Budget do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.Security.WorkspaceAssociation
+
   @statuses ~w(active paused archived)
   @periods ~w(daily weekly monthly total)
   @categories ~w(chat planning eval embedding tool)
@@ -39,7 +41,9 @@ defmodule HydraAgent.Budgets.Budget do
     |> validate_inclusion(:period, @periods)
     |> validate_inclusion(:category, @categories)
     |> validate_number(:token_limit, greater_than: 0)
+    |> validate_number(:cost_limit, greater_than: 0)
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:agent)
+    |> WorkspaceAssociation.validate(:agent_id, HydraAgent.Runtime.AgentProfile)
   end
 end

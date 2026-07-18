@@ -8,6 +8,8 @@ defmodule HydraAgent.MixProject do
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
+      listeners: [Phoenix.CodeReloader],
+      test_coverage: [summary: [threshold: 72.5]],
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers()
@@ -48,11 +50,16 @@ defmodule HydraAgent.MixProject do
       {:lazy_html, ">= 0.1.0", only: :test},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
+      {:esbuild, "~> 0.10.0", runtime: Mix.env() == :dev},
+      {:tailwind, "~> 0.5.1", runtime: Mix.env() == :dev},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:req, "~> 0.5"},
-      {:crontab, "~> 1.2"}
+      {:crontab, "~> 1.2"},
+      {:oban, "~> 2.18"},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.14", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -64,11 +71,21 @@ defmodule HydraAgent.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
+      setup: ["deps.get", "assets.setup", "assets.build", "ecto.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
+      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
+      "assets.build": ["tailwind default", "esbuild default"],
+      "assets.deploy": ["tailwind default --minify", "esbuild default --minify", "phx.digest"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: [
+        "compile --warning-as-errors",
+        "deps.unlock --unused",
+        "format",
+        "deps.audit",
+        "sobelow --config",
+        "test"
+      ]
     ]
   end
 end

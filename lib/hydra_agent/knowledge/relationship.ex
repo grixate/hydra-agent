@@ -2,6 +2,8 @@ defmodule HydraAgent.Knowledge.Relationship do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.Security.WorkspaceAssociation
+
   schema "knowledge_relationships" do
     field :type_key, :string
     field :attributes, :map, default: %{}
@@ -35,5 +37,6 @@ defmodule HydraAgent.Knowledge.Relationship do
     |> assoc_constraint(:from_node)
     |> assoc_constraint(:to_node)
     |> assoc_constraint(:created_by_agent)
+    |> WorkspaceAssociation.validate(:created_by_agent_id, HydraAgent.Runtime.AgentProfile)
   end
 end

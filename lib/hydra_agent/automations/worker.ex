@@ -1,6 +1,9 @@
 defmodule HydraAgent.Automations.Worker do
   @moduledoc """
   Periodic automation dispatcher.
+
+  `HydraAgent.Automations` claims each occurrence durably and advances its
+  schedule before this worker performs agent or provider work.
   """
 
   use GenServer

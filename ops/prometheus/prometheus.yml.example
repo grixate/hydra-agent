@@ -1,0 +1,13 @@
+rule_files:
+  - /etc/prometheus/hydra-alerts.yml
+
+scrape_configs:
+  - job_name: hydra
+    scheme: https
+    metrics_path: /api/metrics/openmetrics
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/hydra_metrics_token
+    static_configs:
+      - targets:
+          - hydra.example.org

@@ -70,16 +70,14 @@ defmodule HydraAgentWeb.MemoryStudioLive do
       when decision in ["promote", "reject"] do
     attrs = %{"actor" => "memory_studio", "reason" => Map.get(params, "reason", "")}
 
-    result =
-      case decision do
-        "promote" -> id |> parse_id() |> Memory.promote_proposal(attrs)
-        "reject" -> id |> parse_id() |> Memory.reject_proposal(attrs)
-      end
-
     message = if decision == "promote", do: "Memory promoted", else: "Memory rejected"
-    socket = handle_memory_result(result, socket, message)
 
-    {:noreply, load_workspace_state(socket)}
+    with_scoped_memory(socket, id, message, fn node ->
+      case decision do
+        "promote" -> Memory.promote_proposal(node, attrs)
+        "reject" -> Memory.reject_proposal(node, attrs)
+      end
+    end)
   end
 
   def handle_event("update-proposal", %{"proposal_id" => id} = params, socket) do
@@ -89,13 +87,9 @@ defmodule HydraAgentWeb.MemoryStudioLive do
       |> Map.take(~w(title body confidence importance))
       |> Map.put("actor", "memory_studio")
 
-    socket =
-      id
-      |> parse_id()
-      |> Memory.update_proposal_draft(attrs)
-      |> handle_memory_result(socket, "Memory proposal updated")
-
-    {:noreply, load_workspace_state(socket)}
+    with_scoped_memory(socket, id, "Memory proposal updated", fn node ->
+      Memory.update_proposal_draft(node, attrs)
+    end)
   end
 
   def handle_event("update-memory", %{"memory_id" => id} = params, socket) do
@@ -105,23 +99,18 @@ defmodule HydraAgentWeb.MemoryStudioLive do
       |> Map.take(~w(status confidence importance))
       |> Map.put("actor", "memory_studio")
 
-    socket =
-      id
-      |> parse_id()
-      |> Memory.update_memory_node(attrs)
-      |> handle_memory_result(socket, "Memory updated")
-
-    {:noreply, load_workspace_state(socket)}
+    with_scoped_memory(socket, id, "Memory updated", fn node ->
+      Memory.update_memory_node(node, attrs)
+    end)
   end
 
   def handle_event("archive-memory", %{"id" => id}, socket) do
-    socket =
-      id
-      |> parse_id()
-      |> Memory.archive_node(%{"actor" => "memory_studio", "reason" => "operator_archive"})
-      |> handle_memory_result(socket, "Memory archived")
-
-    {:noreply, load_workspace_state(socket)}
+    with_scoped_memory(socket, id, "Memory archived", fn node ->
+      Memory.archive_node(node, %{
+        "actor" => "memory_studio",
+        "reason" => "operator_archive"
+      })
+    end)
   end
 
   def handle_event("archive-low-confidence", _params, socket) do
@@ -165,7 +154,7 @@ defmodule HydraAgentWeb.MemoryStudioLive do
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
 
   defp load_workspace_state(%{assigns: %{workspace_id: nil}} = socket) do
@@ -263,10 +252,21 @@ defmodule HydraAgentWeb.MemoryStudioLive do
   defp handle_memory_result({:ok, _node}, socket, message), do: put_flash(socket, :info, message)
 
   defp handle_memory_result({:error, %Ecto.Changeset{} = changeset}, socket, _message),
-    do: put_flash(socket, :error, "Memory update failed: #{inspect(changeset.errors)}")
+    do: put_flash(socket, :error, HydraAgentWeb.UserError.message("update memory", changeset))
 
   defp handle_memory_result({:error, %{} = error}, socket, _message),
-    do: put_flash(socket, :error, "Memory update failed: #{inspect(error)}")
+    do: put_flash(socket, :error, HydraAgentWeb.UserError.message("update memory", error))
+
+  defp with_scoped_memory(socket, id, message, callback) do
+    case Knowledge.get_node_for_workspace(socket.assigns.workspace_id, parse_id(id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Memory not found in this workspace")}
+
+      node ->
+        socket = node |> callback.() |> handle_memory_result(socket, message)
+        {:noreply, load_workspace_state(socket)}
+    end
+  end
 
   defp parse_id(id) when is_integer(id), do: id
 

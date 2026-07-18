@@ -31,7 +31,7 @@ defmodule HydraAgentWeb.RunIndexLive do
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
 
   defp load_workspace_state(%{assigns: %{workspace_id: nil}} = socket) do

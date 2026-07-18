@@ -33,8 +33,8 @@ The v1 runtime now includes:
 - Cron-backed scheduled automations that run through the normal agent chat path
 - Eval suites, cases, runs, and results for measuring quality and regressions
 - Benchmark-style eval reports with pass rate, average score, duration, and failures
-- Env-backed webhook gateways for external triggers without raw DB secrets
-- Workspace audit export for runs, events, policies, providers, tools, automations, webhooks, and evals
+- Env-backed webhook gateways for external triggers without raw DB secrets; run-creation retries use durable endpoint-scoped idempotency keys
+- Workspace audit export for runs, events, policies, providers, tools, automations, webhooks, evals, and the complete privacy-filtered SimLab lifecycle
 - Runtime PubSub topics for live control planes and conversation/run updates
 - LiveView/Tailwind operator control plane at `/control` for runtime visibility and safe run/approval controls
 - Memory curation for low-confidence nodes and duplicate-title reporting
@@ -62,6 +62,25 @@ mix test
 ```
 
 Use `mix precommit` before shipping changes.
+
+For the production environment contract, migration ordering, readiness probes,
+backup/restore, and rollback procedure, see [docs/production.md](docs/production.md).
+
+The Blueprint-first product migration is tracked in
+[docs/hydra-blueprint-studio-implementation-status.md](docs/hydra-blueprint-studio-implementation-status.md).
+Its boundary decision is recorded in
+[docs/adr/0001-blueprint-first-product-boundary.md](docs/adr/0001-blueprint-first-product-boundary.md).
+
+Production browser access is authenticated. Set
+`HYDRA_BOOTSTRAP_ADMIN_EMAIL` and a password of at least 12 characters in
+`HYDRA_BOOTSTRAP_ADMIN_PASSWORD` for the first boot. Hydra stores only a
+PBKDF2 verifier; the bootstrap password remains an environment secret.
+
+Provider-backed SimLab research is persisted before Oban executes it, so queued
+work survives application restarts. The deterministic simulation engine makes
+no provider calls: its displayed provider cost and enforced authorization cap
+are both `$0.00`. Infrastructure CPU and database costs are intentionally not
+presented as API spend.
 
 If Docker is unavailable, `mix compile --warnings-as-errors` and the agent pack
 smoke command below still verify most non-database code paths:

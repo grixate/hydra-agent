@@ -25,3 +25,20 @@ erl_crash.dump
 
 # Ignore package tarball (built via "mix hex.build").
 hydra_agent-*.tar
+
+# Frontend bundles are rebuilt by `mix assets.build` / `mix assets.deploy`.
+# Existing tracked legacy assets remain tracked until they move into assets/.
+/priv/static/
+
+# Local production secrets and state never belong in source control.
+.env
+.env.*
+/backups/
+/.hydra-compose-smoke.*
+
+# Node dependencies are reproducible from the browser-worker lockfile.
+node_modules/
+
+# Finder metadata and generated local handoff documents are not source assets.
+.DS_Store
+/artifacts/

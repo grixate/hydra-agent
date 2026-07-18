@@ -176,6 +176,15 @@ defmodule HydraAgent.Knowledge do
 
   def get_node!(id), do: Repo.get!(Node, id)
 
+  def get_node_for_workspace(workspace_id, id) do
+    Node
+    |> where(
+      [node],
+      node.workspace_id == ^normalize_id(workspace_id) and node.id == ^normalize_id(id)
+    )
+    |> Repo.one()
+  end
+
   def get_node_detail!(id) do
     Node
     |> Repo.get!(id)
@@ -203,6 +212,16 @@ defmodule HydraAgent.Knowledge do
   end
 
   def get_relationship!(id), do: Repo.get!(Relationship, id)
+
+  def get_relationship_for_workspace(workspace_id, id) do
+    Relationship
+    |> where(
+      [relationship],
+      relationship.workspace_id == ^normalize_id(workspace_id) and
+        relationship.id == ^normalize_id(id)
+    )
+    |> Repo.one()
+  end
 
   def get_relationship_detail!(id) do
     Relationship

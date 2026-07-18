@@ -566,4 +566,50 @@ defmodule HydraAgentWeb.AutomationLiveTest do
     assert has_element?(view, "#automation-run-history-item-#{automation.id}-#{run.id}")
     assert has_element?(view, ~s|a[href="/control/runs/#{run.id}"]|, "Open run")
   end
+
+  test "forged automation ids cannot mutate another workspace", %{conn: conn} do
+    enable_browser_auth()
+
+    allowed = workspace_fixture(%{name: "Allowed", slug: "automation-mutation-allowed"})
+    denied = workspace_fixture(%{name: "Denied", slug: "automation-mutation-denied"})
+    operator = user_fixture()
+    membership_fixture(operator, allowed, "admin")
+    foreign_agent = agent_fixture(denied, %{slug: "foreign-automation-agent"})
+
+    {:ok, foreign_automation} =
+      Automations.create_automation(%{
+        workspace_id: denied.id,
+        agent_id: foreign_agent.id,
+        name: "Foreign Automation",
+        slug: "foreign-automation-mutation",
+        cron_expression: "0 9 * * *",
+        prompt: "Must remain active in its workspace."
+      })
+
+    {:ok, view, _html} =
+      live(
+        authenticated_session(conn, operator),
+        ~p"/control/automations?workspace_id=#{allowed.id}"
+      )
+
+    assert render_click(view, "pause-automation", %{"id" => foreign_automation.id}) =~
+             "Automation not found in this workspace"
+
+    assert Automations.get_automation!(foreign_automation.id).status == "active"
+  end
+
+  defp enable_browser_auth do
+    original = Application.get_env(:hydra_agent, :browser_auth)
+    Application.put_env(:hydra_agent, :browser_auth, enabled?: true)
+
+    on_exit(fn ->
+      if original,
+        do: Application.put_env(:hydra_agent, :browser_auth, original),
+        else: Application.delete_env(:hydra_agent, :browser_auth)
+    end)
+  end
+
+  defp authenticated_session(conn, user) do
+    init_test_session(conn, user_id: user.id, session_version: user.session_version)
+  end
 end

@@ -36,4 +36,38 @@ defmodule HydraAgentWeb.AutomationControllerTest do
              ]
            } = json_response(conn, 200)
   end
+
+  test "automation creation routes reject agents from another workspace", %{conn: conn} do
+    workspace = workspace_fixture(%{name: "Ops", slug: "ops-automation-api-scope"})
+
+    other_workspace =
+      workspace_fixture(%{name: "Other Ops", slug: "other-ops-automation-api-scope"})
+
+    foreign_agent = agent_fixture(other_workspace, %{slug: "foreign-automation-api-agent"})
+
+    conn =
+      post(conn, ~p"/api/v1/workspaces/#{workspace.id}/automations", %{
+        agent_id: foreign_agent.id,
+        name: "Foreign agent automation",
+        slug: "foreign-agent-automation",
+        cron_expression: "0 9 * * *",
+        prompt: "This must not be created."
+      })
+
+    assert %{"errors" => %{"agent_id" => ["must belong to the same workspace"]}} =
+             json_response(conn, 422)
+
+    conn =
+      post(
+        build_conn(),
+        ~p"/api/v1/workspaces/#{workspace.id}/automation_recipes/daily_briefing",
+        %{agent_id: foreign_agent.id}
+      )
+
+    assert %{"errors" => %{"agent_id" => ["must belong to the same workspace"]}} =
+             json_response(conn, 422)
+
+    assert Automations.list_automations(workspace.id) == []
+    assert Automations.list_automations(other_workspace.id) == []
+  end
 end

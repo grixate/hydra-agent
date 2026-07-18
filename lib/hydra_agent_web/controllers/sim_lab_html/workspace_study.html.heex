@@ -1,0 +1,1310 @@
+<main
+  class="study-workspace saved-study-workspace"
+  data-pending-research={
+    to_string(Enum.any?(@research_runs, &(&1.status in ["queued", "running"])))
+  }
+>
+  <header class="study-workspace-bar">
+    <a class="simlab-brand" href={"/lab/workspaces/#{@workspace.id}/studies"}>
+      <span class="brand-mark">H</span><span>Hydra <em>Simulations</em></span>
+    </a>
+    <div class="workspace-crumb">
+      <a href={"/lab/workspaces/#{@workspace.id}/studies"}>{@workspace.name}</a><span>/</span><strong><%= @study.title %></strong>
+    </div>
+    <span class="saved-status">{String.replace(@study.status, "_", " ")}</span>
+  </header>
+
+  <section class="saved-dossier">
+    <div class="dossier-intro">
+      <p class="panel-overline">Study {@study.id} · {@study.timeframe || "Horizon to define"}</p>
+      <h1>{@study.question}</h1>
+      <p>
+        Keep moving from what you know to a forecast you can explain. The system will never make unknowns look certain.
+      </p>
+    </div>
+    <div class="dossier-facts">
+      <div><span>Audience</span><b><%= @study.target_audience || "Not yet specified" %></b></div>
+      <div><span>Context</span><b><%= @study.domain || "Not yet specified" %></b></div>
+      <div><span>Region</span><b><%= @study.region || "Not yet specified" %></b></div>
+      <div><span>Horizon</span><b><%= @study.timeframe || "Not yet specified" %></b></div>
+    </div>
+  </section>
+
+  <section class="saved-journey" aria-label="Study progress">
+    <article class="journey-step complete">
+      <span>01</span>
+      <div>
+        <b>Brief</b>
+        <p>The decision is framed.</p>
+      </div>
+      <i>✓</i>
+    </article>
+    <article class={["journey-step", if(@context_pack, do: "complete", else: "next")]}>
+      <span>02</span>
+      <div>
+        <b>Context</b>
+        <p>
+          {if @context_pack,
+            do:
+              if(@context_pack.summary["research_status"] == "assumption_start",
+                do: "Assumption context is ready.",
+                else: "Evidence pack is ready."
+              ),
+            else: "Bring evidence or connect research."}
+        </p>
+      </div>
+      <i>{if @context_pack, do: "✓", else: "→"}</i>
+    </article>
+    <article class="journey-step muted">
+      <span>03</span>
+      <div>
+        <b>Behavior</b>
+        <p>Model people and action rules.</p>
+      </div>
+      <i>—</i>
+    </article>
+    <article class="journey-step muted">
+      <span>04</span>
+      <div>
+        <b>Observatory</b>
+        <p>Run only when ready.</p>
+      </div>
+      <i>—</i>
+    </article>
+  </section>
+
+  <section class="dossier-grid">
+    <article class="dossier-card context-dossier">
+      <div class="dossier-card-head">
+        <div>
+          <p class="panel-overline">Context pack</p>
+          <h2>
+            {if @context_pack,
+              do:
+                if(@context_pack.summary["research_status"] == "assumption_start",
+                  do: "Assumptions, kept visible.",
+                  else:
+                    if(@context_pack.summary["research_status"] == "workspace_evidence_synthesis",
+                      do: "Local evidence, synthesized.",
+                      else:
+                        if(
+                          @context_pack.summary["research_status"] in [
+                            "synthetic_test_hypotheses",
+                            "partial_synthetic_test_hypotheses"
+                          ],
+                          do: "Test hypotheses, kept separate.",
+                          else: "Evidence, kept legible."
+                        )
+                    )
+                ),
+              else: "No evidence pack yet."}
+          </h2>
+        </div>
+        <span class={if @context_pack, do: "source-pill web", else: "source-pill assumption"}>
+          {if @context_pack, do: "v#{@context_pack.version}", else: "Needs input"}
+        </span>
+      </div>
+      <%= if @context_pack do %>
+        <p class="dossier-card-lede">
+          {case @context_pack.summary["research_status"] do
+            "assumption_start" ->
+              "assumption-only starting point"
+
+            "workspace_evidence_synthesis" ->
+              "local evidence synthesis · no web research run"
+
+            "no_local_evidence" ->
+              "local evidence removed · assumptions remain visible"
+
+            "synthetic_test_hypotheses" ->
+              "Codex CLI test hypotheses · no web sources retrieved"
+
+            "partial_synthetic_test_hypotheses" ->
+              "partial Codex CLI test · no web sources retrieved"
+
+            status ->
+              status || "Context prepared"
+          end} · {length(@sources)} {pluralize(
+            length(@sources),
+            "source candidate",
+            "source candidates"
+          )} · {length(@evidence)} {pluralize(
+            length(@evidence),
+            "evidence item",
+            "evidence items"
+          )} · {length(@context_pack.assumptions || [])} explicit {pluralize(
+            length(@context_pack.assumptions || []),
+            "assumption",
+            "assumptions"
+          )}.
+        </p>
+        <div class="dossier-evidence-list">
+          <%= for item <- Enum.take(@evidence, 3) do %>
+            <% source = Enum.find(@sources, &(&1.id == item.source_id)) %>
+            <% safe_query = (item.metadata || %{})["safe_query"] %>
+            <div>
+              <span class={[
+                "list-dot",
+                if(item.grounding_level == "assumption", do: "amber", else: "green")
+              ]}>
+              </span>
+              <p>
+                <b>{item.claim}</b><small>{evidence_impact_text(item)}</small>
+                <%= if source do %>
+                  <small class="evidence-provenance">
+                    {source.title} · {String.replace(item.grounding_level, "_", " ")}
+                    <%= if is_binary(source.uri) and String.starts_with?(source.uri, "https://") do %>
+                      ·
+                      <a href={source.uri} target="_blank" rel="noopener noreferrer">
+                        Open source
+                      </a>
+                    <% end %>
+                  </small>
+                <% end %>
+                <%= if is_binary(safe_query) and safe_query != "" do %>
+                  <small class="evidence-safe-query">Query · {safe_query}</small>
+                <% end %>
+              </p>
+              <div class="evidence-row-actions">
+                <.evidence_review_controls
+                  workspace_id={@workspace.id}
+                  study_id={@study.id}
+                  evidence={item}
+                />
+                <%= if source do %>
+                  <form
+                    class="remove-local-source-form"
+                    action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/sources/#{source.id}/remove"}
+                    method="post"
+                  >
+                    <input
+                      type="hidden"
+                      name="_csrf_token"
+                      value={Plug.CSRFProtection.get_csrf_token()}
+                    />
+                    <button type="submit" aria-label={"Remove source #{source.title}"}>
+                      Remove source
+                    </button>
+                  </form>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+        </div>
+        <%= if length(@evidence) > 3 do %>
+          <details class="evidence-trail">
+            <summary>
+              Review {length(@evidence) - 3} more evidence {pluralize(
+                length(@evidence) - 3,
+                "item",
+                "items"
+              )} and query trace <span>+</span>
+            </summary>
+            <ol>
+              <%= for item <- Enum.drop(@evidence, 3) do %>
+                <% source = Enum.find(@sources, &(&1.id == item.source_id)) %>
+                <% safe_query = (item.metadata || %{})["safe_query"] %>
+                <li>
+                  <b>{item.claim}</b>
+                  <small>
+                    {if(source, do: source.title, else: "No source record")} · {String.replace(
+                      item.grounding_level,
+                      "_",
+                      " "
+                    )}
+                    <%= if source && is_binary(source.uri) && String.starts_with?(source.uri, "https://") do %>
+                      ·
+                      <a href={source.uri} target="_blank" rel="noopener noreferrer">
+                        Open source
+                      </a>
+                    <% end %>
+                  </small>
+                  <%= if is_binary(safe_query) and safe_query != "" do %>
+                    <code>{safe_query}</code>
+                  <% end %>
+                  <.evidence_review_controls
+                    workspace_id={@workspace.id}
+                    study_id={@study.id}
+                    evidence={item}
+                    compact
+                  />
+                </li>
+              <% end %>
+            </ol>
+          </details>
+        <% end %>
+        <%= if (@context_pack.assumptions || []) != [] do %>
+          <section class="context-assumption-list" aria-labelledby="context-assumptions-title">
+            <div>
+              <span>ASSUMPTIONS</span>
+              <b id="context-assumptions-title">Visible until evidence replaces them</b>
+            </div>
+            <ol>
+              <%= for assumption <- @context_pack.assumptions do %>
+                <li>{assumption_text(assumption)}</li>
+              <% end %>
+            </ol>
+          </section>
+        <% end %>
+        <details class="context-add-evidence">
+          <summary>Add local evidence <span>+</span></summary>
+          <form
+            class="note-context-form compact-note-form"
+            action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/notes"}
+            method="post"
+          >
+            <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+            <label>
+              Source label<input name="note[title]" placeholder="e.g. Pilot interview, 12 June" />
+            </label>
+            <label for="additional-study-note">What did you learn?</label>
+            <textarea
+              id="additional-study-note"
+              name="note[note]"
+              rows="3"
+              required
+              placeholder="Paste a finding, observation, or internal research note."
+            ></textarea>
+            <div>
+              <span>Workspace-only · not sent to web research</span><button
+                class="primary-button"
+                type="submit"
+              >Add evidence <span>→</span></button>
+            </div>
+          </form>
+        </details>
+        <%= if @sources != [] do %>
+          <form
+            class="context-refresh"
+            action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/context/refresh"}
+            method="post"
+          >
+            <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+            <div>
+              <span>CONTEXT BRIEFING</span><b>Refresh from stored evidence</b>
+              <p>
+                Creates a new, versioned briefing from workspace sources only. Nothing is sent to web search.
+              </p>
+            </div>
+            <button type="submit">Refresh pack <span>→</span></button>
+          </form>
+        <% end %>
+      <% else %>
+        <p class="dossier-card-lede">
+          Start with a local note. It stays in this workspace, is marked as direct user data, and never becomes an external search query.
+        </p>
+        <form
+          class="note-context-form"
+          action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/notes"}
+          method="post"
+        >
+          <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+          <label for="study-note-title">Source label (optional)</label>
+          <input
+            class="note-title-input"
+            id="study-note-title"
+            name="note[title]"
+            placeholder="e.g. Discovery interview, 12 June"
+          />
+          <label for="study-note">What do you already know?</label>
+          <textarea
+            id="study-note"
+            name="note[note]"
+            rows="3"
+            required
+            placeholder="e.g. Managers already use portfolios in career conversations."
+          ></textarea>
+          <div>
+            <span>Stored locally · review before simulation</span><button
+              class="primary-button"
+              type="submit"
+            >Add note <span>→</span></button>
+          </div>
+        </form>
+        <div class="assumption-start-card">
+          <div>
+            <span>NO DATA YET</span>
+            <p>Start with explicit assumptions</p>
+            <small>Hydra will keep confidence low and mark the forecast for validation.</small>
+          </div>
+          <form
+            action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/assumption-context"}
+            method="post"
+          >
+            <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+            <button type="submit">Start assumptions →</button>
+          </form>
+        </div>
+        <div class="dossier-empty-actions">
+          <button class="outline-button" disabled>Connect research provider</button><span>External search becomes available only after a provider is configured.</span>
+        </div>
+      <% end %>
+      <details class="context-upload">
+        <summary>Add a local document <span>+</span></summary>
+        <form
+          action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/uploads"}
+          method="post"
+          enctype="multipart/form-data"
+        >
+          <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+          <label>
+            Source label (optional)<input
+              name="document[title]"
+              placeholder="e.g. Pilot findings, June"
+            />
+          </label>
+          <label>
+            Text document<input
+              name="document[file]"
+              required
+              type="file"
+              accept=".txt,.md,.markdown,.csv,text/plain,text/markdown,text/csv"
+            />
+          </label>
+          <div class="context-upload-foot">
+            <span>UTF-8 text, Markdown, or CSV · max 1 MB · workspace-only</span><button type="submit">Add document →</button>
+          </div>
+        </form>
+      </details>
+      <details class="context-public-source">
+        <summary>Add a public web source <span>+</span></summary>
+        <form
+          action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/public-sources"}
+          method="post"
+        >
+          <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+          <label>
+            Public HTTPS URL<input
+              name="public_source[uri]"
+              required
+              type="url"
+              placeholder="https://example.org/research"
+            />
+          </label>
+          <label>
+            Source label (optional)<input
+              name="public_source[title]"
+              placeholder="e.g. Published market study"
+            />
+          </label>
+          <div class="context-public-source-foot">
+            <span>Fetched once · no redirects · private hosts blocked · reviewed before use</span><button type="submit">Add public source →</button>
+          </div>
+        </form>
+      </details>
+      <section class="research-provider-panel" aria-labelledby="research-provider-title">
+        <div class="research-provider-heading">
+          <div>
+            <span>RESEARCH ENGINES</span>
+            <h3 id="research-provider-title">Two modes, one honest evidence trail.</h3>
+          </div>
+          <b>{if @web_search_configured, do: "WEB READY", else: "WEB OFF"}</b>
+        </div>
+        <details class="research-query-preview">
+          <summary>
+            <span>Preview outbound queries</span><small>{length(@research_query_preview)} abstracted queries</small>
+          </summary>
+          <p>
+            Only these queries leave Hydra. Exact brief labels and every local source remain private by default.
+          </p>
+          <ol>
+            <%= for lane <- @research_query_preview do %>
+              <li>
+                <span>{String.replace(lane.lane, "_", " ")}</span><code>{lane.safe_query}</code>
+              </li>
+            <% end %>
+          </ol>
+        </details>
+        <div class="research-provider-options">
+          <article class={[
+            "research-provider-option",
+            if(@web_search_configured, do: "is-ready", else: "is-dormant")
+          ]}>
+            <div>
+              <span class="provider-index">01</span>
+              <div>
+                <strong>Advanced web search</strong>
+                <p>
+                  Tavily-ready retrieval with source URLs, ranked excerpts, and abstracted queries only.
+                </p>
+              </div>
+            </div>
+            <%= if @web_search_configured do %>
+              <form
+                action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/research/web"}
+                method="post"
+              >
+                <input
+                  type="hidden"
+                  name="_csrf_token"
+                  value={Plug.CSRFProtection.get_csrf_token()}
+                />
+                <button type="submit">Run sourced research <span>→</span></button>
+              </form>
+            <% else %>
+              <small>Waiting for <code>TAVILY_API_KEY</code></small>
+            <% end %>
+          </article>
+          <article class={[
+            "research-provider-option",
+            "test-mode",
+            if(@codex_cli_test_enabled, do: "is-ready", else: "is-dormant")
+          ]}>
+            <div>
+              <span class="provider-index">02</span>
+              <div>
+                <strong>Local Codex test</strong>
+                <p>
+                  Generates low-confidence hypotheses for pipeline testing. Never presented as sourced research.
+                </p>
+              </div>
+            </div>
+            <%= if @codex_cli_test_enabled do %>
+              <form
+                action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/research/codex-test"}
+                method="post"
+              >
+                <input
+                  type="hidden"
+                  name="_csrf_token"
+                  value={Plug.CSRFProtection.get_csrf_token()}
+                />
+                <button type="submit">Generate test hypotheses <span>→</span></button>
+              </form>
+            <% else %>
+              <small>Local opt-in is off</small>
+            <% end %>
+          </article>
+        </div>
+        <%= if Enum.any?(@research_runs, &(&1.status in ["queued", "running"])) do %>
+          <p
+            class="research-auto-status"
+            id="research-auto-status"
+            role="status"
+            aria-live="polite"
+          >
+            Research is running. This page updates automatically.
+          </p>
+        <% end %>
+        <%= if @research_runs != [] do %>
+          <div class="research-run-ledger" aria-label="Recent research runs">
+            <%= for run <- @research_runs do %>
+              <div>
+                <span class={"research-run-status is-#{run.status}"}>{run.status}</span>
+                <b>{run.provider |> String.replace("_", " ")}</b>
+                <small>
+                  {run.source_count} sources · {run.failed_lanes} failed lanes · {Calendar.strftime(
+                    run.inserted_at,
+                    "%d %b · %H:%M"
+                  )}
+                </small>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </section>
+    </article>
+
+    <aside class="dossier-card provenance-dossier">
+      <p class="panel-overline">Method note</p>
+      <h2>Inspectable by design.</h2>
+      <ul>
+        <li><span>01</span> Claims retain their source and grounding level.</li>
+        <li><span>02</span> Assumptions remain visible through the forecast.</li>
+        <li>
+          <span>03</span> The observatory stores aggregate cohorts—not individual conversations.
+        </li>
+      </ul>
+      <a href="/demo/simulations/certificate-visibility" class="text-link">
+        Explore the guided example <span>→</span>
+      </a>
+    </aside>
+  </section>
+
+  <section class="saved-behavior-section" aria-labelledby="behavior-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Behavior model</p>
+        <h2 id="behavior-title">Segments with a reason to move.</h2>
+      </div>
+      <div class="section-heading-note">
+        <p>
+          Start with a few legible groups. Their weights must never exceed the whole population.
+        </p>
+        <a
+          class="behavior-export-link"
+          href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/behavior-model.md"}
+        >
+          Export behavior model <span>↓</span>
+        </a>
+      </div>
+    </div>
+    <div class="behavior-builder">
+      <div class="saved-persona-grid">
+        <%= if @personas == [] do %>
+          <article class="empty-persona-state">
+            <span class="empty-orb">01</span>
+            <h3>No behavioral segments yet.</h3>
+            <p>
+              Generate a clearly marked starting draft, or add the first group on the right yourself.
+            </p>
+            <form
+              action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/behavior-draft"}
+              method="post"
+            >
+              <input
+                type="hidden"
+                name="_csrf_token"
+                value={Plug.CSRFProtection.get_csrf_token()}
+              />
+              <button class="outline-button" type="submit">
+                Generate 5 segments + 20 rules <span>→</span>
+              </button>
+            </form>
+          </article>
+        <% else %>
+          <%= for persona <- @personas do %>
+            <article class="saved-persona-card">
+              <div>
+                <span class={
+                  if persona.evidence_refs == [],
+                    do: "source-pill assumption",
+                    else: "source-pill data"
+                }>
+                  {if persona.evidence_refs == [], do: "Assumption", else: "Evidence linked"}
+                </span>
+                <span>{round(persona.distribution_weight * 100)}% of population</span>
+              </div>
+              <h3>{persona.name}</h3>
+              <p class="persona-segment">{persona.segment}</p>
+              <dl>
+                <div>
+                  <dt>Goal</dt>
+                  <dd>{List.first(persona.goals) || "To define"}</dd>
+                </div>
+                <div>
+                  <dt>Friction</dt>
+                  <dd>{List.first(persona.frictions) || "To define"}</dd>
+                </div>
+              </dl>
+              <footer>
+                <span>{round(persona.confidence * 100)}% confidence</span><span>{if persona.evidence_refs == [], do: "Needs evidence link", else: "#{length(persona.evidence_refs)} linked evidence"}</span>
+              </footer>
+              <details class="review-card-details">
+                <summary>Review this segment <span>+</span></summary>
+                <form
+                  action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/personas/#{persona.id}"}
+                  method="post"
+                >
+                  <input
+                    type="hidden"
+                    name="_csrf_token"
+                    value={Plug.CSRFProtection.get_csrf_token()}
+                  />
+                  <div class="review-form-grid">
+                    <label>
+                      Name<input name="persona[name]" required value={persona.name} />
+                    </label>
+                    <label>
+                      Segment<input name="persona[segment]" required value={persona.segment} />
+                    </label>
+                    <label>
+                      Population share<input
+                        name="persona[distribution_weight]"
+                        required
+                        type="number"
+                        min="0.01"
+                        max="1"
+                        step="0.01"
+                        value={persona.distribution_weight}
+                      />
+                    </label>
+                    <label>
+                      Confidence<input
+                        name="persona[confidence]"
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={persona.confidence || 0.55}
+                      />
+                    </label>
+                    <label>
+                      Goal<input name="persona[goals][]" value={List.first(persona.goals) || ""} />
+                    </label>
+                    <label>
+                      Friction<input
+                        name="persona[frictions][]"
+                        value={List.first(persona.frictions) || ""}
+                      />
+                    </label>
+                    <label>
+                      Trigger<input
+                        name="persona[triggers][]"
+                        value={List.first(persona.triggers) || ""}
+                      />
+                    </label>
+                    <label>
+                      Trust factor<input
+                        name="persona[trust_factors][]"
+                        value={List.first(persona.trust_factors) || ""}
+                      />
+                    </label>
+                    <label>
+                      Decision style<input
+                        name="persona[decision_style]"
+                        value={persona.decision_style || ""}
+                      />
+                    </label>
+                    <fieldset class="review-action-picker">
+                      <legend>Likely actions</legend>
+                      <div>
+                        <%= for action <- ["adopt", "resist", "ignore", "share"] do %>
+                          <label>
+                            <input
+                              type="checkbox"
+                              name="persona[likely_actions][]"
+                              value={action}
+                              checked={action in persona.likely_actions}
+                            />
+                            <span>{action |> behavior_label() |> String.capitalize()}</span>
+                          </label>
+                        <% end %>
+                      </div>
+                    </fieldset>
+                  </div>
+                  <fieldset class="evidence-link-picker">
+                    <legend>Link study evidence</legend>
+                    <%= if @evidence == [] do %>
+                      <p>Add local evidence or configure research before linking this segment.</p>
+                    <% else %>
+                      <%= for item <- @evidence do %>
+                        <label>
+                          <input
+                            type="checkbox"
+                            name="persona[evidence_refs][]"
+                            value={item.id}
+                            checked={to_string(item.id) in persona.evidence_refs}
+                          /><span>{item.claim}</span><small>{String.replace(item.grounding_level, "_", " ")}</small>
+                        </label>
+                      <% end %>
+                    <% end %>
+                  </fieldset>
+                  <label class="review-notes">
+                    Researcher note<textarea name="persona[editable_notes]" rows="2"><%= persona.editable_notes || "" %></textarea>
+                  </label>
+                  <div class="review-save-row">
+                    <span>Revision {persona.version + 1} · visible in future runs</span><button type="submit">Save revision →</button>
+                  </div>
+                </form>
+              </details>
+            </article>
+          <% end %>
+        <% end %>
+      </div>
+      <form
+        class="persona-create-form"
+        action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/personas"}
+        method="post"
+      >
+        <p class="panel-overline">Add a segment</p>
+        <label>
+          Name<input name="persona[name]" required placeholder="e.g. Cautious adopters" />
+        </label>
+        <label>
+          Segment<input name="persona[segment]" required placeholder="How this group sees itself" />
+        </label>
+        <div class="persona-form-split">
+          <label>
+            Population share<input
+              name="persona[distribution_weight]"
+              required
+              type="number"
+              min="0.01"
+              max="1"
+              step="0.01"
+              placeholder="0.25"
+            />
+          </label>
+          <label>
+            Confidence<input
+              name="persona[confidence]"
+              type="number"
+              min="0"
+              max="1"
+              step="0.01"
+              value="0.55"
+            />
+          </label>
+        </div>
+        <label>Goal<input name="persona[goals][]" placeholder="What they want" /></label>
+        <label>
+          Friction<input name="persona[frictions][]" placeholder="What makes them hesitate" />
+        </label>
+        <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+        <p>
+          New segments are assumptions by default. Connect evidence before using them in a forecast.
+        </p>
+        <button type="submit" class="primary-button">Add segment <span>→</span></button>
+      </form>
+    </div>
+  </section>
+
+  <section class="saved-pattern-section" aria-labelledby="pattern-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Action rules</p>
+        <h2 id="pattern-title">Make the behavior executable.</h2>
+      </div>
+      <p>
+        Patterns handle common decisions cheaply. Ambiguous edges can remain visible and receive deeper review.
+      </p>
+    </div>
+    <div class="pattern-builder">
+      <div class="saved-pattern-list">
+        <%= if @patterns == [] do %>
+          <article class="empty-pattern-state">
+            <span class="empty-orb">02</span>
+            <h3>No action rules yet.</h3>
+            <p>Connect a segment, a trigger, and the action it is likely to take.</p>
+          </article>
+        <% else %>
+          <%= for pattern <- @patterns do %>
+            <article class="saved-pattern-card">
+              <div>
+                <span class={
+                  if pattern.evidence_refs == [],
+                    do: "source-pill assumption",
+                    else: "source-pill data"
+                }>
+                  {if pattern.evidence_refs == [], do: "Assumption", else: "Evidence linked"}
+                </span>
+                <span>{round(pattern.base_probability * 100)}% base likelihood</span>
+              </div>
+              <h3>{pattern.name}</h3>
+              <p>
+                When <b><%= sentence_fragment(pattern.condition) %></b>, this segment tends to <b><%= behavior_label(pattern.likely_action) %></b>.
+              </p>
+              <footer>
+                <span>{round((pattern.confidence || 0.0) * 100)}% confidence</span><span>{if pattern.evidence_refs == [], do: "Needs evidence link", else: "#{length(pattern.evidence_refs)} linked evidence"}</span>
+              </footer>
+              <details class="review-card-details pattern-review-details">
+                <summary>Review this rule <span>+</span></summary>
+                <form
+                  action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/patterns/#{pattern.id}"}
+                  method="post"
+                >
+                  <input
+                    type="hidden"
+                    name="_csrf_token"
+                    value={Plug.CSRFProtection.get_csrf_token()}
+                  />
+                  <div class="review-form-grid">
+                    <label>
+                      Segment<select name="pattern[persona_id]" required><%= for persona <- @personas do %><option
+                          value={persona.id}
+                          selected={persona.id in pattern.persona_ids}
+                        ><%= persona.name %></option><% end %></select>
+                    </label>
+                    <label>
+                      Pattern name<input name="pattern[name]" required value={pattern.name} />
+                    </label>
+                    <label>
+                      Trigger<input name="pattern[condition]" required value={pattern.condition} />
+                    </label>
+                    <label>
+                      Likely action<select name="pattern[likely_action]"><%= for action <- ["adopt", "resist", "ignore", "share"] do %><option
+                          value={action}
+                          selected={action == pattern.likely_action}
+                        ><%= action |> behavior_label() |> String.capitalize() %></option><% end %></select>
+                    </label>
+                    <label>
+                      Interpretation<input
+                        name="pattern[interpretation]"
+                        required
+                        value={pattern.interpretation}
+                      />
+                    </label>
+                    <label>
+                      Motivation<input
+                        name="pattern[motivation]"
+                        required
+                        value={pattern.motivation}
+                      />
+                    </label>
+                    <label>
+                      Base likelihood<input
+                        name="pattern[base_probability]"
+                        required
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={pattern.base_probability}
+                      />
+                    </label>
+                    <label>
+                      Confidence<input
+                        name="pattern[confidence]"
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={pattern.confidence || 0.55}
+                      />
+                    </label>
+                    <label>
+                      Blocker<input
+                        name="pattern[blocker][]"
+                        value={
+                          case List.first(pattern.blockers) do
+                            %{} = blocker -> blocker["statement"] || blocker[:statement] || ""
+                            _ -> ""
+                          end
+                        }
+                      />
+                    </label>
+                    <label>
+                      Amplifier<input
+                        name="pattern[amplifier][]"
+                        value={
+                          case List.first(pattern.amplifiers) do
+                            %{} = amplifier ->
+                              amplifier["statement"] || amplifier[:statement] || ""
+
+                            _ ->
+                              ""
+                          end
+                        }
+                      />
+                    </label>
+                  </div>
+                  <fieldset class="evidence-link-picker pattern-evidence-links">
+                    <legend>Link study evidence</legend>
+                    <%= if @evidence == [] do %>
+                      <p>Add local evidence or configure research before linking this rule.</p>
+                    <% else %>
+                      <%= for item <- @evidence do %>
+                        <label>
+                          <input
+                            type="checkbox"
+                            name="pattern[evidence_refs][]"
+                            value={item.id}
+                            checked={to_string(item.id) in pattern.evidence_refs}
+                          /><span>{item.claim}</span><small>{String.replace(item.grounding_level, "_", " ")}</small>
+                        </label>
+                      <% end %>
+                    <% end %>
+                  </fieldset>
+                  <div class="review-save-row">
+                    <span>Revision {pattern.version + 1} · used in future runs</span><button type="submit">Save revision →</button>
+                  </div>
+                </form>
+              </details>
+            </article>
+          <% end %>
+        <% end %>
+      </div>
+      <%= if @personas == [] do %>
+        <aside class="pattern-locked">
+          <p class="panel-overline">Next step</p>
+          <h3>Add a segment first.</h3>
+          <p>Action patterns only make sense when a named group has a reason to act.</p>
+        </aside>
+      <% else %>
+        <form
+          class="pattern-create-form"
+          action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/patterns"}
+          method="post"
+        >
+          <p class="panel-overline">Add an action rule</p>
+          <label>
+            Segment<select name="pattern[persona_id]" required><%= for persona <- @personas do %><option value={
+                persona.id
+              }><%= persona.name %></option><% end %></select>
+          </label>
+          <label>
+            Pattern name<input
+              name="pattern[name]"
+              required
+              placeholder="e.g. Control before sharing"
+            />
+          </label>
+          <label>
+            Trigger<input
+              name="pattern[condition]"
+              required
+              placeholder="e.g. Portfolio is visible by default"
+            />
+          </label>
+          <div class="pattern-form-split">
+            <label>
+              Likely action<select name="pattern[likely_action]"><option value="adopt">Adopt</option><option value="resist">Resist</option><option value="ignore">Wait</option><option value="share">Share</option></select>
+            </label>
+            <label>
+              Base likelihood<input
+                name="pattern[base_probability]"
+                type="number"
+                required
+                min="0"
+                max="1"
+                step="0.01"
+                placeholder="0.60"
+              />
+            </label>
+          </div>
+          <label>
+            Motivation<input
+              name="pattern[motivation]"
+              required
+              placeholder="Why this action feels right"
+            />
+          </label>
+          <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+          <p>This rule is an assumption until it is linked to reviewed evidence.</p>
+          <button class="primary-button" type="submit">Add action rule <span>→</span></button>
+        </form>
+      <% end %>
+    </div>
+  </section>
+
+  <section class="saved-scenario-section" aria-labelledby="scenario-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Scenario & run</p>
+        <h2 id="scenario-title">Give the system a moment to react.</h2>
+      </div>
+      <p>
+        Events are the minimum timeline the simulation needs. Start small, inspect, then scale deliberately.
+      </p>
+    </div>
+    <div class="scenario-workspace">
+      <div class="saved-scenario-list">
+        <%= if @scenarios == [] do %>
+          <article class="empty-scenario-state">
+            <span class="empty-orb">03</span>
+            <h3>No scenarios yet.</h3>
+            <p>
+              Describe the change and its first few moments. You can always create a competing variant later.
+            </p>
+            <form
+              class="scenario-draft-form"
+              action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/scenario-draft"}
+              method="post"
+            >
+              <input
+                type="hidden"
+                name="_csrf_token"
+                value={Plug.CSRFProtection.get_csrf_token()}
+              />
+              <button type="submit">Draft from saved brief <span>→</span></button>
+              <small>Three editable options · no numeric effects until review</small>
+            </form>
+          </article>
+        <% else %>
+          <%= for scenario <- @scenarios do %>
+            <article class="saved-scenario-card">
+              <div>
+                <span class="source-pill data">
+                  {scenario.forecast_horizon || "Horizon open"}
+                </span>
+                <%= if scenario.metadata["created_as_counterfactual"] do %>
+                  <span class="source-pill assumption">Counterfactual</span>
+                <% end %>
+                <span>{length(scenario.events)} events</span>
+              </div>
+              <h3>{scenario.name}</h3>
+              <p>{scenario.description}</p>
+              <div class="scenario-event-strip">
+                <%= for event <- Enum.take(scenario.events, 3) do %>
+                  <span>
+                    <b>DAY <%= event["day"] || event[:day] %></b>{event["title"] || event[:title]}
+                  </span>
+                <% end %>
+              </div>
+              <form
+                action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/scenarios/#{scenario.id}/run"}
+                method="post"
+                class="scenario-run-form"
+              >
+                <input
+                  type="hidden"
+                  name="_csrf_token"
+                  value={Plug.CSRFProtection.get_csrf_token()}
+                />
+                <label>
+                  Run size<select name="mode"><%= for option <- @cost_options do %><option
+                      value={option.mode}
+                      selected={option.mode == "small"}
+                      data-agent-count={option.agents}
+                      data-model-calls={option.expected_llm_calls}
+                    ><%= option.label %> · <%= option.agents %> population · $0 provider cost</option><% end %></select>
+                </label>
+                <button class="run-scenario-button" type="submit">
+                  Start saved replay <span>→</span>
+                </button>
+                <div
+                  class="run-preflight"
+                  data-run-preflight
+                  data-event-count={length(scenario.events)}
+                >
+                  <span>
+                    <b data-projection-count>{250 * length(scenario.events)}</b>
+                    cohort projections
+                  </span>
+                  <span><b data-model-call-count>0</b> model calls</span>
+                  <span><b>$0</b> provider cost</span>
+                  <span class={
+                    if(((@context_pack && @context_pack.confidence) || 0) < 0.5,
+                      do: "low-confidence",
+                      else: ""
+                    )
+                  }>
+                    <b>{round(((@context_pack && @context_pack.confidence) || 0) * 100)}%</b>
+                    context confidence
+                  </span>
+                  <small>
+                    Deterministic aggregate · input and seed saved before execution · {length(
+                      @evidence
+                    )} {pluralize(length(@evidence), "evidence item", "evidence items")} / {length(
+                      (@context_pack && @context_pack.assumptions) || []
+                    )} explicit {pluralize(
+                      length((@context_pack && @context_pack.assumptions) || []),
+                      "assumption",
+                      "assumptions"
+                    )}
+                  </small>
+                </div>
+              </form>
+              <form
+                action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/scenarios/#{scenario.id}/variants"}
+                method="post"
+                class="scenario-variant-form"
+              >
+                <input
+                  type="hidden"
+                  name="_csrf_token"
+                  value={Plug.CSRFProtection.get_csrf_token()}
+                />
+                <button type="submit">Duplicate as variant ↗</button>
+              </form>
+              <%= if Map.get(@scenario_run_counts, scenario.id, 0) == 0 do %>
+                <details class="scenario-refine-details">
+                  <summary>Refine this scenario <span>+</span></summary>
+                  <form
+                    action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/scenarios/#{scenario.id}"}
+                    method="post"
+                  >
+                    <input
+                      type="hidden"
+                      name="_csrf_token"
+                      value={Plug.CSRFProtection.get_csrf_token()}
+                    />
+                    <label>
+                      Scenario name<input name="scenario[name]" required value={scenario.name} />
+                    </label>
+                    <label>
+                      The change<textarea name="scenario[description]" rows="2" required><%= scenario.description %></textarea>
+                    </label>
+                    <label>
+                      Horizon<input
+                        name="scenario[forecast_horizon]"
+                        value={scenario.forecast_horizon || ""}
+                      />
+                    </label>
+                    <label class="scenario-mechanism-control">
+                      Modeled mechanism<select name="scenario[simulation_modifier]"><option value="">No added mechanism</option><option
+                          value="control_first_opt_in"
+                          selected={
+                            scenario.metadata["simulation_modifier"] == "control_first_opt_in"
+                          }
+                        >Opt-in control reduces resistance</option><option
+                          value="manager_recognition"
+                          selected={
+                            scenario.metadata["simulation_modifier"] == "manager_recognition"
+                          }
+                        >Manager recognition reduces hesitation</option></select>
+                      <small>
+                        Explicit hypothesis · lowered confidence in the affected rules.
+                      </small>
+                    </label>
+                    <div class="scenario-refine-events">
+                      <p>Timeline events</p>
+                      <%= for event <- Enum.concat(scenario.events || [], [%{}]) do %>
+                        <% action_effects =
+                          event["action_effects"] || event[:action_effects] || %{} %>
+                        <% {effect_action, effect_delta} =
+                          Enum.find(action_effects, {"", 0.0}, fn {_action, delta} ->
+                            is_number(delta) and delta != 0
+                          end) %>
+                        <div>
+                          <input
+                            name="scenario[event_day][]"
+                            value={event["day"] || event[:day] || ""}
+                            aria-label="Event day"
+                            placeholder="Day"
+                          /><input
+                            name="scenario[event_title][]"
+                            value={event["title"] || event[:title] || ""}
+                            aria-label="Event title"
+                            placeholder="Event"
+                          /><input
+                            name="scenario[event_impact][]"
+                            value={event["impact"] || event[:impact] || ""}
+                            aria-label="Event impact"
+                            placeholder="Likely shift"
+                          />
+                          <select
+                            name="scenario[event_action][]"
+                            aria-label="Behavior shifted by event"
+                          >
+                            <option value="">No numeric shift</option>
+                            <%= for {action, label} <- [{"adopt", "Adoption"}, {"resist", "Resistance"}, {"ignore", "Waiting"}, {"share", "Sharing"}] do %>
+                              <option
+                                value={action}
+                                selected={to_string(effect_action) == action}
+                              >
+                                {label}
+                              </option>
+                            <% end %>
+                          </select>
+                          <input
+                            name="scenario[event_delta][]"
+                            type="number"
+                            min="-0.5"
+                            max="0.5"
+                            step="0.01"
+                            value={effect_delta}
+                            aria-label="Probability shift from event"
+                            placeholder="± probability"
+                          />
+                        </div>
+                      <% end %>
+                    </div>
+                    <label>
+                      Success signal<input
+                        name="scenario[success_metric][]"
+                        value={List.first(scenario.success_metrics) || ""}
+                      />
+                    </label>
+                    <div class="scenario-refine-save">
+                      <span>No prior run · safe to refine</span><button type="submit">Save refinement →</button>
+                    </div>
+                  </form>
+                </details>
+              <% else %>
+                <p class="scenario-revision-locked">
+                  This scenario has a saved run. Duplicate it to preserve its forecast.
+                </p>
+              <% end %>
+            </article>
+          <% end %>
+        <% end %>
+      </div>
+      <form
+        class="scenario-create-form"
+        action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/scenarios"}
+        method="post"
+      >
+        <p class="panel-overline">New scenario</p>
+        <label>
+          Scenario name<input
+            name="scenario[name]"
+            required
+            placeholder="e.g. Visible by default"
+          />
+        </label>
+        <label>
+          The change<input
+            name="scenario[description]"
+            required
+            placeholder="What changes for people?"
+          />
+        </label>
+        <label>
+          Horizon<input name="scenario[forecast_horizon]" placeholder="e.g. 60 days" />
+        </label>
+        <label class="scenario-mechanism-control">
+          Modeled mechanism<select name="scenario[simulation_modifier]"><option value="">No added mechanism</option><option value="control_first_opt_in">Opt-in control reduces resistance</option><option value="manager_recognition">Manager recognition reduces hesitation</option></select>
+          <small>
+            Optional, explicit hypothesis that will be disclosed in the forecast.
+          </small>
+        </label>
+        <div class="scenario-event-inputs">
+          <p>Timeline events</p>
+          <%= for {day, label} <- [{"1", "Announcement"}, {"14", "First use"}, {"30", "Reinforcement"}] do %>
+            <div>
+              <input name="scenario[event_day][]" value={day} aria-label="Event day" /><input
+                name="scenario[event_title][]"
+                placeholder={label}
+                aria-label="Event title"
+              /><input
+                name="scenario[event_impact][]"
+                placeholder="Likely shift"
+                aria-label="Event impact"
+              />
+              <select name="scenario[event_action][]" aria-label="Behavior shifted by event">
+                <option value="">No numeric shift</option>
+                <option value="adopt">Adoption</option>
+                <option value="resist">Resistance</option>
+                <option value="ignore">Waiting</option>
+                <option value="share">Sharing</option>
+              </select>
+              <input
+                name="scenario[event_delta][]"
+                type="number"
+                min="-0.5"
+                max="0.5"
+                step="0.01"
+                placeholder="± probability"
+                aria-label="Probability shift from event"
+              />
+            </div>
+          <% end %>
+        </div>
+        <label>
+          Success signal<input
+            name="scenario[success_metric][]"
+            placeholder="e.g. opt-in adoption"
+          />
+        </label>
+        <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+        <button class="primary-button" type="submit">Save scenario <span>→</span></button>
+      </form>
+    </div>
+    <%= if @latest_run do %>
+      <div class="latest-run-actions">
+        <a
+          class="latest-run-card"
+          href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/observatory/#{@latest_run.id}"}
+        >
+          <span>Latest completed run</span><b><%= @latest_run.agent_count %> modeled population · <%= @latest_run.mode %> · <%= round((@latest_run.confidence || 0.0) * 100) %>% confidence</b><em>Open replay →</em>
+        </a>
+        <a
+          class="latest-report-link"
+          href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/reports/#{@latest_run.id}"}
+        >
+          Read forecast <span>→</span>
+        </a>
+        <%= if @compare_candidate do %>
+          <a
+            class="latest-compare-link"
+            href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/compare?base_run_id=#{@compare_candidate.base_run.id}&variant_run_id=#{@compare_candidate.variant_run.id}"}
+          >
+            Compare variant with base <span>↗</span>
+          </a>
+        <% end %>
+      </div>
+    <% end %>
+    <%= if @pending_runs != [] do %>
+      <section class="pending-run-list" aria-label="Pending simulation runs">
+        <p class="panel-overline">Preparing replays</p>
+        <%= for pending_run <- @pending_runs do %>
+          <a href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/observatory/#{pending_run.id}"}>
+            <span class="pending-orb"></span><b>{pending_run.scenario.name}</b><small>{pending_run.agent_count} modeled population · {String.capitalize(pending_run.mode)} · {pending_run.status}</small><em>Check status →</em>
+          </a>
+        <% end %>
+      </section>
+    <% end %>
+  </section>
+</main>

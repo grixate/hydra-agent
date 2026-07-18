@@ -48,19 +48,23 @@ defmodule HydraAgentWeb.GraphWorkbenchLive do
   end
 
   def handle_event("update-node", %{"node_id" => id} = params, socket) do
-    result =
-      id
-      |> parse_id()
-      |> Knowledge.get_node!()
-      |> Knowledge.update_node(
-        params
-        |> stringify_keys()
-        |> Map.take(~w(status confidence importance))
-      )
+    case Knowledge.get_node_for_workspace(socket.assigns.workspace_id, parse_id(id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Graph node not found in this workspace")}
 
-    socket = handle_graph_result(result, socket, "Graph node updated")
+      node ->
+        result =
+          Knowledge.update_node(
+            node,
+            params
+            |> stringify_keys()
+            |> Map.take(~w(status confidence importance))
+          )
 
-    {:noreply, load_workspace_state(socket)}
+        socket = handle_graph_result(result, socket, "Graph node updated")
+
+        {:noreply, load_workspace_state(socket)}
+    end
   end
 
   def handle_event("update-relationship", %{"relationship_id" => id} = params, socket) do
@@ -68,19 +72,24 @@ defmodule HydraAgentWeb.GraphWorkbenchLive do
 
     case parse_json_map(params["provenance"]) do
       {:ok, provenance} ->
-        result =
-          id
-          |> parse_id()
-          |> Knowledge.get_relationship!()
-          |> Knowledge.update_relationship(
-            params
-            |> Map.take(~w(confidence))
-            |> Map.put("provenance", provenance)
-          )
+        case Knowledge.get_relationship_for_workspace(socket.assigns.workspace_id, parse_id(id)) do
+          nil ->
+            {:noreply,
+             put_flash(socket, :error, "Graph relationship not found in this workspace")}
 
-        socket = handle_graph_result(result, socket, "Graph relationship updated")
+          relationship ->
+            result =
+              Knowledge.update_relationship(
+                relationship,
+                params
+                |> Map.take(~w(confidence))
+                |> Map.put("provenance", provenance)
+              )
 
-        {:noreply, load_workspace_state(socket)}
+            socket = handle_graph_result(result, socket, "Graph relationship updated")
+
+            {:noreply, load_workspace_state(socket)}
+        end
 
       {:error, message} ->
         {:noreply, put_flash(socket, :error, "Graph update failed: #{message}")}
@@ -154,7 +163,7 @@ defmodule HydraAgentWeb.GraphWorkbenchLive do
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
 
   defp load_workspace_state(%{assigns: %{workspace_id: nil}} = socket) do
@@ -254,7 +263,7 @@ defmodule HydraAgentWeb.GraphWorkbenchLive do
   defp handle_graph_result({:ok, _record}, socket, message), do: put_flash(socket, :info, message)
 
   defp handle_graph_result({:error, %Ecto.Changeset{} = changeset}, socket, _message),
-    do: put_flash(socket, :error, "Graph update failed: #{inspect(changeset.errors)}")
+    do: put_flash(socket, :error, HydraAgentWeb.UserError.message("update the graph", changeset))
 
   defp bulk_reviewable_nodes(nodes) do
     Enum.filter(nodes, &(&1.status in ["draft", "active"]))

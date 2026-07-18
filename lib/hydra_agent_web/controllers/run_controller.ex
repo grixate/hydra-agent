@@ -6,6 +6,15 @@ defmodule HydraAgentWeb.RunController do
   alias HydraAgent.Runtime.Planner
   alias HydraAgent.Runtime.Runner
 
+  plug HydraAgentWeb.Plugs.RequireOperatorAuthority
+       when action in [
+              :execute_next,
+              :execute_parallel,
+              :start_worker,
+              :stop_worker,
+              :approve_step
+            ]
+
   def index(conn, %{"workspace_id" => workspace_id} = params) do
     runs = Runtime.list_runs(workspace_id, params)
     json(conn, %{data: Enum.map(runs, &run_json/1)})

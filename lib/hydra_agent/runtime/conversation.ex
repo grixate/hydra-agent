@@ -2,6 +2,8 @@ defmodule HydraAgent.Runtime.Conversation do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.Security.WorkspaceAssociation
+
   @statuses ~w(active paused archived)
 
   schema "conversations" do
@@ -33,5 +35,6 @@ defmodule HydraAgent.Runtime.Conversation do
     |> validate_inclusion(:status, @statuses)
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:agent)
+    |> WorkspaceAssociation.validate(:agent_id, HydraAgent.Runtime.AgentProfile)
   end
 end

@@ -33,6 +33,7 @@ defmodule HydraAgent.Budgets do
     summary = Usage.summarize(budget.workspace_id, usage_opts)
     token_limit = budget.token_limit
     cost_limit = budget.cost_limit
+    used_cost = summary["estimated_cost"] || Decimal.new(0)
 
     %{
       "budget_id" => budget.id,
@@ -42,9 +43,10 @@ defmodule HydraAgent.Budgets do
       "used_tokens" => summary["total_tokens"],
       "token_limit" => token_limit,
       "token_ratio" => ratio(summary["total_tokens"], token_limit),
-      "used_cost" => nil,
+      "used_cost" => used_cost,
       "cost_limit" => cost_limit,
-      "cost_ratio" => nil,
+      "cost_ratio" => ratio(used_cost, cost_limit),
+      "unpriced_records" => summary["unpriced_records"],
       "usage" => summary
     }
   end
@@ -74,9 +76,51 @@ defmodule HydraAgent.Budgets do
            "category" => status["category"],
            "period" => status["period"],
            "used_tokens" => status["used_tokens"],
-           "token_limit" => status["token_limit"]
+           "token_limit" => status["token_limit"],
+           "used_cost" => status["used_cost"],
+           "cost_limit" => status["cost_limit"],
+           "unpriced_records" => status["unpriced_records"]
          }}
     end
+  end
+
+  @doc """
+  Atomically checks active budgets and records the provider capacity reserved
+  by a pending call. Concurrent callers serialize on the applicable budget
+  rows, so both cannot spend the same remaining allowance.
+  """
+  def reserve_provider_call(workspace_id, opts) do
+    requested_tokens = max(opt(opts, :requested_tokens) || 0, 0)
+    estimated_cost = decimal_or_nil(opt(opts, :estimated_cost))
+    category = opt(opts, :category) || "chat"
+
+    Repo.transaction(fn ->
+      budgets =
+        Budget
+        |> where([budget], budget.workspace_id == ^workspace_id and budget.status == "active")
+        |> order_by([budget], asc: budget.id)
+        |> lock("FOR UPDATE")
+        |> Repo.all()
+        |> Enum.filter(&applies_to?(&1, opts))
+
+      Enum.each(budgets, fn budget ->
+        case projected_budget_error(budget, requested_tokens, estimated_cost) do
+          nil -> :ok
+          error -> Repo.rollback(error)
+        end
+      end)
+
+      context =
+        opts
+        |> Map.new()
+        |> Map.take([:agent_id, :run_id, :run_step_id, :conversation_id, :turn_id])
+        |> Map.put(:workspace_id, workspace_id)
+
+      case Usage.reserve_provider_call(context, category, requested_tokens, estimated_cost) do
+        {:ok, reservation} -> reservation
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
   end
 
   defp maybe_filter_agent(query, nil), do: query
@@ -105,21 +149,72 @@ defmodule HydraAgent.Budgets do
   defp period_start("total"), do: nil
   defp period_start(_period), do: nil
 
-  defp limit_status(_summary, nil, nil), do: "unbounded"
+  defp limit_status(summary, token_limit, cost_limit) do
+    token_ratio = ratio(summary["total_tokens"], token_limit)
+    cost_ratio = ratio(summary["estimated_cost"] || Decimal.new(0), cost_limit)
 
-  defp limit_status(summary, token_limit, _cost_limit) when is_integer(token_limit) do
     cond do
-      summary["total_tokens"] >= token_limit -> "exceeded"
-      ratio(summary["total_tokens"], token_limit) >= 0.8 -> "warning"
+      is_nil(token_limit) and is_nil(cost_limit) -> "unbounded"
+      not is_nil(cost_limit) and summary["unpriced_records"] > 0 -> "exceeded"
+      threshold_reached?(token_ratio, 1.0) or threshold_reached?(cost_ratio, 1.0) -> "exceeded"
+      threshold_reached?(token_ratio, 0.8) or threshold_reached?(cost_ratio, 0.8) -> "warning"
       true -> "ok"
     end
   end
 
-  defp limit_status(_summary, _token_limit, _cost_limit), do: "ok"
-
   defp ratio(_used, nil), do: nil
   defp ratio(_used, 0), do: nil
+
+  defp ratio(%Decimal{} = used, %Decimal{} = limit),
+    do: used |> Decimal.div(limit) |> Decimal.to_float()
+
   defp ratio(used, limit), do: used / limit
+
+  defp threshold_reached?(nil, _threshold), do: false
+  defp threshold_reached?(ratio, threshold), do: ratio >= threshold
+
+  defp projected_budget_error(budget, requested_tokens, estimated_cost) do
+    status = budget_status(budget)
+    projected_tokens = status["used_tokens"] + requested_tokens
+
+    cond do
+      status["status"] == "exceeded" ->
+        budget_error(budget, status, "budget_exceeded")
+
+      not is_nil(budget.cost_limit) and is_nil(estimated_cost) ->
+        budget_error(budget, status, "cost_estimate_required")
+
+      not is_nil(budget.token_limit) and projected_tokens > budget.token_limit ->
+        budget_error(budget, status, "budget_reservation_exceeds_limit")
+
+      not is_nil(budget.cost_limit) and
+          Decimal.compare(Decimal.add(status["used_cost"], estimated_cost), budget.cost_limit) ==
+            :gt ->
+        budget_error(budget, status, "budget_reservation_exceeds_limit")
+
+      true ->
+        nil
+    end
+  end
+
+  defp budget_error(budget, status, reason) do
+    %{
+      "reason" => reason,
+      "budget_id" => budget.id,
+      "category" => budget.category,
+      "period" => budget.period,
+      "used_tokens" => status["used_tokens"],
+      "token_limit" => budget.token_limit,
+      "used_cost" => status["used_cost"],
+      "cost_limit" => budget.cost_limit
+    }
+  end
+
+  defp decimal_or_nil(nil), do: nil
+  defp decimal_or_nil(%Decimal{} = value), do: value
+  defp decimal_or_nil(value) when is_integer(value), do: Decimal.new(value)
+  defp decimal_or_nil(value) when is_float(value), do: Decimal.from_float(value)
+  defp decimal_or_nil(value) when is_binary(value), do: Decimal.new(value)
 
   defp opt(opts, key) when is_list(opts), do: Keyword.get(opts, key)
   defp opt(opts, key) when is_map(opts), do: Map.get(opts, key) || Map.get(opts, to_string(key))

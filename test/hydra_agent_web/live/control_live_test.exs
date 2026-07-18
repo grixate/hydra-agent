@@ -8,11 +8,12 @@ defmodule HydraAgentWeb.ControlLiveTest do
   alias HydraAgent.MCP
   alias HydraAgent.Memory
   alias HydraAgent.Runtime
+  alias HydraAgent.Agent.Supervisor, as: AgentSupervisor
 
   test "renders empty control plane", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/control")
 
-    assert html =~ "Runtime Console"
+    assert html =~ "Runtime console"
     assert html =~ "No workspaces yet."
   end
 
@@ -21,7 +22,7 @@ defmodule HydraAgentWeb.ControlLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/control?workspace_id=not-an-id")
 
-    assert html =~ "Runtime Console"
+    assert html =~ "Runtime console"
     assert render(view) =~ workspace.name
   end
 
@@ -254,5 +255,53 @@ defmodule HydraAgentWeb.ControlLiveTest do
     assert html =~ "Docs MCP"
     assert html =~ "http / sandboxed / unknown"
     assert html =~ "tools search_docs / env MCP_DOCS_TOKEN"
+  end
+
+  test "forged control-plane ids cannot mutate or start work in another workspace", %{
+    conn: conn
+  } do
+    enable_browser_auth()
+
+    allowed = workspace_fixture(%{name: "Allowed", slug: "control-mutation-allowed"})
+    denied = workspace_fixture(%{name: "Denied", slug: "control-mutation-denied"})
+    operator = user_fixture()
+    membership_fixture(operator, allowed, "admin")
+    foreign_agent = agent_fixture(denied, %{slug: "foreign-control-agent"})
+    foreign_run = run_fixture(denied, %{supervisor_agent_id: foreign_agent.id})
+
+    {:ok, foreign_proposal} =
+      Memory.propose_node(foreign_agent, %{
+        title: "Foreign control proposal",
+        body: "Must remain pending."
+      })
+
+    {:ok, view, _html} =
+      live(authenticated_session(conn, operator), ~p"/control?workspace_id=#{allowed.id}")
+
+    assert render_click(view, "promote-memory", %{"id" => foreign_proposal.id}) =~
+             "Memory not found in this workspace"
+
+    assert render_click(view, "start-worker", %{"id" => foreign_run.id}) =~
+             "Run not found in this workspace"
+
+    unchanged_proposal = Knowledge.get_node!(foreign_proposal.id)
+    assert unchanged_proposal.status == "draft"
+    assert unchanged_proposal.attributes["proposal_status"] == "pending"
+    refute AgentSupervisor.run_worker_status(foreign_run.id).active
+  end
+
+  defp enable_browser_auth do
+    original = Application.get_env(:hydra_agent, :browser_auth)
+    Application.put_env(:hydra_agent, :browser_auth, enabled?: true)
+
+    on_exit(fn ->
+      if original,
+        do: Application.put_env(:hydra_agent, :browser_auth, original),
+        else: Application.delete_env(:hydra_agent, :browser_auth)
+    end)
+  end
+
+  defp authenticated_session(conn, user) do
+    init_test_session(conn, user_id: user.id, session_version: user.session_version)
   end
 end

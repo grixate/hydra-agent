@@ -18,7 +18,37 @@ defmodule HydraAgent.Audit do
   }
 
   alias HydraAgent.Runtime.RunEvent
+  alias HydraAgent.SimLab.SimulationRunner
+
+  alias HydraAgent.SimLab.Schemas.{
+    ActionPattern,
+    CalibrationRecord,
+    ContextPack,
+    EvidenceItem,
+    ForecastReport,
+    OutcomeEvent,
+    Persona,
+    ResearchRun,
+    Scenario,
+    SimulationRun,
+    SimulationSnapshot,
+    Source,
+    Study
+  }
+
   alias HydraAgent.Tools.{Bundles, Registry}
+
+  @source_metadata_keys ~w(
+    entry_type filename extension lane purpose region language provider_reliability
+    provider_mode synthetic_test pii_findings removed_from_study
+  )
+  @source_access_policy_keys ~w(scope external_send retrieval review_required synthetic_test)
+  @evidence_source_ref_keys ~w(source_id kind uri url title lane reference)
+  @evidence_metadata_keys ~w(review_status safe_query provider_mode synthetic_test)
+  @context_summary_keys ~w(
+    research_status synthesis_scope source_count evidence_count local_entry_count domain audience
+    behavior provider_mode failed_lane_count
+  )
 
   def export_workspace(workspace_id) do
     workspace = Runtime.get_workspace!(workspace_id)
@@ -45,8 +75,155 @@ defmodule HydraAgent.Audit do
         Enum.map(Safety.list_events(workspace_id, limit: 1000), &safety_event_json/1),
       "automations" => Enum.map(Automations.list_automations(workspace_id), &automation_json/1),
       "webhooks" => Enum.map(Gateways.list_webhooks(workspace_id), &webhook_json/1),
-      "eval_suites" => Enum.map(Evals.list_suites(workspace_id), &suite_json/1)
+      "eval_suites" => Enum.map(Evals.list_suites(workspace_id), &suite_json/1),
+      "sim_lab" => sim_lab_json(workspace_id)
     }
+  end
+
+  defp sim_lab_json(workspace_id) do
+    %{
+      "studies" => map_records(sim_lab_studies(workspace_id), &study_json/1),
+      "sources" => map_records(sim_lab_sources(workspace_id), &source_json/1),
+      "evidence_items" =>
+        map_records(sim_lab_evidence_items(workspace_id), &evidence_item_json/1),
+      "context_packs" => map_records(sim_lab_context_packs(workspace_id), &context_pack_json/1),
+      "personas" => map_records(sim_lab_personas(workspace_id), &persona_json/1),
+      "action_patterns" =>
+        map_records(sim_lab_action_patterns(workspace_id), &action_pattern_json/1),
+      "scenarios" => map_records(sim_lab_scenarios(workspace_id), &scenario_json/1),
+      "simulation_runs" =>
+        map_records(sim_lab_simulation_runs(workspace_id), &simulation_run_json/1),
+      "snapshots" => map_records(sim_lab_snapshots(workspace_id), &snapshot_json/1),
+      "outcome_events" =>
+        map_records(sim_lab_outcome_events(workspace_id), &outcome_event_json/1),
+      "forecast_reports" =>
+        map_records(sim_lab_forecast_reports(workspace_id), &forecast_report_json/1),
+      "calibrations" => map_records(sim_lab_calibrations(workspace_id), &calibration_json/1),
+      "research_runs" => map_records(sim_lab_research_runs(workspace_id), &research_run_json/1)
+    }
+  end
+
+  defp sim_lab_studies(workspace_id) do
+    Study
+    |> where([study], study.workspace_id == ^workspace_id)
+    |> order_by([study], asc: study.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_sources(workspace_id) do
+    Source
+    |> join(:inner, [source], study in Study, on: study.id == source.study_id)
+    |> where(
+      [source, study],
+      source.workspace_id == ^workspace_id and study.workspace_id == ^workspace_id
+    )
+    |> order_by([source], asc: source.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_evidence_items(workspace_id) do
+    EvidenceItem
+    |> join(:inner, [item], study in Study, on: study.id == item.study_id)
+    |> where([_item, study], study.workspace_id == ^workspace_id)
+    |> order_by([item], asc: item.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_context_packs(workspace_id) do
+    ContextPack
+    |> join(:inner, [pack], study in Study, on: study.id == pack.study_id)
+    |> where([_pack, study], study.workspace_id == ^workspace_id)
+    |> order_by([pack], asc: pack.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_personas(workspace_id) do
+    Persona
+    |> join(:inner, [persona], study in Study, on: study.id == persona.study_id)
+    |> where([_persona, study], study.workspace_id == ^workspace_id)
+    |> order_by([persona], asc: persona.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_action_patterns(workspace_id) do
+    ActionPattern
+    |> join(:inner, [pattern], study in Study, on: study.id == pattern.study_id)
+    |> where([_pattern, study], study.workspace_id == ^workspace_id)
+    |> order_by([pattern], asc: pattern.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_scenarios(workspace_id) do
+    Scenario
+    |> join(:inner, [scenario], study in Study, on: study.id == scenario.study_id)
+    |> where([_scenario, study], study.workspace_id == ^workspace_id)
+    |> order_by([scenario], asc: scenario.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_simulation_runs(workspace_id) do
+    SimulationRun
+    |> join(:inner, [run], study in Study, on: study.id == run.study_id)
+    |> where([_run, study], study.workspace_id == ^workspace_id)
+    |> order_by([run], asc: run.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_snapshots(workspace_id) do
+    SimulationSnapshot
+    |> join(:inner, [snapshot], run in SimulationRun, on: run.id == snapshot.run_id)
+    |> join(:inner, [_snapshot, run], study in Study, on: study.id == run.study_id)
+    |> where([_snapshot, _run, study], study.workspace_id == ^workspace_id)
+    |> order_by([snapshot], asc: snapshot.run_id, asc: snapshot.tick, asc: snapshot.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_outcome_events(workspace_id) do
+    OutcomeEvent
+    |> join(:inner, [event], run in SimulationRun, on: run.id == event.run_id)
+    |> join(:inner, [_event, run], study in Study, on: study.id == run.study_id)
+    |> where([_event, _run, study], study.workspace_id == ^workspace_id)
+    |> order_by([event], asc: event.run_id, asc: event.tick, asc: event.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_forecast_reports(workspace_id) do
+    ForecastReport
+    |> join(:inner, [report], run in SimulationRun, on: run.id == report.run_id)
+    |> join(
+      :inner,
+      [report, run],
+      study in Study,
+      on: study.id == report.study_id and run.study_id == study.id
+    )
+    |> where([_report, _run, study], study.workspace_id == ^workspace_id)
+    |> order_by([report], asc: report.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_calibrations(workspace_id) do
+    CalibrationRecord
+    |> join(:inner, [record], run in SimulationRun, on: run.id == record.run_id)
+    |> join(
+      :inner,
+      [record, run],
+      study in Study,
+      on: study.id == record.study_id and run.study_id == study.id
+    )
+    |> where([_record, _run, study], study.workspace_id == ^workspace_id)
+    |> order_by([record], asc: record.id)
+    |> Repo.all()
+  end
+
+  defp sim_lab_research_runs(workspace_id) do
+    ResearchRun
+    |> join(:inner, [run], study in Study, on: study.id == run.study_id)
+    |> where(
+      [run, study],
+      run.workspace_id == ^workspace_id and study.workspace_id == ^workspace_id
+    )
+    |> order_by([run], asc: run.id)
+    |> Repo.all()
   end
 
   defp run_events(workspace_id) do
@@ -222,6 +399,335 @@ defmodule HydraAgent.Audit do
       "status" => suite.status
     }
   end
+
+  defp study_json(study) do
+    %{
+      "id" => study.id,
+      "title" => study.title,
+      "question" => study.question,
+      "domain" => study.domain,
+      "region" => study.region,
+      "language" => study.language,
+      "timeframe" => study.timeframe,
+      "target_audience" => study.target_audience,
+      "desired_outcomes" => study.desired_outcomes,
+      "status" => study.status,
+      "inserted_at" => study.inserted_at,
+      "updated_at" => study.updated_at
+    }
+  end
+
+  defp source_json(source) do
+    %{
+      "id" => source.id,
+      "study_id" => source.study_id,
+      "kind" => source.kind,
+      "title" => source.title,
+      "uri" => safe_source_uri(source.uri),
+      "uri_hash" => fingerprint(source.uri),
+      "content_hash" => source.content_hash,
+      "metadata" => allowed_map(source.metadata, @source_metadata_keys),
+      "metadata_fingerprint" => fingerprint(source.metadata),
+      "pii_status" => source.pii_status,
+      "access_policy" => allowed_map(source.access_policy, @source_access_policy_keys),
+      "status" => source.status,
+      "inserted_at" => source.inserted_at,
+      "updated_at" => source.updated_at
+    }
+  end
+
+  defp evidence_item_json(item) do
+    %{
+      "id" => item.id,
+      "study_id" => item.study_id,
+      "source_id" => item.source_id,
+      "kind" => item.kind,
+      "claim_hash" => fingerprint(item.claim),
+      "normalized_claim_hash" => fingerprint(item.normalized_claim),
+      "source_ref" => allowed_map(item.source_ref, @evidence_source_ref_keys),
+      "grounding_level" => item.grounding_level,
+      "reliability_score" => item.reliability_score,
+      "relevance_score" => item.relevance_score,
+      "freshness_score" => item.freshness_score,
+      "confidence_score" => item.confidence_score,
+      "simulation_impact" => item.simulation_impact,
+      "tags" => item.tags,
+      "metadata" => allowed_map(item.metadata, @evidence_metadata_keys),
+      "inserted_at" => item.inserted_at,
+      "updated_at" => item.updated_at
+    }
+  end
+
+  defp context_pack_json(pack) do
+    content = %{
+      summary: pack.summary,
+      key_findings: pack.key_findings,
+      market_context: pack.market_context,
+      behavioral_context: pack.behavioral_context,
+      recent_context: pack.recent_context,
+      regulatory_context: pack.regulatory_context,
+      risks: pack.risks,
+      assumptions: pack.assumptions,
+      open_questions: pack.open_questions,
+      simulation_implications: pack.simulation_implications
+    }
+
+    %{
+      "id" => pack.id,
+      "study_id" => pack.study_id,
+      "version" => pack.version,
+      "summary" => allowed_map(pack.summary, @context_summary_keys),
+      "source_mix" => pack.source_mix,
+      "section_counts" => %{
+        "key_findings" => length(pack.key_findings),
+        "market_context" => length(pack.market_context),
+        "behavioral_context" => length(pack.behavioral_context),
+        "recent_context" => length(pack.recent_context),
+        "regulatory_context" => length(pack.regulatory_context),
+        "risks" => length(pack.risks),
+        "assumptions" => length(pack.assumptions),
+        "open_questions" => length(pack.open_questions),
+        "simulation_implications" => length(pack.simulation_implications)
+      },
+      "content_fingerprint" => fingerprint(content),
+      "confidence" => pack.confidence,
+      "generated_by_protocol_version" => pack.generated_by_protocol_version,
+      "status" => pack.status,
+      "inserted_at" => pack.inserted_at,
+      "updated_at" => pack.updated_at
+    }
+  end
+
+  defp persona_json(persona) do
+    %{
+      "id" => persona.id,
+      "study_id" => persona.study_id,
+      "name" => persona.name,
+      "segment" => persona.segment,
+      "distribution_weight" => persona.distribution_weight,
+      "goals" => persona.goals,
+      "frictions" => persona.frictions,
+      "triggers" => persona.triggers,
+      "trust_factors" => persona.trust_factors,
+      "decision_style" => persona.decision_style,
+      "likely_actions" => persona.likely_actions,
+      "behavioral_parameters" => persona.behavioral_parameters,
+      "evidence_refs" => persona.evidence_refs,
+      "assumption_refs" => persona.assumption_refs,
+      "grounding_mix" => persona.grounding_mix,
+      "confidence" => persona.confidence,
+      "editable_notes_hash" => fingerprint(persona.editable_notes),
+      "version" => persona.version,
+      "status" => persona.status,
+      "inserted_at" => persona.inserted_at,
+      "updated_at" => persona.updated_at
+    }
+  end
+
+  defp action_pattern_json(pattern) do
+    %{
+      "id" => pattern.id,
+      "study_id" => pattern.study_id,
+      "name" => pattern.name,
+      "persona_ids" => pattern.persona_ids,
+      "condition" => pattern.condition,
+      "interpretation" => pattern.interpretation,
+      "motivation" => pattern.motivation,
+      "likely_action" => pattern.likely_action,
+      "base_probability" => pattern.base_probability,
+      "blockers" => pattern.blockers,
+      "amplifiers" => pattern.amplifiers,
+      "state_updates" => pattern.state_updates,
+      "grounding_level" => pattern.grounding_level,
+      "evidence_refs" => pattern.evidence_refs,
+      "assumption_refs" => pattern.assumption_refs,
+      "confidence" => pattern.confidence,
+      "executable_rule" => pattern.executable_rule,
+      "version" => pattern.version,
+      "status" => pattern.status,
+      "inserted_at" => pattern.inserted_at,
+      "updated_at" => pattern.updated_at
+    }
+  end
+
+  defp scenario_json(scenario) do
+    %{
+      "id" => scenario.id,
+      "study_id" => scenario.study_id,
+      "variant_of_id" => scenario.variant_of_id,
+      "name" => scenario.name,
+      "description" => scenario.description,
+      "forecast_horizon" => scenario.forecast_horizon,
+      "events" => scenario.events,
+      "available_actions" => scenario.available_actions,
+      "success_metrics" => scenario.success_metrics,
+      "constraints" => scenario.constraints,
+      "metadata" => scenario.metadata,
+      "inserted_at" => scenario.inserted_at,
+      "updated_at" => scenario.updated_at
+    }
+  end
+
+  defp simulation_run_json(run) do
+    %{
+      "id" => run.id,
+      "study_id" => run.study_id,
+      "scenario_id" => run.scenario_id,
+      "context_pack_id" => run.context_pack_id,
+      "mode" => run.mode,
+      "agent_count" => run.agent_count,
+      "rounds" => run.rounds,
+      "seed" => run.seed,
+      "status" => run.status,
+      "budget_cap_usd" => decimal_json(run.budget_cap_usd),
+      "actual_cost_usd" => decimal_json(run.actual_cost_usd),
+      "decision_counts" => run.decision_counts,
+      "aggregate_metrics" => run.aggregate_metrics,
+      "input_fingerprint" => run.input_fingerprint,
+      "execution_options" => run.execution_options,
+      "confidence" => run.confidence,
+      "started_at" => run.started_at,
+      "completed_at" => run.completed_at,
+      "inserted_at" => run.inserted_at,
+      "updated_at" => run.updated_at
+    }
+  end
+
+  defp snapshot_json(snapshot) do
+    %{
+      "id" => snapshot.id,
+      "run_id" => snapshot.run_id,
+      "tick" => snapshot.tick,
+      "label" => snapshot.label,
+      "clusters" => snapshot.clusters,
+      "metrics" => snapshot.metrics,
+      "decision_counts" => snapshot.decision_counts,
+      "cost" => snapshot.cost,
+      "insight_refs" => snapshot.insight_refs,
+      "inserted_at" => snapshot.inserted_at
+    }
+  end
+
+  defp outcome_event_json(event) do
+    %{
+      "id" => event.id,
+      "run_id" => event.run_id,
+      "tick" => event.tick,
+      "persona_id" => event.persona_id,
+      "action_pattern" => event.action_pattern,
+      "action" => event.action,
+      "probability" => event.probability,
+      "confidence" => event.confidence,
+      "state_delta" => event.state_delta,
+      "metadata" => event.metadata,
+      "inserted_at" => event.inserted_at
+    }
+  end
+
+  defp forecast_report_json(report) do
+    content = %{
+      title: report.title,
+      executive_summary: report.executive_summary,
+      outcome_probabilities: report.outcome_probabilities,
+      segment_reactions: report.segment_reactions,
+      behavior_drivers: report.behavior_drivers,
+      resistance_drivers: report.resistance_drivers,
+      evidence_map: report.evidence_map,
+      assumptions: report.assumptions,
+      uncertainty: report.uncertainty,
+      validation_recommendations: report.validation_recommendations,
+      markdown_body: report.markdown_body
+    }
+
+    %{
+      "id" => report.id,
+      "run_id" => report.run_id,
+      "study_id" => report.study_id,
+      "title" => report.title,
+      "executive_summary" => report.executive_summary,
+      "outcome_probabilities" => report.outcome_probabilities,
+      "segment_reactions" => report.segment_reactions,
+      "behavior_drivers" => report.behavior_drivers,
+      "resistance_drivers" => report.resistance_drivers,
+      "evidence_map" => report.evidence_map,
+      "assumptions" => report.assumptions,
+      "uncertainty" => report.uncertainty,
+      "validation_recommendations" => report.validation_recommendations,
+      "content_fingerprint" => fingerprint(content),
+      "inserted_at" => report.inserted_at,
+      "updated_at" => report.updated_at
+    }
+  end
+
+  defp calibration_json(record) do
+    %{
+      "id" => record.id,
+      "study_id" => record.study_id,
+      "run_id" => record.run_id,
+      "metric" => record.metric,
+      "forecast_value" => record.forecast_value,
+      "actual_value" => record.actual_value,
+      "delta" => record.delta,
+      "note_hash" => fingerprint(record.note),
+      "observed_at" => record.observed_at,
+      "inserted_at" => record.inserted_at,
+      "updated_at" => record.updated_at
+    }
+  end
+
+  defp research_run_json(run) do
+    %{
+      "id" => run.id,
+      "study_id" => run.study_id,
+      "provider" => run.provider,
+      "status" => run.status,
+      "input_fingerprint" => SimulationRunner.input_fingerprint(run.input_snapshot),
+      "source_count" => run.source_count,
+      "failed_lanes" => run.failed_lanes,
+      "failure_reason" => run.failure_reason,
+      "started_at" => run.started_at,
+      "completed_at" => run.completed_at,
+      "inserted_at" => run.inserted_at,
+      "updated_at" => run.updated_at
+    }
+  end
+
+  defp map_records(records, mapper), do: Enum.map(records, mapper)
+
+  defp allowed_map(value, keys) when is_map(value) do
+    Map.take(value, keys)
+  end
+
+  defp allowed_map(_value, _keys), do: %{}
+
+  defp fingerprint(nil), do: nil
+
+  defp fingerprint(value) do
+    value
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp safe_source_uri(nil), do: nil
+
+  defp safe_source_uri(uri) when is_binary(uri) do
+    case URI.parse(uri) do
+      %URI{scheme: scheme, host: host} = parsed
+      when scheme in ["http", "https"] and is_binary(host) ->
+        parsed
+        |> Map.merge(%{userinfo: nil, query: nil, fragment: nil})
+        |> URI.to_string()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp safe_source_uri(_value), do: nil
+
+  defp decimal_json(nil), do: nil
+  defp decimal_json(value), do: Decimal.to_string(value)
 
   defp loaded(value), do: if(Ecto.assoc_loaded?(value), do: value, else: [])
 end

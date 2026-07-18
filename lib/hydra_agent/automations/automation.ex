@@ -1,6 +1,9 @@
 defmodule HydraAgent.Automations.Automation do
   use Ecto.Schema
   import Ecto.Changeset
+  import Ecto.Query
+
+  alias HydraAgent.Runtime.AgentProfile
 
   @statuses ~w(active paused archived)
 
@@ -18,6 +21,7 @@ defmodule HydraAgent.Automations.Automation do
 
     belongs_to :workspace, HydraAgent.Runtime.Workspace
     belongs_to :agent, HydraAgent.Runtime.AgentProfile
+    has_many :executions, HydraAgent.Automations.AutomationExecution
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -53,9 +57,30 @@ defmodule HydraAgent.Automations.Automation do
     |> validate_inclusion(:status, @statuses)
     |> validate_timezone()
     |> validate_cron_expression()
+    |> validate_agent_workspace()
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:agent)
     |> unique_constraint([:workspace_id, :slug])
+  end
+
+  defp validate_agent_workspace(changeset) do
+    prepare_changes(changeset, fn prepared ->
+      workspace_id = get_field(prepared, :workspace_id)
+      agent_id = get_field(prepared, :agent_id)
+
+      agent_belongs_to_workspace? =
+        prepared.repo.exists?(
+          from(agent in AgentProfile,
+            where: agent.id == ^agent_id and agent.workspace_id == ^workspace_id
+          )
+        )
+
+      if agent_belongs_to_workspace? do
+        prepared
+      else
+        add_error(prepared, :agent_id, "must belong to the same workspace")
+      end
+    end)
   end
 
   defp validate_cron_expression(changeset) do

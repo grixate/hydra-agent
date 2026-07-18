@@ -7,6 +7,7 @@ defmodule HydraAgent.Runtime do
 
   alias Ecto.Multi
   alias HydraAgent.Repo
+  alias HydraAgent.Security.WorkspaceAssociation
   alias HydraAgent.Tools.Bundles
   alias HydraAgent.Tools.Registry, as: ToolRegistry
 
@@ -25,9 +26,33 @@ defmodule HydraAgent.Runtime do
     Workspace
   }
 
+  @run_transitions %{
+    "planned" => ~w(running paused blocked awaiting_approval completed failed canceled),
+    "running" => ~w(paused blocked awaiting_approval completed failed canceled),
+    "paused" => ~w(running failed canceled),
+    "blocked" => ~w(running failed canceled),
+    "awaiting_approval" => ~w(running blocked failed canceled),
+    "completed" => [],
+    "failed" => [],
+    "canceled" => []
+  }
+
+  @step_transitions %{
+    "planned" => ~w(running canceled skipped),
+    "running" => ~w(planned blocked awaiting_approval completed failed canceled),
+    "blocked" => ~w(planned canceled),
+    "awaiting_approval" => ~w(planned canceled),
+    "completed" => [],
+    "failed" => [],
+    "canceled" => [],
+    "skipped" => []
+  }
+
   def list_workspaces do
     Workspace |> order_by([w], asc: w.name) |> Repo.all()
   end
+
+  def list_operator_workspaces(user), do: HydraAgent.Accounts.list_operator_workspaces(user)
 
   def list_workspace_ids do
     Workspace
@@ -38,8 +63,54 @@ defmodule HydraAgent.Runtime do
 
   def get_workspace!(id), do: Repo.get!(Workspace, id)
 
+  @doc """
+  Returns the server-trusted filesystem root for a workspace.
+
+  A configured `settings["project_root"]` wins. Relative project roots are
+  resolved against the server-owned fallback rather than the process working
+  directory, so callers cannot influence the filesystem authority boundary.
+  """
+  def trusted_workspace_root(%Workspace{} = workspace) do
+    server_root = server_workspace_root!()
+
+    (workspace.settings || %{})
+    |> Map.get("project_root")
+    |> normalize_workspace_root(server_root)
+  end
+
+  def trusted_workspace_root(workspace_id) do
+    workspace_id
+    |> get_workspace!()
+    |> trusted_workspace_root()
+  end
+
   def create_workspace(attrs) do
     %Workspace{} |> Workspace.changeset(attrs) |> Repo.insert()
+  end
+
+  defp normalize_workspace_root(root, server_root) when is_binary(root) do
+    case String.trim(root) do
+      "" -> server_root
+      configured_root -> Path.expand(configured_root, server_root)
+    end
+  end
+
+  defp normalize_workspace_root(_root, server_root), do: server_root
+
+  defp server_workspace_root! do
+    case Application.fetch_env(:hydra_agent, :server_workspace_root) do
+      {:ok, root} when is_binary(root) ->
+        root = String.trim(root)
+
+        if root != "" and Path.type(root) == :absolute do
+          Path.expand(root)
+        else
+          raise ArgumentError, ":server_workspace_root must be a non-empty absolute path"
+        end
+
+      _missing_or_invalid ->
+        raise ArgumentError, ":server_workspace_root must be configured as an absolute path"
+    end
   end
 
   def list_agents(workspace_id) do
@@ -482,7 +553,12 @@ defmodule HydraAgent.Runtime do
       |> stringify_keys()
       |> Map.put("run_id", run.id)
 
-    step_changeset = %RunStep{} |> RunStep.changeset(attrs)
+    step_changeset =
+      %RunStep{}
+      |> RunStep.changeset(attrs)
+      |> WorkspaceAssociation.validate(:assigned_agent_id, AgentProfile,
+        workspace_id: run.workspace_id
+      )
 
     Multi.new()
     |> Multi.insert(:step, step_changeset)
@@ -619,6 +695,17 @@ defmodule HydraAgent.Runtime do
     |> Repo.one!()
   end
 
+  def get_run_step_for_workspace_by_id!(workspace_id, step_id) do
+    RunStep
+    |> join(:inner, [step], run in assoc(step, :run))
+    |> where(
+      [step, run],
+      step.id == ^normalize_id(step_id) and run.workspace_id == ^normalize_id(workspace_id)
+    )
+    |> preload([step, run], run: run)
+    |> Repo.one!()
+  end
+
   def list_awaiting_approval_steps(workspace_id) do
     RunStep
     |> join(:inner, [step], run in assoc(step, :run))
@@ -693,13 +780,50 @@ defmodule HydraAgent.Runtime do
     leased_until = DateTime.add(now(), lease_ms, :millisecond)
 
     Repo.transaction(fn ->
-      step =
+      locked_run =
+        Run
+        |> where([locked_run], locked_run.id == ^run.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+
+      unless locked_run.status in ["planned", "running"] do
+        Repo.rollback({:run_not_runnable, locked_run.status})
+      end
+
+      running? =
         RunStep
-        |> where([step], step.run_id == ^run.id and step.status == "planned")
-        |> order_by([step], asc: step.index)
-        |> lock("FOR UPDATE SKIP LOCKED")
-        |> limit(1)
-        |> Repo.one()
+        |> where([step], step.run_id == ^run.id and step.status == "running")
+        |> Repo.exists?()
+
+      step =
+        if running? do
+          nil
+        else
+          candidate =
+            RunStep
+            |> where([step], step.run_id == ^run.id and step.status == "planned")
+            |> order_by([step], asc: step.index)
+            |> lock("FOR UPDATE")
+            |> limit(1)
+            |> Repo.one()
+
+          case candidate do
+            nil ->
+              nil
+
+            candidate ->
+              blocked_by_earlier_step? =
+                RunStep
+                |> where(
+                  [step],
+                  step.run_id == ^run.id and step.index < ^candidate.index and
+                    step.status not in ["completed", "skipped"]
+                )
+                |> Repo.exists?()
+
+              if blocked_by_earlier_step?, do: nil, else: candidate
+          end
+        end
 
       case step do
         nil ->
@@ -737,9 +861,17 @@ defmodule HydraAgent.Runtime do
       end
     end)
     |> case do
-      {:ok, nil} -> {:ok, nil}
-      {:ok, step} -> {:ok, Repo.preload(step, [:run, :assigned_agent])}
-      {:error, reason} -> {:error, reason}
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, step} ->
+        {:ok, Repo.preload(step, [:run, :assigned_agent])}
+
+      {:error, {:run_not_runnable, status}} ->
+        {:error, %{"reason" => "run_not_runnable", "run_id" => run.id, "status" => status}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -751,15 +883,31 @@ defmodule HydraAgent.Runtime do
     parallel_safe_tool_names = ToolRegistry.parallel_safe_names()
 
     Repo.transaction(fn ->
-      steps =
+      locked_run =
+        Run
+        |> where([locked_run], locked_run.id == ^run.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+
+      unless locked_run.status in ["planned", "running"] do
+        Repo.rollback({:run_not_runnable, locked_run.status})
+      end
+
+      remaining_steps =
         RunStep
-        |> where([step], step.run_id == ^run.id and step.status == "planned")
-        |> where([step], step.side_effect_class == "read_only")
-        |> where([step], step.tool_name in ^parallel_safe_tool_names)
+        |> where([step], step.run_id == ^run.id)
+        |> where([step], step.status not in ["completed", "skipped"])
         |> order_by([step], asc: step.index)
-        |> lock("FOR UPDATE SKIP LOCKED")
-        |> limit(^max_steps)
+        |> lock("FOR UPDATE")
         |> Repo.all()
+
+      steps =
+        remaining_steps
+        |> Enum.take_while(fn step ->
+          step.status == "planned" and step.side_effect_class == "read_only" and
+            step.tool_name in parallel_safe_tool_names
+        end)
+        |> Enum.take(max_steps)
 
       Enum.map(steps, fn step ->
         {:ok, leased_step} =
@@ -794,46 +942,67 @@ defmodule HydraAgent.Runtime do
       end)
     end)
     |> case do
-      {:ok, steps} -> {:ok, Repo.preload(steps, [:run, :assigned_agent])}
-      {:error, reason} -> {:error, reason}
+      {:ok, steps} ->
+        {:ok, Repo.preload(steps, [:run, :assigned_agent])}
+
+      {:error, {:run_not_runnable, status}} ->
+        {:error, %{"reason" => "run_not_runnable", "run_id" => run.id, "status" => status}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   def heartbeat_step(%RunStep{} = step, lease_owner, opts \\ []) when is_binary(lease_owner) do
     lease_ms = Keyword.get(opts, :lease_ms, 60_000)
-    leased_until = DateTime.add(now(), lease_ms, :millisecond)
+    heartbeat_at = now()
+    leased_until = DateTime.add(heartbeat_at, lease_ms, :millisecond)
 
-    if step.lease_owner != lease_owner do
-      {:error, :lease_owner_mismatch}
-    else
-      step
+    Repo.transaction(fn ->
+      current =
+        RunStep
+        |> where([current], current.id == ^step.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+
+      active? =
+        current.status == "running" and current.lease_owner == lease_owner and
+          not is_nil(current.lease_expires_at) and
+          DateTime.compare(current.lease_expires_at, heartbeat_at) == :gt
+
+      unless active?, do: Repo.rollback(:lease_lost)
+
+      current
       |> RunStep.changeset(%{
-        "heartbeat_at" => now(),
+        "heartbeat_at" => heartbeat_at,
         "lease_expires_at" => leased_until
       })
-      |> Repo.update()
-      |> case do
-        {:ok, updated_step} ->
-          run = step.run || Repo.get!(Run, updated_step.run_id)
+      |> Repo.update!()
+    end)
+    |> case do
+      {:ok, updated_step} ->
+        run = run_for_step(step, updated_step.run_id)
 
-          record_run_event(%{
-            workspace_id: run.workspace_id,
-            run_id: run.id,
-            run_step_id: updated_step.id,
-            agent_id: updated_step.assigned_agent_id,
-            event_type: "step.heartbeat",
-            summary: "Step heartbeat recorded",
-            payload: %{
-              "lease_owner" => lease_owner,
-              "lease_expires_at" => DateTime.to_iso8601(leased_until)
-            }
-          })
+        record_run_event(%{
+          workspace_id: run.workspace_id,
+          run_id: run.id,
+          run_step_id: updated_step.id,
+          agent_id: updated_step.assigned_agent_id,
+          event_type: "step.heartbeat",
+          summary: "Step heartbeat recorded",
+          payload: %{
+            "lease_owner" => lease_owner,
+            "lease_expires_at" => DateTime.to_iso8601(leased_until)
+          }
+        })
 
-          {:ok, updated_step}
+        {:ok, updated_step}
 
-        error ->
-          error
-      end
+      {:error, :lease_lost} ->
+        {:error, :lease_lost}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -847,7 +1016,33 @@ defmodule HydraAgent.Runtime do
         "heartbeat_at" => nil
       })
 
-    transition_step(step, Map.get(attrs, "status", step.status), attrs)
+    next_status = Map.get(attrs, "status", step.status)
+
+    Repo.transaction(fn ->
+      current =
+        RunStep
+        |> where([current], current.id == ^step.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+
+      if step.status == "running" do
+        active? =
+          current.status == "running" and is_binary(step.lease_owner) and
+            current.lease_owner == step.lease_owner and not is_nil(current.lease_expires_at) and
+            DateTime.compare(current.lease_expires_at, now()) == :gt
+
+        unless active?, do: Repo.rollback(:lease_lost)
+      end
+
+      with :ok <- validate_step_transition(current.status, next_status) do
+        current
+        |> RunStep.changeset(attrs)
+        |> Repo.update!()
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> unwrap_transaction()
   end
 
   def recover_stale_steps(workspace_id, opts \\ []) do
@@ -859,54 +1054,39 @@ defmodule HydraAgent.Runtime do
     |> where([step, run], run.workspace_id == ^workspace_id)
     |> where([step], step.status == "running")
     |> where([step], not is_nil(step.lease_expires_at) and step.lease_expires_at < ^stale_before)
-    |> preload([step, _run], [:run])
+    |> select([step, _run], step.id)
     |> Repo.all()
-    |> Enum.map(fn step ->
-      next_status = if step.attempt_count >= max_attempts, do: "failed", else: "planned"
-
-      error =
-        if next_status == "failed" do
-          Map.merge(step.error || %{}, %{
-            "reason" => "lease_expired",
-            "max_attempts" => max_attempts
-          })
-        else
-          step.error || %{}
-        end
-
-      {:ok, updated_step} =
-        release_step_lease(step, %{
-          "status" => next_status,
-          "error" => error,
-          "completed_at" => if(next_status == "failed", do: now(), else: nil)
-        })
-
-      record_run_event(%{
-        workspace_id: step.run.workspace_id,
-        run_id: step.run_id,
-        run_step_id: step.id,
-        agent_id: step.assigned_agent_id,
-        event_type: if(next_status == "failed", do: "step.failed", else: "step.retrying"),
-        summary:
-          if(next_status == "failed",
-            do: "Step failed after expired lease",
-            else: "Step returned to planned after expired lease"
-          ),
-        payload: %{"attempt_count" => step.attempt_count, "max_attempts" => max_attempts}
-      })
-
-      updated_step
-    end)
+    |> Enum.map(&recover_stale_step(&1, stale_before, max_attempts))
+    |> Enum.reject(&is_nil/1)
   end
 
   def transition_run(%Run{} = run, status, attrs \\ %{}) do
-    run
-    |> Run.changeset(Map.merge(stringify_keys(attrs), %{"status" => status}))
-    |> Repo.update()
+    attrs = Map.merge(stringify_keys(attrs), %{"status" => status})
+
+    Repo.transaction(fn ->
+      current =
+        Run
+        |> where([current], current.id == ^run.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+
+      with :ok <- validate_run_transition(current.status, status) do
+        current |> Run.changeset(attrs) |> Repo.update!()
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> unwrap_transaction()
   end
 
   def start_run(%Run{} = run) do
-    update_run_with_event(run, "running", %{"started_at" => now()}, "run.started", "Run started")
+    update_run_with_event(
+      run,
+      "running",
+      %{"started_at" => run.started_at || now(), "completed_at" => nil},
+      "run.started",
+      "Run started"
+    )
   end
 
   def pause_run(%Run{} = run, attrs \\ %{}) do
@@ -914,6 +1094,7 @@ defmodule HydraAgent.Runtime do
   end
 
   def resume_run(%Run{} = run, attrs \\ %{}) do
+    attrs = Map.put(stringify_keys(attrs), "completed_at", nil)
     update_run_with_event(run, "running", attrs, "run.resumed", "Run resumed")
   end
 
@@ -959,29 +1140,52 @@ defmodule HydraAgent.Runtime do
   end
 
   def approve_run_step(%RunStep{} = step, attrs \\ %{}) do
-    transition_step_with_event(
-      step,
-      "planned",
-      approval_attrs(step, attrs, "approved"),
-      "step.approved",
-      "Step approved"
-    )
+    with {:ok, approved_step} <-
+           transition_step_with_event(
+             step,
+             "planned",
+             approval_attrs(step, attrs, "approved"),
+             "step.approved",
+             "Step approved"
+           ),
+         run <- Repo.get!(Run, approved_step.run_id),
+         :ok <- resume_approved_run(run) do
+      {:ok, approved_step}
+    end
   end
 
   def reject_run_step(%RunStep{} = step, attrs \\ %{}) do
-    transition_step_with_event(
-      step,
-      "canceled",
-      approval_attrs(step, attrs, "rejected"),
-      "step.rejected",
-      "Step rejected"
-    )
+    with {:ok, rejected_step} <-
+           transition_step_with_event(
+             step,
+             "canceled",
+             approval_attrs(step, attrs, "rejected"),
+             "step.rejected",
+             "Step rejected"
+           ),
+         run <- Repo.get!(Run, rejected_step.run_id),
+         :ok <- block_rejected_run(run, rejected_step) do
+      {:ok, rejected_step}
+    end
   end
 
   def transition_step(%RunStep{} = step, status, attrs \\ %{}) do
-    step
-    |> RunStep.changeset(Map.merge(stringify_keys(attrs), %{"status" => status}))
-    |> Repo.update()
+    attrs = Map.merge(stringify_keys(attrs), %{"status" => status})
+
+    Repo.transaction(fn ->
+      current =
+        RunStep
+        |> where([current], current.id == ^step.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+
+      with :ok <- validate_step_transition(current.status, status) do
+        current |> RunStep.changeset(attrs) |> Repo.update!()
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> unwrap_transaction()
   end
 
   defp maybe_insert_implicit_mission(multi, attrs) do
@@ -1125,7 +1329,43 @@ defmodule HydraAgent.Runtime do
         })
     }
 
-    create_run(Map.merge(base_attrs, Map.drop(attrs, ["metadata"])))
+    Repo.transaction(fn ->
+      source_steps =
+        RunStep
+        |> where([step], step.run_id == ^run.id)
+        |> order_by([step], asc: step.index)
+        |> Repo.all()
+
+      cloned_run =
+        case create_run(Map.merge(base_attrs, Map.drop(attrs, ["metadata"]))) do
+          {:ok, cloned_run} -> cloned_run
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+      Enum.each(source_steps, fn source_step ->
+        step_attrs = %{
+          "assigned_agent_id" => source_step.assigned_agent_id,
+          "index" => source_step.index,
+          "title" => source_step.title,
+          "status" => "planned",
+          "tool_name" => source_step.tool_name,
+          "side_effect_class" => source_step.side_effect_class,
+          "input" => source_step.input,
+          "output" => %{},
+          "approval" => %{},
+          "error" => %{},
+          "attempt_count" => 0
+        }
+
+        case create_run_step(cloned_run, step_attrs) do
+          {:ok, _step} -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+
+      get_run!(cloned_run.id)
+    end)
+    |> unwrap_transaction()
   end
 
   defp lineage_title("retry", title), do: "Retry: #{title}"
@@ -1164,19 +1404,33 @@ defmodule HydraAgent.Runtime do
   defp update_run_with_event(run, status, attrs, event_type, summary, payload \\ %{}) do
     attrs = Map.merge(stringify_keys(attrs), %{"status" => status})
 
-    Multi.new()
-    |> Multi.update(:run, Run.changeset(run, attrs))
-    |> Multi.insert(:event, fn %{run: updated_run} ->
-      RunEvent.changeset(%RunEvent{}, %{
-        workspace_id: updated_run.workspace_id,
-        run_id: updated_run.id,
-        agent_id: updated_run.supervisor_agent_id,
-        event_type: event_type,
-        summary: summary,
-        payload: payload
-      })
+    Repo.transaction(fn ->
+      current =
+        Run
+        |> where([current], current.id == ^run.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+
+      with :ok <- validate_run_transition(current.status, status) do
+        updated_run = current |> Run.changeset(attrs) |> Repo.update!()
+
+        event =
+          %RunEvent{}
+          |> RunEvent.changeset(%{
+            workspace_id: updated_run.workspace_id,
+            run_id: updated_run.id,
+            agent_id: updated_run.supervisor_agent_id,
+            event_type: event_type,
+            summary: summary,
+            payload: payload
+          })
+          |> Repo.insert!()
+
+        %{run: updated_run, event: event}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
     end)
-    |> Repo.transaction()
     |> case do
       {:ok, %{run: updated_run, event: event}} ->
         HydraAgent.Runtime.PubSub.broadcast_run_event(event)
@@ -1185,37 +1439,50 @@ defmodule HydraAgent.Runtime do
         HydraAgent.Runtime.PubSub.broadcast_run(updated_run)
         {:ok, updated_run}
 
-      {:error, _operation, changeset, _changes} ->
-        {:error, changeset}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   defp transition_step_with_event(step, status, attrs, event_type, summary) do
     attrs = Map.merge(stringify_keys(attrs), %{"status" => status})
 
-    Multi.new()
-    |> Multi.update(:step, RunStep.changeset(step, attrs))
-    |> Multi.insert(:event, fn %{step: updated_step} ->
-      run = step.run || Repo.get!(Run, updated_step.run_id)
+    Repo.transaction(fn ->
+      current =
+        RunStep
+        |> where([current], current.id == ^step.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
 
-      RunEvent.changeset(%RunEvent{}, %{
-        workspace_id: run.workspace_id,
-        run_id: run.id,
-        run_step_id: updated_step.id,
-        agent_id: updated_step.assigned_agent_id,
-        event_type: event_type,
-        summary: summary,
-        payload: %{"approval" => updated_step.approval}
-      })
+      with :ok <- validate_step_transition(current.status, status) do
+        updated_step = current |> RunStep.changeset(attrs) |> Repo.update!()
+        run = run_for_step(step, updated_step.run_id)
+
+        event =
+          %RunEvent{}
+          |> RunEvent.changeset(%{
+            workspace_id: run.workspace_id,
+            run_id: run.id,
+            run_step_id: updated_step.id,
+            agent_id: updated_step.assigned_agent_id,
+            event_type: event_type,
+            summary: summary,
+            payload: %{"approval" => updated_step.approval}
+          })
+          |> Repo.insert!()
+
+        %{step: updated_step, event: event}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
     end)
-    |> Repo.transaction()
     |> case do
       {:ok, %{step: updated_step, event: event}} ->
         HydraAgent.Runtime.PubSub.broadcast_run_event(event)
         {:ok, updated_step}
 
-      {:error, _operation, changeset, _changes} ->
-        {:error, changeset}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -1233,6 +1500,35 @@ defmodule HydraAgent.Runtime do
 
     %{"approval" => approval}
   end
+
+  defp resume_approved_run(%Run{status: "awaiting_approval"} = run) do
+    with {:ok, _run} <- transition_run(run, "running", %{"completed_at" => nil}) do
+      case HydraAgent.Agent.Supervisor.start_run_worker(run.id) do
+        {:ok, _pid} -> :ok
+        {:error, {:already_started, _pid}} -> :ok
+        {:error, reason} -> {:error, {:worker_start_failed, reason}}
+      end
+    end
+  end
+
+  defp resume_approved_run(%Run{status: status}) when status in ["planned", "running"], do: :ok
+  defp resume_approved_run(%Run{status: status}), do: {:error, {:run_not_approvable, status}}
+
+  defp block_rejected_run(%Run{status: status} = run, rejected_step)
+       when status in ["running", "awaiting_approval"] do
+    case transition_run(run, "blocked", %{
+           "result" => %{"reason" => "approval_rejected", "run_step_id" => rejected_step.id}
+         }) do
+      {:ok, _run} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp block_rejected_run(%Run{status: status}, _step) when status in ["planned", "blocked"],
+    do: :ok
+
+  defp block_rejected_run(%Run{status: status}, _step),
+    do: {:error, {:run_not_rejectable, status}}
 
   defp append_state_entry(state, key, entry) when is_map(state) do
     Map.update(state, key, [entry], fn entries ->
@@ -1285,6 +1581,120 @@ defmodule HydraAgent.Runtime do
   end
 
   defp maybe_require_bundle_approval(attrs, _bundle_attrs), do: attrs
+
+  defp recover_stale_step(step_id, stale_before, max_attempts) do
+    Repo.transaction(fn ->
+      step =
+        RunStep
+        |> where(
+          [step],
+          step.id == ^step_id and step.status == "running" and
+            not is_nil(step.lease_expires_at) and step.lease_expires_at < ^stale_before
+        )
+        |> lock("FOR UPDATE")
+        |> Repo.one()
+
+      if is_nil(step) do
+        nil
+      else
+        run =
+          Run
+          |> where([run], run.id == ^step.run_id)
+          |> lock("FOR UPDATE")
+          |> Repo.one!()
+
+        next_status = if step.attempt_count >= max_attempts, do: "failed", else: "planned"
+
+        error =
+          if next_status == "failed" do
+            Map.merge(step.error || %{}, %{
+              "reason" => "lease_expired",
+              "max_attempts" => max_attempts
+            })
+          else
+            step.error || %{}
+          end
+
+        {:ok, updated_step} =
+          step
+          |> RunStep.changeset(%{
+            "status" => next_status,
+            "error" => error,
+            "completed_at" => if(next_status == "failed", do: now(), else: nil),
+            "lease_owner" => nil,
+            "lease_expires_at" => nil,
+            "heartbeat_at" => nil
+          })
+          |> Repo.update()
+
+        event_type = if next_status == "failed", do: "step.failed", else: "step.retrying"
+
+        event =
+          %RunEvent{}
+          |> RunEvent.changeset(%{
+            workspace_id: run.workspace_id,
+            run_id: run.id,
+            run_step_id: updated_step.id,
+            agent_id: updated_step.assigned_agent_id,
+            event_type: event_type,
+            summary:
+              if(next_status == "failed",
+                do: "Step failed after expired lease",
+                else: "Step returned to planned after expired lease"
+              ),
+            payload: %{"attempt_count" => step.attempt_count, "max_attempts" => max_attempts}
+          })
+          |> Repo.insert!()
+
+        %{step: updated_step, run: run, event: event}
+      end
+    end)
+    |> case do
+      {:ok, nil} ->
+        nil
+
+      {:ok, %{step: step, run: run, event: event}} ->
+        HydraAgent.Runtime.PubSub.broadcast_run_event(event)
+
+        if step.status == "failed" and run.status in ["planned", "running", "paused"] do
+          _ =
+            fail_run(run, %{
+              "result" => %{"reason" => "step_lease_expired", "run_step_id" => step.id}
+            })
+        end
+
+        step
+
+      {:error, _reason} ->
+        nil
+    end
+  end
+
+  defp validate_run_transition(status, status), do: :ok
+
+  defp validate_run_transition(from, to) do
+    if to in Map.get(@run_transitions, from, []) do
+      :ok
+    else
+      {:error, {:invalid_run_transition, from, to}}
+    end
+  end
+
+  defp validate_step_transition(status, status), do: :ok
+
+  defp validate_step_transition(from, to) do
+    if to in Map.get(@step_transitions, from, []) do
+      :ok
+    else
+      {:error, {:invalid_step_transition, from, to}}
+    end
+  end
+
+  defp unwrap_transaction({:ok, value}), do: {:ok, value}
+  defp unwrap_transaction({:error, reason}), do: {:error, reason}
+
+  defp run_for_step(%RunStep{run: %Run{} = run}, _run_id), do: run
+  defp run_for_step(_step, run_id), do: Repo.get!(Run, run_id)
 
   defp current_running_step(run_id, nil) do
     RunStep

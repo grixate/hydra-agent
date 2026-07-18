@@ -2,6 +2,8 @@ defmodule HydraAgent.Runtime.Run do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.Security.WorkspaceAssociation
+
   @statuses ~w(planned running paused blocked awaiting_approval completed failed canceled)
   @autonomy_levels HydraAgent.Runtime.Autonomy.autonomy_levels()
   @lineage_types ~w(original retry fork delegated)
@@ -56,6 +58,7 @@ defmodule HydraAgent.Runtime.Run do
       :started_at,
       :completed_at
     ])
+    |> update_change(:metadata, &strip_reserved_metadata/1)
     |> validate_required([:workspace_id, :title, :goal, :status, :autonomy_level])
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:autonomy_level, @autonomy_levels)
@@ -65,5 +68,14 @@ defmodule HydraAgent.Runtime.Run do
     |> assoc_constraint(:mission)
     |> assoc_constraint(:supervisor_agent)
     |> assoc_constraint(:parent_run)
+    |> WorkspaceAssociation.validate(:mission_id, HydraAgent.Runtime.Mission)
+    |> WorkspaceAssociation.validate(:supervisor_agent_id, HydraAgent.Runtime.AgentProfile)
+    |> WorkspaceAssociation.validate(:parent_run_id, __MODULE__)
   end
+
+  defp strip_reserved_metadata(metadata) when is_map(metadata) do
+    Map.drop(metadata, ["workspace_root", :workspace_root])
+  end
+
+  defp strip_reserved_metadata(_metadata), do: %{}
 end

@@ -1,0 +1,66 @@
+<main class="auth-page">
+  <.flash_group flash={@flash} />
+  <header class="auth-brand-row">
+    <a href="/" class="simlab-brand" aria-label="Hydra home">
+      <span class="brand-mark" aria-hidden="true">H</span>
+      <span>Hydra</span>
+    </a>
+    <span>Private operator access</span>
+  </header>
+
+  <section class="auth-composition" aria-labelledby="auth-title">
+    <div class="auth-intro">
+      <p class="eyebrow"><span class="eyebrow-dot"></span> Protected workspace</p>
+      <h1 id="auth-title">Continue<br /><i>with intent.</i></h1>
+      <p>
+        Access to studies, evidence, agent runs, and approvals is limited to authenticated workspace members.
+      </p>
+    </div>
+
+    <div class="auth-card">
+      <div class="auth-card-heading">
+        <span>01</span>
+        <div>
+          <p>Operator sign in</p>
+          <h2>Welcome back.</h2>
+        </div>
+      </div>
+
+      <.form for={%{}} as={:session} action={~p"/login"} class="auth-form">
+        <label>
+          <span>Email</span>
+          <input
+            type="email"
+            name="session[email]"
+            value={assigns[:email]}
+            autocomplete="username"
+            inputmode="email"
+            required
+            autofocus
+          />
+        </label>
+        <label>
+          <span>Password</span>
+          <input
+            type="password"
+            name="session[password]"
+            autocomplete="current-password"
+            minlength="12"
+            required
+          />
+        </label>
+
+        <div class="auth-submit-row">
+          <p>
+            <span aria-hidden="true">✦</span>
+            Session credentials never enter study evidence.<br />
+            Can’t sign in? Contact your workspace administrator.
+          </p>
+          <button type="submit" class="primary-button">
+            Sign in <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </.form>
+    </div>
+  </section>
+</main>

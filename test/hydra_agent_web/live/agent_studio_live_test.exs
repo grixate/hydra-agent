@@ -4,7 +4,7 @@ defmodule HydraAgentWeb.AgentStudioLiveTest do
   import HydraAgent.RuntimeFixtures
   import Phoenix.LiveViewTest
 
-  alias HydraAgent.{Automations, Budgets, Connectors, Knowledge, Rooms, Runtime}
+  alias HydraAgent.{Automations, Budgets, Connectors, Evals, Knowledge, Rooms, Runtime}
 
   test "runs selected agent in sandbox without durable writes", %{conn: conn} do
     workspace = workspace_fixture(%{name: "Ops", slug: "ops-agent-studio"})
@@ -195,7 +195,7 @@ defmodule HydraAgentWeb.AgentStudioLiveTest do
     assert html =~ "Telegram Production Setup"
     assert html =~ "needs attention"
     assert html =~ "env:DOES_NOT_EXIST_TELEGRAM_TOKEN is not set"
-    assert html =~ "Secret header is recommended for production"
+    assert html =~ "Environment variable name is missing"
     assert html =~ "Waiting for first inbound Telegram message"
     assert html =~ "No outbound Telegram delivery confirmed yet"
     assert html =~ "PHX_HOST is not set"
@@ -407,5 +407,49 @@ defmodule HydraAgentWeb.AgentStudioLiveTest do
     assert html =~ "10 reused"
     assert html =~ "6 reused"
     assert html =~ "daily-os-automation-readiness"
+  end
+
+  test "forged eval suite ids cannot execute another workspace's suite", %{conn: conn} do
+    enable_browser_auth()
+
+    allowed = workspace_fixture(%{name: "Allowed", slug: "studio-eval-allowed"})
+    denied = workspace_fixture(%{name: "Denied", slug: "studio-eval-denied"})
+    operator = user_fixture()
+    membership_fixture(operator, allowed, "admin")
+    agent = agent_fixture(allowed, %{slug: "allowed-eval-agent"})
+
+    {:ok, foreign_suite} =
+      Evals.create_suite(%{
+        workspace_id: denied.id,
+        name: "Foreign Eval Suite",
+        slug: "foreign-studio-eval-suite"
+      })
+
+    {:ok, view, _html} =
+      live(
+        authenticated_session(conn, operator),
+        ~p"/control/agents/studio?workspace_id=#{allowed.id}&agent_id=#{agent.id}"
+      )
+
+    assert render_click(view, "run-eval-suite", %{"suite_id" => foreign_suite.id}) =~
+             "Eval suite not found in this workspace"
+
+    assert Evals.list_runs(allowed.id) == []
+    assert Evals.list_runs(denied.id) == []
+  end
+
+  defp enable_browser_auth do
+    original = Application.get_env(:hydra_agent, :browser_auth)
+    Application.put_env(:hydra_agent, :browser_auth, enabled?: true)
+
+    on_exit(fn ->
+      if original,
+        do: Application.put_env(:hydra_agent, :browser_auth, original),
+        else: Application.delete_env(:hydra_agent, :browser_auth)
+    end)
+  end
+
+  defp authenticated_session(conn, user) do
+    init_test_session(conn, user_id: user.id, session_version: user.session_version)
   end
 end

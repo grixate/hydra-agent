@@ -17,6 +17,10 @@ defmodule HydraAgentWeb.AgentDetailLive do
   def handle_params(%{"id" => id} = params, _uri, socket) do
     agent = Runtime.get_agent!(id)
 
+    unless Enum.any?(socket.assigns.workspaces, &(&1.id == agent.workspace_id)) do
+      raise Ecto.NoResultsError, queryable: HydraAgent.Runtime.AgentProfile
+    end
+
     workspace_id =
       selected_workspace_id(
         socket.assigns.workspaces,
@@ -36,7 +40,7 @@ defmodule HydraAgentWeb.AgentDetailLive do
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
 
   defp load_agent_state(%{assigns: %{agent: agent, workspace_id: workspace_id}} = socket) do

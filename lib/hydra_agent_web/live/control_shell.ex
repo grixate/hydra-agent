@@ -15,17 +15,18 @@ defmodule HydraAgentWeb.ControlShell do
     ~H"""
     <div
       id="control-shell-header"
-      class="flex flex-col gap-5 border-b border-zinc-200 pb-6 lg:flex-row lg:items-end lg:justify-between"
+      class="control-shell-header"
     >
-      <div class="min-w-0 space-y-2">
-        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-          {@eyebrow}
-        </p>
-        <h1 class="truncate text-3xl font-semibold tracking-normal text-zinc-950">{@title}</h1>
-        <p class="max-w-4xl text-sm leading-6 text-zinc-600">{@description}</p>
+      <div class="control-shell-heading">
+        <div class="min-w-0 space-y-2">
+          <p class="control-eyebrow">{@eyebrow}</p>
+          <h1>{@title}</h1>
+          <p class="control-description">{@description}</p>
+        </div>
+        <div class="control-actions">{render_slot(@actions)}</div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-2">
+      <div class="control-context-bar">
         <.workspace_switcher
           :if={@workspace_switcher}
           active={@active}
@@ -34,7 +35,6 @@ defmodule HydraAgentWeb.ControlShell do
           workspaces={@workspaces}
         />
         <.nav active={@active} workspace_id={@workspace_id} />
-        {render_slot(@actions)}
       </div>
     </div>
     """
@@ -47,18 +47,17 @@ defmodule HydraAgentWeb.ControlShell do
 
   defp workspace_switcher(assigns) do
     ~H"""
-    <.link
-      :for={workspace <- @workspaces}
-      patch={workspace_path(@active, workspace.id, @query)}
-      class={[
-        "rounded-md border px-3 py-2 text-sm font-medium transition",
-        workspace.id == @workspace_id && "border-zinc-950 bg-zinc-950 text-white",
-        workspace.id != @workspace_id &&
-          "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400"
-      ]}
-    >
-      {workspace.name}
-    </.link>
+    <div :if={@workspaces != []} class="workspace-switcher" aria-label="Workspace">
+      <span>Workspace</span>
+      <.link
+        :for={workspace <- @workspaces}
+        patch={workspace_path(@active, workspace.id, @query)}
+        aria-current={if workspace.id == @workspace_id, do: "true"}
+        class={["workspace-option", workspace.id == @workspace_id && "is-active"]}
+      >
+        {workspace.name}
+      </.link>
+    </div>
     """
   end
 
@@ -67,15 +66,12 @@ defmodule HydraAgentWeb.ControlShell do
 
   defp nav(assigns) do
     ~H"""
-    <nav :if={@workspace_id} id="control-shell-nav" class="flex flex-wrap items-center gap-2">
+    <nav :if={@workspace_id} id="control-shell-nav" class="control-section-nav" aria-label="Workspace">
       <.link
         :for={{key, label} <- nav_items()}
         navigate={nav_path(key, @workspace_id)}
-        class={[
-          "rounded-md border px-3 py-2 text-sm font-medium transition",
-          key == @active && "border-zinc-950 bg-zinc-950 text-white",
-          key != @active && "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400"
-        ]}
+        aria-current={if key == @active, do: "page"}
+        class={["control-section-link", key == @active && "is-active"]}
       >
         {label}
       </.link>
@@ -85,7 +81,8 @@ defmodule HydraAgentWeb.ControlShell do
 
   defp nav_items do
     [
-      mission: "Mission",
+      overview: "Overview",
+      mission: "Missions",
       agents: "Agents",
       memory: "Memory",
       graph: "Graph",
@@ -127,6 +124,7 @@ defmodule HydraAgentWeb.ControlShell do
 
   defp workspace_path(active, workspace_id, _query), do: nav_path(active, workspace_id)
 
+  defp nav_path(:overview, workspace_id), do: ~p"/control?workspace_id=#{workspace_id}"
   defp nav_path(:mission, workspace_id), do: ~p"/control/missions?workspace_id=#{workspace_id}"
 
   defp nav_path(:automations, workspace_id),

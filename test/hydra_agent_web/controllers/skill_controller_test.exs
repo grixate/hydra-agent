@@ -85,6 +85,102 @@ defmodule HydraAgentWeb.SkillControllerTest do
              json_response(conn, 201)
   end
 
+  test "skill import routes keep scans, listings, approvals, and rejections workspace-scoped", %{
+    conn: conn
+  } do
+    workspace = workspace_fixture(%{slug: "skill-import-route-scope"})
+    other_workspace = workspace_fixture(%{slug: "other-skill-import-route-scope"})
+
+    markdown = """
+    ---
+    name: Scoped Import
+    description: Remain inside the owning workspace.
+    required_tools: [knowledge_read]
+    ---
+
+    # Scoped Import
+
+    Use only the owning workspace's knowledge.
+    """
+
+    conn =
+      post(conn, ~p"/api/v1/workspaces/#{workspace.id}/skill_imports/scan", %{
+        source_type: "raw",
+        markdown: markdown
+      })
+
+    assert %{"data" => %{"id" => import_id, "status" => "scanned"}} =
+             json_response(conn, 201)
+
+    conn = get(build_conn(), ~p"/api/v1/workspaces/#{workspace.id}/skill_imports")
+    assert %{"data" => [%{"id" => ^import_id}]} = json_response(conn, 200)
+
+    conn = get(build_conn(), ~p"/api/v1/workspaces/#{other_workspace.id}/skill_imports")
+    assert %{"data" => []} = json_response(conn, 200)
+
+    assert_error_sent 404, fn ->
+      post(
+        build_conn(),
+        ~p"/api/v1/workspaces/#{other_workspace.id}/skill_imports/#{import_id}/approve",
+        %{}
+      )
+    end
+
+    assert Skills.get_skill_import_for_workspace!(workspace.id, import_id).status == "scanned"
+    assert Skills.list_skills(workspace.id) == []
+    assert Skills.list_skills(other_workspace.id) == []
+
+    assert_error_sent 404, fn ->
+      post(
+        build_conn(),
+        ~p"/api/v1/workspaces/#{other_workspace.id}/skill_imports/#{import_id}/reject",
+        %{reason: "foreign workspace"}
+      )
+    end
+
+    assert Skills.get_skill_import_for_workspace!(workspace.id, import_id).status == "scanned"
+
+    conn =
+      post(
+        build_conn(),
+        ~p"/api/v1/workspaces/#{workspace.id}/skill_imports/#{import_id}/approve",
+        %{}
+      )
+
+    assert %{
+             "data" => %{
+               "skill_import" => %{"id" => ^import_id, "status" => "installed"},
+               "skill" => %{"workspace_id" => workspace_id}
+             }
+           } = json_response(conn, 200)
+
+    assert workspace_id == workspace.id
+    assert Skills.list_skills(other_workspace.id) == []
+
+    conn =
+      post(build_conn(), ~p"/api/v1/workspaces/#{workspace.id}/skill_imports/scan", %{
+        source_type: "raw",
+        markdown: String.replace(markdown, "Scoped Import", "Scoped Rejection")
+      })
+
+    assert %{"data" => %{"id" => rejected_import_id}} = json_response(conn, 201)
+
+    conn =
+      post(
+        build_conn(),
+        ~p"/api/v1/workspaces/#{workspace.id}/skill_imports/#{rejected_import_id}/reject",
+        %{reason: "operator declined"}
+      )
+
+    assert %{
+             "data" => %{
+               "id" => ^rejected_import_id,
+               "status" => "rejected",
+               "metadata" => %{"rejection_reason" => "operator declined"}
+             }
+           } = json_response(conn, 200)
+  end
+
   test "skill ecosystem APIs seed packs, generate evals, and manage proposals", %{conn: conn} do
     workspace = workspace_fixture(%{slug: "skill-controller-ecosystem"})
 

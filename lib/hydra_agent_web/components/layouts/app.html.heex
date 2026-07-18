@@ -1,16 +1,42 @@
-<header class="border-b border-zinc-200 bg-white">
-  <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-    <a href="/" class="text-sm font-semibold text-zinc-950">Hydra Agent</a>
-    <nav class="flex items-center gap-5 text-sm text-zinc-600">
-      <a href="/" class="hover:text-zinc-950">Runtime</a>
-      <a href="/control" class="hover:text-zinc-950">Control</a>
-      <a href="/api/health" class="hover:text-zinc-950">Health</a>
+<div class="runtime-app">
+  <% simulations_path = HydraAgentWeb.UserAuth.default_path(@current_user) %>
+  <a class="runtime-skip-link" href="#runtime-content">Skip to content</a>
+  <header class="runtime-topbar">
+    <a href="/" class="runtime-brand" aria-label="Hydra home">
+      <span class="runtime-brand-mark" aria-hidden="true">H</span>
+      <span>Hydra</span>
+    </a>
+
+    <nav class="runtime-global-nav" aria-label="Global navigation">
+      <a href="/control">Workspace</a>
+      <a href={simulations_path}>Studies</a>
+      <a href="/control/runtime" class="runtime-system-link">
+        <span class="runtime-status-dot" aria-hidden="true"></span> System
+      </a>
+      <a
+        :if={@current_user}
+        href={~p"/account/security"}
+        class="runtime-account-button runtime-account-link"
+        aria-label={"Account settings for #{@current_user.display_name}"}
+      >
+        Account
+      </a>
+      <form :if={@current_user} action={~p"/logout"} method="post">
+        <input type="hidden" name="_method" value="delete" />
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <button
+          type="submit"
+          class="runtime-account-button runtime-signout-button"
+          aria-label="Sign out"
+        >
+          Sign out
+        </button>
+      </form>
     </nav>
-  </div>
-</header>
-<main class="px-4 py-12 sm:px-6 lg:px-8">
-  <div class="mx-auto max-w-6xl">
+  </header>
+
+  <main id="runtime-content" class="runtime-content" tabindex="-1">
     <.flash_group flash={@flash} />
     {@inner_content}
-  </div>
-</main>
+  </main>
+</div>

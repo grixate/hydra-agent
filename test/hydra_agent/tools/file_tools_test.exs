@@ -109,4 +109,24 @@ defmodule HydraAgent.Tools.FileToolsTest do
     assert {:error, %{"reason" => "path_outside_workspace_root"}} =
              FileRead.execute(%{"path" => "../outside.txt"}, %{"workspace_root" => root})
   end
+
+  test "rejects file and directory symlinks that escape the workspace", %{root: root} do
+    outside = root <> "-outside"
+    File.mkdir_p!(outside)
+    File.write!(Path.join(outside, "secret.txt"), "outside")
+    File.ln_s!(Path.join(outside, "secret.txt"), Path.join(root, "secret-link"))
+    File.ln_s!(outside, Path.join(root, "outside-dir"))
+
+    assert {:error, %{"reason" => "workspace_path_symlink"}} =
+             FileRead.execute(%{"path" => "secret-link"}, %{"workspace_root" => root})
+
+    assert {:error, %{"reason" => "workspace_path_symlink"}} =
+             FileWrite.execute(
+               %{"path" => "outside-dir/secret.txt", "content" => "changed"},
+               %{"workspace_root" => root}
+             )
+
+    assert File.read!(Path.join(outside, "secret.txt")) == "outside"
+    File.rm_rf!(outside)
+  end
 end

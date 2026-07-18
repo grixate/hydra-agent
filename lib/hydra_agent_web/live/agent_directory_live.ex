@@ -26,7 +26,7 @@ defmodule HydraAgentWeb.AgentDirectoryLive do
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
 
   defp load_workspace_state(%{assigns: %{workspace_id: nil}} = socket) do
@@ -182,9 +182,26 @@ defmodule HydraAgentWeb.AgentDirectoryLive do
 
           <div
             :if={@agents == []}
-            class="rounded-lg border border-zinc-200 bg-white p-8 text-sm text-zinc-500"
+            class="rounded-lg border border-zinc-200 bg-white p-8"
           >
-            No agents yet.
+            <p class="text-base font-semibold text-zinc-950">Create the first agent.</p>
+            <p class="mt-2 max-w-xl text-sm leading-6 text-zinc-600">
+              Start from a narrow role and explicit permissions. New agents remain read-only until a policy grants more.
+            </p>
+            <div class="mt-5 flex flex-wrap gap-3">
+              <.link
+                href={"/agent-studio?workspace_id=#{@workspace_id}#agent-builder"}
+                class="rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              >
+                Create agent
+              </.link>
+              <.link
+                href={"/agent-studio?workspace_id=#{@workspace_id}#starter-agent-packs-panel"}
+                class="rounded-md border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400"
+              >
+                Browse starter packs
+              </.link>
+            </div>
           </div>
         </div>
       <% else %>

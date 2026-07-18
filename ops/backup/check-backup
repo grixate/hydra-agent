@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+: "${HYDRA_BACKUP_KEY_FILE:?HYDRA_BACKUP_KEY_FILE is required}"
+
+backup="${1:-}"
+if [ -z "$backup" ] || [ ! -r "$backup" ]; then
+  echo "usage: check-backup /path/to/hydra-agent-*.dump.enc" >&2
+  exit 64
+fi
+
+if [ ! -r "$HYDRA_BACKUP_KEY_FILE" ]; then
+  echo "backup key file is not readable" >&2
+  exit 66
+fi
+
+temporary="$(mktemp "${TMPDIR:-/tmp}/hydra-backup-check.XXXXXX")"
+trap 'rm -f "$temporary"' EXIT HUP INT TERM
+
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 \
+  -pass "file:$HYDRA_BACKUP_KEY_FILE" -in "$backup" -out "$temporary"
+test -s "$temporary"
+pg_restore --list "$temporary" >/dev/null
+
+echo "archive verified: $backup"

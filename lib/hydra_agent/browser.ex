@@ -11,6 +11,7 @@ defmodule HydraAgent.Browser do
 
   alias HydraAgent.Browser.{Artifact, Session}
   alias HydraAgent.Repo
+  alias HydraAgent.Runtime.{AgentProfile, Run}
 
   def list_sessions(workspace_id, opts \\ []) do
     Session
@@ -104,29 +105,82 @@ defmodule HydraAgent.Browser do
   end
 
   defp ensure_session(workspace_id, context, input) do
-    case normalize_id(context["browser_session_id"]) &&
-           Repo.get(Session, normalize_id(context["browser_session_id"])) do
-      %Session{} = session ->
-        session
-        |> Session.changeset(%{
-          "current_url" => input["url"] || session.current_url,
-          "status" => "active",
-          "expires_at" => expires_at()
-        })
-        |> Repo.update()
+    with :ok <- validate_context_associations(workspace_id, context) do
+      case requested_session(context) do
+        {:ok, nil} ->
+          %Session{}
+          |> Session.changeset(%{
+            "workspace_id" => workspace_id,
+            "agent_id" => normalize_id(context["agent_id"]),
+            "run_id" => normalize_id(context["run_id"]),
+            "status" => "active",
+            "current_url" => input["url"],
+            "expires_at" => expires_at(),
+            "metadata" => %{"created_by" => "browser_tool"}
+          })
+          |> Repo.insert()
 
-      _none ->
-        %Session{}
-        |> Session.changeset(%{
-          "workspace_id" => workspace_id,
-          "agent_id" => normalize_id(context["agent_id"]),
-          "run_id" => normalize_id(context["run_id"]),
-          "status" => "active",
-          "current_url" => input["url"],
-          "expires_at" => expires_at(),
-          "metadata" => %{"created_by" => "browser_tool"}
-        })
-        |> Repo.insert()
+        {:ok, session_id} ->
+          case Repo.get_by(Session, id: session_id, workspace_id: workspace_id) do
+            %Session{} = session ->
+              session
+              |> Session.changeset(%{
+                "current_url" => input["url"] || session.current_url,
+                "status" => "active",
+                "expires_at" => expires_at()
+              })
+              |> Repo.update()
+
+            nil ->
+              {:error, %{"reason" => "browser_session_not_in_workspace"}}
+          end
+
+        {:error, reason} ->
+          {:error, %{"reason" => reason}}
+      end
+    end
+  end
+
+  defp requested_session(context) do
+    case context["browser_session_id"] do
+      nil ->
+        {:ok, nil}
+
+      "" ->
+        {:ok, nil}
+
+      value ->
+        case normalize_id(value) do
+          id when is_integer(id) -> {:ok, id}
+          _invalid -> {:error, "invalid_browser_session_id"}
+        end
+    end
+  end
+
+  defp validate_context_associations(workspace_id, context) do
+    with :ok <-
+           validate_workspace_reference(AgentProfile, workspace_id, context["agent_id"], "agent"),
+         :ok <- validate_workspace_reference(Run, workspace_id, context["run_id"], "run") do
+      :ok
+    end
+  end
+
+  defp validate_workspace_reference(_schema, _workspace_id, value, _label)
+       when value in [nil, ""],
+       do: :ok
+
+  defp validate_workspace_reference(schema, workspace_id, value, label) do
+    case normalize_id(value) do
+      id when is_integer(id) ->
+        if Repo.exists?(
+             from record in schema,
+               where: record.id == ^id and record.workspace_id == ^workspace_id
+           ),
+           do: :ok,
+           else: {:error, %{"reason" => "browser_#{label}_not_in_workspace"}}
+
+      _invalid ->
+        {:error, %{"reason" => "invalid_browser_#{label}_id"}}
     end
   end
 

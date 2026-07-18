@@ -7,62 +7,242 @@ defmodule HydraAgentWeb.Router do
     plug :fetch_live_flash
     plug :put_root_layout, html: {HydraAgentWeb.Layouts, :root}
     plug :protect_from_forgery
-    plug :put_secure_browser_headers
+
+    plug :put_secure_browser_headers, %{
+      "content-security-policy" =>
+        "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
+      "permissions-policy" => "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+      "referrer-policy" => "strict-origin-when-cross-origin"
+    }
+
+    plug HydraAgentWeb.UserAuth, :fetch_current_user
+  end
+
+  pipeline :require_authenticated_user do
+    plug HydraAgentWeb.UserAuth, :require_authenticated_user
   end
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug HydraAgentWeb.Plugs.RateLimit, scope: "api_edge", config: :api_edge, identity: :remote
     plug HydraAgentWeb.Plugs.ApiAuth
+    plug HydraAgentWeb.Plugs.RateLimit, scope: "api", config: :api, identity: :api_credential
+  end
+
+  pipeline :health do
+    plug :accepts, ["json"]
+  end
+
+  pipeline :incoming_gateway do
+    plug :accepts, ["json"]
+
+    plug HydraAgentWeb.Plugs.RateLimit,
+      scope: "incoming_gateway_edge",
+      limit: 300,
+      window_seconds: 60,
+      identity: :remote
+  end
+
+  scope "/", HydraAgentWeb do
+    pipe_through :health
+    get "/healthz", HealthController, :live
+    get "/readyz", HealthController, :ready
   end
 
   scope "/", HydraAgentWeb do
     pipe_through :browser
 
     get "/", PageController, :home
-    live "/dashboard", ControlLive, :index
-    live "/missions", MissionLive, :index
-    live "/missions/:id", MissionLive, :show
-    live "/runs", RunIndexLive, :index
-    live "/runs/:id", RunDetailLive, :show
-    live "/agents", AgentDirectoryLive, :index
-    live "/agents/:id", AgentDetailLive, :show
-    live "/memory", MemoryStudioLive, :index
-    live "/memory/:id", KnowledgeNodeLive, :show
-    live "/graph", GraphWorkbenchLive, :index
-    live "/graph/nodes/:id", KnowledgeNodeLive, :show
-    live "/skills", SkillRegistryLive, :index
-    live "/skills/:id", SkillDetailLive, :show
-    live "/automations", AutomationLive, :index
-    live "/agent-studio", AgentStudioLive, :index
-    live "/settings", SettingsLive, :index
-    live "/tools", ToolsProtocolsLive, :index
-    live "/control", ControlLive, :index
-    live "/control/missions", MissionLive, :index
-    live "/control/missions/:id", MissionLive, :show
-    live "/control/agents", AgentDirectoryLive, :index
-    live "/control/agents/studio", AgentStudioLive, :index
-    live "/control/agents/:id", AgentDetailLive, :show
-    live "/control/automations", AutomationLive, :index
-    live "/control/graph", GraphWorkbenchLive, :index
-    live "/control/graph/nodes/:id", KnowledgeNodeLive, :show
-    live "/control/memory", MemoryStudioLive, :index
-    live "/control/memory/:id", KnowledgeNodeLive, :show
-    live "/control/runtime", RuntimeOperationsLive, :index
-    live "/control/settings", SettingsLive, :index
-    live "/control/runs", RunIndexLive, :index
-    live "/control/runs/:id", RunDetailLive, :show
-    live "/control/skills", SkillRegistryLive, :index
-    live "/control/skills/:id", SkillDetailLive, :show
-    live "/control/tools", ToolsProtocolsLive, :index
+    get "/login", SessionController, :new
+    post "/login", SessionController, :create
+    delete "/logout", SessionController, :delete
+    get "/demo/simulations", SimLabController, :studies
+    get "/demo/simulations/:id", SimLabController, :show
+    get "/demo/simulations/:id/observatory", SimLabController, :observatory
+    get "/demo/simulations/:id/forecast.md", SimLabController, :demo_export_forecast
+  end
+
+  scope "/", HydraAgentWeb do
+    pipe_through [:browser, :require_authenticated_user]
+
+    get "/lab/workspaces/:workspace_id/studies", SimLabController, :workspace_studies
+    post "/lab/workspaces/:workspace_id/studies", SimLabController, :create
+    get "/lab/workspaces/:workspace_id/studies/:id", SimLabController, :workspace_show
+
+    get "/lab/workspaces/:workspace_id/studies/:id/behavior-model.md",
+        SimLabController,
+        :export_behavior_model
+
+    post "/lab/workspaces/:workspace_id/studies/:id/notes", SimLabController, :add_note
+
+    post "/lab/workspaces/:workspace_id/studies/:id/assumption-context",
+         SimLabController,
+         :start_assumption_context
+
+    post "/lab/workspaces/:workspace_id/studies/:id/context/refresh",
+         SimLabController,
+         :synthesize_context
+
+    post "/lab/workspaces/:workspace_id/studies/:id/research/codex-test",
+         SimLabController,
+         :start_codex_test_research
+
+    post "/lab/workspaces/:workspace_id/studies/:id/research/web",
+         SimLabController,
+         :start_web_research
+
+    post "/lab/workspaces/:workspace_id/studies/:id/uploads", SimLabController, :add_upload
+
+    post "/lab/workspaces/:workspace_id/studies/:id/public-sources",
+         SimLabController,
+         :add_public_url
+
+    post "/lab/workspaces/:workspace_id/studies/:id/sources/:source_id/remove",
+         SimLabController,
+         :remove_source
+
+    post "/lab/workspaces/:workspace_id/studies/:id/evidence/:evidence_id/review",
+         SimLabController,
+         :review_evidence
+
+    post "/lab/workspaces/:workspace_id/studies/:id/personas", SimLabController, :add_persona
+
+    post "/lab/workspaces/:workspace_id/studies/:id/personas/:persona_id",
+         SimLabController,
+         :update_persona
+
+    post "/lab/workspaces/:workspace_id/studies/:id/behavior-draft",
+         SimLabController,
+         :generate_behavior_draft
+
+    post "/lab/workspaces/:workspace_id/studies/:id/patterns", SimLabController, :add_pattern
+
+    post "/lab/workspaces/:workspace_id/studies/:id/patterns/:pattern_id",
+         SimLabController,
+         :update_pattern
+
+    post "/lab/workspaces/:workspace_id/studies/:id/scenario-draft",
+         SimLabController,
+         :generate_scenario_draft
+
+    post "/lab/workspaces/:workspace_id/studies/:id/scenarios", SimLabController, :add_scenario
+
+    post "/lab/workspaces/:workspace_id/studies/:id/scenarios/:scenario_id",
+         SimLabController,
+         :update_scenario
+
+    post "/lab/workspaces/:workspace_id/studies/:id/scenarios/:scenario_id/variants",
+         SimLabController,
+         :create_variant
+
+    post "/lab/workspaces/:workspace_id/studies/:id/scenarios/:scenario_id/run",
+         SimLabController,
+         :run_scenario
+
+    get "/lab/workspaces/:workspace_id/studies/:id/observatory/:run_id",
+        SimLabController,
+        :workspace_observatory
+
+    post "/lab/workspaces/:workspace_id/studies/:id/observatory/:run_id/control-first-variant",
+         SimLabController,
+         :create_control_first_variant
+
+    post "/lab/workspaces/:workspace_id/studies/:id/observatory/:run_id/cancel",
+         SimLabController,
+         :cancel_run
+
+    get "/lab/workspaces/:workspace_id/studies/:id/compare",
+        SimLabController,
+        :workspace_compare
+
+    get "/lab/workspaces/:workspace_id/studies/:id/reports/:run_id",
+        SimLabController,
+        :workspace_report
+
+    get "/lab/workspaces/:workspace_id/studies/:id/reports/:run_id/export.md",
+        SimLabController,
+        :export_report
+
+    post "/lab/workspaces/:workspace_id/studies/:id/reports/:run_id/calibrations",
+         SimLabController,
+         :record_calibration
+
+    post "/lab/workspaces/:workspace_id/studies/:id/reports/:run_id/calibration-proposals/:pattern_id/apply",
+         SimLabController,
+         :apply_calibration_proposal
+
+    get "/lab/studies", SimLabController, :workspace_entry
+    get "/account/security", SessionController, :security
+    put "/account/security", SessionController, :update_password
+
+    live_session :authenticated, on_mount: [{HydraAgentWeb.UserAuth, :ensure_authenticated}] do
+      live "/dashboard", ControlLive, :index
+      live "/missions", MissionLive, :index
+      live "/missions/:id", MissionLive, :show
+      live "/runs", RunIndexLive, :index
+      live "/runs/:id", RunDetailLive, :show
+      live "/agents", AgentDirectoryLive, :index
+      live "/agents/:id", AgentDetailLive, :show
+      live "/memory", MemoryStudioLive, :index
+      live "/memory/:id", KnowledgeNodeLive, :show
+      live "/graph", GraphWorkbenchLive, :index
+      live "/graph/nodes/:id", KnowledgeNodeLive, :show
+      live "/skills", SkillRegistryLive, :index
+      live "/skills/:id", SkillDetailLive, :show
+      live "/automations", AutomationLive, :index
+      live "/agent-studio", AgentStudioLive, :index
+      live "/settings", SettingsLive, :index
+      live "/tools", ToolsProtocolsLive, :index
+      live "/control", ControlLive, :index
+      live "/control/missions", MissionLive, :index
+      live "/control/missions/:id", MissionLive, :show
+      live "/control/agents", AgentDirectoryLive, :index
+      live "/control/agents/studio", AgentStudioLive, :index
+      live "/control/agents/:id", AgentDetailLive, :show
+      live "/control/automations", AutomationLive, :index
+      live "/control/graph", GraphWorkbenchLive, :index
+      live "/control/graph/nodes/:id", KnowledgeNodeLive, :show
+      live "/control/memory", MemoryStudioLive, :index
+      live "/control/memory/:id", KnowledgeNodeLive, :show
+      live "/control/runtime", RuntimeOperationsLive, :index
+      live "/control/settings", SettingsLive, :index
+      live "/control/runs", RunIndexLive, :index
+      live "/control/runs/:id", RunDetailLive, :show
+      live "/control/skills", SkillRegistryLive, :index
+      live "/control/skills/:id", SkillDetailLive, :show
+      live "/control/tools", ToolsProtocolsLive, :index
+    end
   end
 
   scope "/api", HydraAgentWeb do
     pipe_through :api
 
     get "/health", HealthController, :show
+    get "/metrics", HealthController, :metrics
+    get "/metrics/openmetrics", HealthController, :openmetrics
 
     scope "/v1" do
       get "/doctor", DoctorController, :show
+
+      get "/workspaces/:workspace_id/sim_lab/studies/:study_id/runs/:run_id/snapshots",
+          SimLabApiController,
+          :snapshots
+
+      get "/workspaces/:workspace_id/sim_lab/studies/:study_id/runs/:run_id/compare",
+          SimLabApiController,
+          :compare
+
+      get "/workspaces/:workspace_id/sim_lab/studies/:study_id/runs/:run_id/snapshots/:tick",
+          SimLabApiController,
+          :snapshot
+
+      get "/workspaces/:workspace_id/sim_lab/studies/:study_id/runs/:run_id/clusters/:cluster_id",
+          SimLabApiController,
+          :cluster
+
+      get "/workspaces/:workspace_id/sim_lab/studies/:study_id/runs/:run_id/agents/:agent_id/trace",
+          SimLabApiController,
+          :agent_trace
 
       resources "/workspaces", WorkspaceController, only: [:index, :create, :show] do
         get "/doctor", DoctorController, :show
@@ -182,8 +362,6 @@ defmodule HydraAgentWeb.Router do
       resources "/automations", AutomationController, only: [:create, :show, :update]
       post "/automations/:id/run", AutomationController, :run
       resources "/webhooks", WebhookController, only: [:create, :show]
-      post "/webhooks/:slug", WebhookController, :receive
-      post "/telegram/:binding_slug/webhook", TelegramController, :webhook
 
       resources "/eval_suites", EvalController, only: [] do
         post "/cases", EvalController, :create_case
@@ -240,5 +418,12 @@ defmodule HydraAgentWeb.Router do
       post "/knowledge/relationships", KnowledgeController, :create_relationship
       get "/knowledge/relationships/:id", KnowledgeController, :show_relationship
     end
+  end
+
+  scope "/api/v1", HydraAgentWeb do
+    pipe_through :incoming_gateway
+
+    post "/webhooks/:slug", WebhookController, :receive
+    post "/telegram/:binding_slug/webhook", TelegramController, :webhook
   end
 end

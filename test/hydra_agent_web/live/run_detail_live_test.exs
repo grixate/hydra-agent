@@ -6,6 +6,7 @@ defmodule HydraAgentWeb.RunDetailLiveTest do
 
   alias HydraAgent.{Memory, Runtime, Skills}
   alias HydraAgent.Safety
+  alias HydraAgent.Tools.FileWrite
 
   test "renders a run detail timeline from durable runtime and safety events", %{conn: conn} do
     workspace = workspace_fixture(%{name: "Ops", slug: "ops-run-detail"})
@@ -157,6 +158,54 @@ defmodule HydraAgentWeb.RunDetailLiveTest do
     assert proposal.body =~ "Inspect timeline: completed"
 
     assert_redirect(view, ~p"/control/memory?workspace_id=#{workspace.id}")
+  end
+
+  test "checkpoint restore uses the workspace project root and ignores event payload roots", %{
+    conn: conn
+  } do
+    base =
+      Path.join(
+        System.tmp_dir!(),
+        "hydra-run-detail-checkpoint-#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    trusted_root = Path.join(base, "trusted")
+    supplied_root = Path.join(base, "caller-supplied")
+    File.mkdir_p!(trusted_root)
+    File.mkdir_p!(supplied_root)
+    on_exit(fn -> File.rm_rf(base) end)
+
+    workspace =
+      workspace_fixture(%{
+        name: "Run checkpoint root",
+        slug: "run-checkpoint-root",
+        settings: %{"project_root" => trusted_root}
+      })
+
+    run = run_fixture(workspace, %{title: "Restore checkpoint"})
+    target = Path.join(trusted_root, "notes.txt")
+    File.write!(target, "before")
+
+    assert {:ok, write} =
+             FileWrite.execute(
+               %{"path" => "notes.txt", "content" => "after"},
+               %{
+                 "workspace_root" => trusted_root,
+                 "workspace_id" => workspace.id,
+                 "run_id" => run.id
+               }
+             )
+
+    checkpoint_id = write["checkpoint"]["record_id"]
+    {:ok, view, _html} = live(conn, ~p"/control/runs/#{run.id}")
+
+    view
+    |> element("#run-detail-checkpoint-#{checkpoint_id} button")
+    |> render_click(%{"workspace_root" => supplied_root})
+
+    assert File.read!(target) == "before"
+    refute File.exists?(Path.join(supplied_root, "notes.txt"))
+    assert render(view) =~ "Checkpoint restored"
   end
 
   test "control overview links to the run detail timeline", %{conn: conn} do

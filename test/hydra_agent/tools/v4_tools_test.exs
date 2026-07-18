@@ -57,6 +57,13 @@ defmodule HydraAgent.Tools.V4ToolsTest do
                %{"runtime" => "node", "code" => ~s|require("fs").readFileSync("x")|},
                %{}
              )
+
+    assert {:error, %{"reason" => "unsafe_code_execution", "pattern" => "elixir_ast"}} =
+             Registry.execute(
+               "code_execute",
+               %{"runtime" => "elixir", "code" => "apply(File, :read!, [\"/etc/passwd\"])"},
+               %{}
+             )
   end
 
   test "browser tools record auditable sessions when no worker is configured" do
@@ -80,6 +87,38 @@ defmodule HydraAgent.Tools.V4ToolsTest do
                "browser_navigate",
                %{"url" => "https://blocked.example"},
                %{"browser_allowlist" => ["example.com"]}
+             )
+  end
+
+  test "browser sessions and runtime references stay inside their workspace" do
+    first_workspace = workspace_fixture(%{slug: "v4-browser-first"})
+    second_workspace = workspace_fixture(%{slug: "v4-browser-second"})
+    first_agent = agent_fixture(first_workspace, %{slug: "v4-browser-first-agent"})
+    second_agent = agent_fixture(second_workspace, %{slug: "v4-browser-second-agent"})
+
+    assert {:ok, first_result} =
+             Registry.execute(
+               "browser_navigate",
+               %{"url" => "https://example.com"},
+               %{"workspace_id" => first_workspace.id, "agent_id" => first_agent.id}
+             )
+
+    assert {:error, %{"reason" => "browser_session_not_in_workspace"}} =
+             Registry.execute(
+               "browser_navigate",
+               %{"url" => "https://example.com"},
+               %{
+                 "workspace_id" => second_workspace.id,
+                 "agent_id" => second_agent.id,
+                 "browser_session_id" => first_result["browser_session_id"]
+               }
+             )
+
+    assert {:error, %{"reason" => "browser_agent_not_in_workspace"}} =
+             Registry.execute(
+               "browser_navigate",
+               %{"url" => "https://example.com"},
+               %{"workspace_id" => first_workspace.id, "agent_id" => second_agent.id}
              )
   end
 
@@ -115,6 +154,23 @@ defmodule HydraAgent.Tools.V4ToolsTest do
                },
                %{"workspace_root" => root}
              )
+
+    outside = root <> "-outside.sh"
+    File.write!(outside, "echo escaped\n")
+    File.ln_s!(outside, Path.join(skill_dir, "escape.sh"))
+
+    assert {:error, %{"reason" => "workspace_path_symlink"}} =
+             Registry.execute(
+               "project_skill_run",
+               %{
+                 "skill_slug" => "hello-skill",
+                 "entrypoint" => "scripts/escape.sh",
+                 "runtime" => "shell"
+               },
+               %{"workspace_root" => root}
+             )
+
+    File.rm!(outside)
   end
 
   test "multi-model consensus records partial provider results" do

@@ -785,6 +785,54 @@ defmodule HydraAgent.SkillsTest do
              })
   end
 
+  test "skill imports reject symlinked files that leave the import directory" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "hydra-skill-symlink-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
+      )
+
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    skill_dir = Path.join(root, "unsafe-skill")
+    outside = Path.join(root, "outside.txt")
+    File.mkdir_p!(skill_dir)
+    File.write!(Path.join(skill_dir, "SKILL.md"), "# Unsafe skill\n")
+    File.write!(outside, "secret")
+    File.ln_s!(outside, Path.join(skill_dir, "reference.txt"))
+    workspace = workspace_fixture(%{slug: "skills-symlink-import"})
+
+    assert {:error, %{"reason" => "workspace_path_symlink"}} =
+             Skills.scan_skill_import(workspace.id, %{
+               "path" => skill_dir,
+               "source_type" => "local_path"
+             })
+  end
+
+  test "project code skill materialization refuses a symlinked skill directory" do
+    root =
+      Path.join(System.tmp_dir!(), "hydra-code-symlink-#{System.unique_integer([:positive])}")
+
+    outside = root <> "-outside"
+    skills_root = Path.join([root, ".hydra", "skills"])
+    File.mkdir_p!(skills_root)
+    File.mkdir_p!(outside)
+    File.write!(Path.join(outside, "keep.txt"), "unchanged")
+    File.ln_s!(outside, Path.join(skills_root, "unsafe-skill"))
+
+    workspace =
+      workspace_fixture(%{slug: "skills-code-symlink", settings: %{"project_root" => root}})
+
+    assert {:error, %{"reason" => "workspace_path_symlink"}} =
+             Skills.create_project_code_skill(workspace.id, %{
+               name: "Unsafe Skill",
+               slug: "unsafe-skill",
+               files: %{"scripts/run.sh" => "echo changed\n"}
+             })
+
+    assert File.read!(Path.join(outside, "keep.txt")) == "unchanged"
+  end
+
   test "safe skill experiments select winning variants and draft refinements" do
     workspace = workspace_fixture(%{slug: "skills-experiment-winner"})
 

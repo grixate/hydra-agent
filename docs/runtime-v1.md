@@ -402,7 +402,10 @@ leading-dot suffixes such as `.example.com`, wildcard suffixes such as
 Shell tools also fail closed. Commands must be supplied as argv arrays, not raw
 shell strings, and the authorizer requires a matching `shell_allowlist` prefix
 such as `git status` or `mix test`. The execution tool constrains `cwd` to the
-workspace root supplied by the run metadata.
+server-trusted `project_root` stored on the workspace. Run metadata cannot
+replace this root; an unconfigured workspace uses the absolute server fallback
+(`HYDRA_SERVER_WORKSPACE_ROOT`, defaulting to the application root). Request and
+LiveView parameters never participate in root selection.
 
 Filesystem tools are scoped to a workspace root and additionally require
 matching `filesystem_allowlist` entries. `filesystem_denylist` entries override
@@ -497,16 +500,20 @@ token reference is missing.
 - `GET /api/v1/workspaces/:workspace_id/mcp_servers`: list inert MCP server
   records with env refs, filters, trust level, health, and approval sensitivity.
 - `POST /api/v1/workspaces/:workspace_id/mcp_servers`: create validated MCP
-  server records. Inline secret-like config keys are rejected; use env refs.
+  server records. Inline secret-like config keys are rejected. Env refs and
+  stdio executables must also be exposed by deployment-owned allowlists.
 - Built-in `mcp_call` tool: calls active HTTP MCP servers through JSON-RPC
   `tools/call` after agent capability checks, policy grants, server
   include/exclude filters, and approval gating. It writes redacted
   `mcp.call.*` run events. SSE MCP transport can also execute JSON-RPC tool
-  calls from event-stream responses through the same audit path.
+  calls from event-stream responses through the same audit path. Remote MCP
+  endpoints require public HTTPS and use DNS pinning with redirects disabled
+  and a 1 MB response cap.
 - Stdio MCP servers can opt into supervised persistent sessions with
   `config.persistent`. Persistent sessions reuse the same subprocess across
-  calls, keep cwd/env fencing, preserve timeout/error handling, expire after an
-  idle timeout, and can be stopped explicitly by server id. Tools And Protocols
+  calls, keep symlink-safe cwd fencing and a cleared, allowlisted environment,
+  preserve timeout/error handling, expire after an idle timeout, and can be
+  stopped explicitly by server id. Tools And Protocols
   shows persistent session active/inactive status, request count, last-used
   time, idle timeout, and a stop control.
 - MCP discovery refreshes HTTP and stdio server `tools/list` metadata, plus
@@ -591,7 +598,8 @@ interface plan and Hermes comparison live in
    export, and HTTP plus bounded stdio MCP `tools/call` execution are audited
    with redacted events. Tools And Protocols can refresh HTTP/stdio MCP
    discovery and health metadata. SSE MCP execution is available for
-   event-stream JSON-RPC responses. Persistent stdio sessions can reuse a
+   public-HTTPS event-stream JSON-RPC responses with DNS pinning and bounded
+   bodies. Persistent stdio sessions can reuse a
    supervised subprocess across calls, expire when idle, and show stop/status
    controls in Tools And Protocols.
 7. Deepen Automation/Cron UI. The current route already supports create/edit

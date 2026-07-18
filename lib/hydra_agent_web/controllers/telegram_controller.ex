@@ -3,6 +3,10 @@ defmodule HydraAgentWeb.TelegramController do
 
   alias HydraAgent.Rooms
 
+  plug HydraAgentWeb.Plugs.RateLimit,
+       [scope: "telegram_webhook", limit: 120, window_seconds: 60, identity: :webhook]
+       when action in [:webhook]
+
   def webhook(conn, %{"binding_slug" => slug} = params) do
     case Rooms.get_active_binding_by_slug("telegram", slug) do
       nil ->
@@ -22,8 +26,18 @@ defmodule HydraAgentWeb.TelegramController do
             })
 
           {:error, error} ->
-            conn |> put_status(:unprocessable_entity) |> json(%{errors: error})
+            conn |> put_status(error_status(error)) |> json(%{errors: error})
         end
     end
   end
+
+  defp error_status(%{"reason" => reason})
+       when reason in ["missing_telegram_secret", "invalid_telegram_secret"],
+       do: :unauthorized
+
+  defp error_status(%{"reason" => reason})
+       when reason in ["missing_telegram_secret_env", "missing_secret_env"],
+       do: :service_unavailable
+
+  defp error_status(_error), do: :unprocessable_entity
 end

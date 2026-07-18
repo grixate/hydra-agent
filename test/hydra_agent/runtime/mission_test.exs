@@ -40,6 +40,15 @@ defmodule HydraAgent.Runtime.MissionTest do
       })
 
     {:ok, run} = Runtime.create_mission_run(mission, %{title: "Primary pass"})
+
+    source_step =
+      run_step_fixture(run, %{
+        index: 0,
+        title: "Inspect evidence",
+        tool_name: "noop",
+        input: %{"scope" => "launch"}
+      })
+
     {:ok, retry} = Runtime.retry_run(run, %{"lineage_reason" => "provider timeout"})
     {:ok, fork} = Runtime.fork_run(run, %{"title" => "Alternative route"})
 
@@ -52,6 +61,18 @@ defmodule HydraAgent.Runtime.MissionTest do
     assert fork.parent_run_id == run.id
     assert fork.lineage_type == "fork"
     assert fork.title == "Alternative route"
+
+    for cloned_run <- [retry, fork] do
+      [cloned_step] = Runtime.get_run!(cloned_run.id).steps
+      assert cloned_step.id != source_step.id
+      assert cloned_step.index == source_step.index
+      assert cloned_step.title == source_step.title
+      assert cloned_step.tool_name == source_step.tool_name
+      assert cloned_step.input == source_step.input
+      assert cloned_step.status == "planned"
+      assert cloned_step.attempt_count == 0
+      assert cloned_step.output == %{}
+    end
   end
 
   test "mission start modes and rollups preserve mission context" do

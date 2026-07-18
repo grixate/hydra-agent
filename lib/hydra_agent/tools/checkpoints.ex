@@ -8,13 +8,13 @@ defmodule HydraAgent.Tools.Checkpoints do
 
   import Ecto.Query
 
-  alias HydraAgent.Repo
+  alias HydraAgent.{Repo, Runtime}
+  alias HydraAgent.Security.WorkspacePath
   alias HydraAgent.Tools.CheckpointRecord
 
   def file_checkpoint(path, context, opts \\ []) when is_binary(path) do
     context = stringify_keys(context || %{})
     root = workspace_root(context)
-    rel_path = Path.relative_to(path, root)
     enabled? = Keyword.get(opts, :enabled, true)
 
     checkpoint =
@@ -22,25 +22,8 @@ defmodule HydraAgent.Tools.Checkpoints do
         not enabled? ->
           %{"enabled" => false, "path" => path}
 
-        not inside_root?(path, root) ->
-          %{"enabled" => false, "path" => path, "reason" => "path_outside_workspace_root"}
-
-        not File.exists?(path) ->
-          %{"enabled" => true, "path" => path, "existed" => false}
-
         true ->
-          checkpoint_path = checkpoint_path(root, rel_path)
-          File.mkdir_p!(Path.dirname(checkpoint_path))
-          File.cp!(path, checkpoint_path)
-
-          %{
-            "enabled" => true,
-            "path" => path,
-            "relative_path" => rel_path,
-            "checkpoint_path" => checkpoint_path,
-            "existed" => true,
-            "sha256" => sha256_file(checkpoint_path)
-          }
+          create_file_checkpoint(path, root)
       end
 
     maybe_record_checkpoint(checkpoint, context, opts)
@@ -80,7 +63,10 @@ defmodule HydraAgent.Tools.Checkpoints do
 
   def restore_record_for_workspace(workspace_id, id, context \\ %{}) do
     checkpoint = get_record_for_workspace!(workspace_id, id)
-    restore_checkpoint(checkpoint, context)
+
+    context
+    |> trusted_workspace_context(workspace_id)
+    |> then(&restore_checkpoint(checkpoint, &1))
   end
 
   def restore_record(id, context \\ %{}) do
@@ -90,7 +76,10 @@ defmodule HydraAgent.Tools.Checkpoints do
 
   def diff_record_for_workspace(workspace_id, id, context \\ %{}) do
     checkpoint = get_record_for_workspace!(workspace_id, id)
-    diff_checkpoint(checkpoint, context)
+
+    context
+    |> trusted_workspace_context(workspace_id)
+    |> then(&diff_checkpoint(checkpoint, &1))
   end
 
   def diff_record(id, context \\ %{}) do
@@ -101,17 +90,10 @@ defmodule HydraAgent.Tools.Checkpoints do
   defp restore_checkpoint(checkpoint, context) do
     context = stringify_keys(context || %{})
     root = workspace_root(context)
-    target_path = checkpoint.path
 
-    with :ok <- validate_restore_target(target_path, root),
-         :ok <- validate_checkpoint_file(checkpoint) do
-      if checkpoint.existed do
-        File.mkdir_p!(Path.dirname(target_path))
-        File.cp!(checkpoint.checkpoint_path, target_path)
-      else
-        File.rm(target_path)
-      end
-
+    with {:ok, target_path} <- validate_restore_target(checkpoint.path, root),
+         {:ok, previous} <- validate_checkpoint_file(checkpoint, root),
+         :ok <- restore_contents(checkpoint, root, target_path, previous) do
       restored_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
       checkpoint
@@ -125,7 +107,7 @@ defmodule HydraAgent.Tools.Checkpoints do
              "path" => restored.path,
              "checkpoint_path" => restored.checkpoint_path,
              "restored_at" => restored.restored_at,
-             "sha256" => if(File.exists?(restored.path), do: sha256_file(restored.path)),
+             "sha256" => restored_sha(root, restored.path),
              "existed" => restored.existed
            }}
 
@@ -139,18 +121,16 @@ defmodule HydraAgent.Tools.Checkpoints do
     context = stringify_keys(context || %{})
     root = workspace_root(context)
 
-    with :ok <- validate_restore_target(checkpoint.path, root),
-         :ok <- validate_checkpoint_file(checkpoint) do
-      current = if File.exists?(checkpoint.path), do: File.read!(checkpoint.path), else: ""
-      previous = File.read!(checkpoint.checkpoint_path)
-
+    with {:ok, target_path} <- validate_restore_target(checkpoint.path, root),
+         {:ok, previous} <- validate_checkpoint_file(checkpoint, root),
+         {:ok, current} <- current_contents(root, target_path) do
       {:ok,
        %{
          "id" => checkpoint.id,
          "path" => checkpoint.path,
          "changed" => current != previous,
          "previous_sha256" => checkpoint.sha256,
-         "current_sha256" => if(File.exists?(checkpoint.path), do: sha256_file(checkpoint.path)),
+         "current_sha256" => if(current == "", do: nil, else: sha256(current)),
          "diff" => simple_diff(previous, current)
        }}
     end
@@ -167,8 +147,7 @@ defmodule HydraAgent.Tools.Checkpoints do
   end
 
   def inside_root?(path, root) do
-    expanded = Path.expand(path)
-    expanded == root or String.starts_with?(expanded, root <> "/")
+    WorkspacePath.lexically_inside?(path, root)
   end
 
   defp checkpoint_path(root, rel_path) do
@@ -210,20 +189,47 @@ defmodule HydraAgent.Tools.Checkpoints do
   defp maybe_record_checkpoint(checkpoint, _context, _opts), do: checkpoint
 
   defp validate_restore_target(path, root) do
-    if inside_root?(path, root),
-      do: :ok,
-      else: {:error, %{"reason" => "restore_path_outside_workspace"}}
+    case WorkspacePath.resolve(root, path, kind: :write) do
+      {:ok, target} ->
+        {:ok, target}
+
+      {:error, %{"reason" => "path_outside_workspace_root"}} ->
+        {:error, %{"reason" => "restore_path_outside_workspace"}}
+
+      error ->
+        error
+    end
   end
 
-  defp validate_checkpoint_file(%CheckpointRecord{existed: false}), do: :ok
+  defp validate_checkpoint_file(%CheckpointRecord{existed: false}, _root), do: {:ok, ""}
 
-  defp validate_checkpoint_file(%CheckpointRecord{checkpoint_path: path}) when is_binary(path) do
-    if File.exists?(path),
-      do: :ok,
-      else: {:error, %{"reason" => "checkpoint_file_missing", "path" => path}}
+  defp validate_checkpoint_file(%CheckpointRecord{checkpoint_path: path, sha256: expected}, root)
+       when is_binary(path) and is_binary(expected) do
+    checkpoint_root = Path.join([root, ".hydra", "checkpoints"])
+
+    cond do
+      not WorkspacePath.lexically_inside?(path, checkpoint_root) ->
+        {:error, %{"reason" => "checkpoint_path_outside_store", "path" => path}}
+
+      true ->
+        case WorkspacePath.read_regular(root, path) do
+          {:ok, content} ->
+            if sha256(content) == expected do
+              {:ok, content}
+            else
+              {:error, %{"reason" => "checkpoint_sha256_mismatch", "path" => path}}
+            end
+
+          {:error, %{"reason" => "workspace_path_missing"}} ->
+            {:error, %{"reason" => "checkpoint_file_missing", "path" => path}}
+
+          error ->
+            error
+        end
+    end
   end
 
-  defp validate_checkpoint_file(_checkpoint),
+  defp validate_checkpoint_file(_checkpoint, _root),
     do: {:error, %{"reason" => "checkpoint_file_missing"}}
 
   defp simple_diff(previous, current) do
@@ -247,6 +253,12 @@ defmodule HydraAgent.Tools.Checkpoints do
   defp maybe_filter_run(query, run_id),
     do: where(query, [checkpoint], checkpoint.run_id == ^run_id)
 
+  defp trusted_workspace_context(context, workspace_id) do
+    (context || %{})
+    |> stringify_keys()
+    |> Map.put("workspace_root", Runtime.trusted_workspace_root(workspace_id))
+  end
+
   defp normalize_id(id) when is_binary(id), do: String.to_integer(id)
   defp normalize_id(id), do: id
 
@@ -254,9 +266,88 @@ defmodule HydraAgent.Tools.Checkpoints do
   defp opt(opts, key) when is_map(opts), do: Map.get(opts, key) || Map.get(opts, to_string(key))
   defp opt(opts, key, default), do: opt(opts, key) || default
 
-  defp sha256_file(path) do
-    path
-    |> File.read!()
+  defp create_file_checkpoint(path, root) do
+    with {:ok, resolved} <- WorkspacePath.resolve(root, path, kind: :write) do
+      relative_path = Path.relative_to(resolved, root)
+
+      case File.lstat(resolved) do
+        {:error, :enoent} ->
+          %{"enabled" => true, "path" => resolved, "existed" => false}
+
+        {:ok, %File.Stat{type: :regular}} ->
+          checkpoint_path = checkpoint_path(root, relative_path)
+
+          with {:ok, content} <- WorkspacePath.read_regular(root, resolved),
+               :ok <- WorkspacePath.atomic_write(root, checkpoint_path, content, :create_new) do
+            %{
+              "enabled" => true,
+              "path" => resolved,
+              "relative_path" => relative_path,
+              "checkpoint_path" => checkpoint_path,
+              "existed" => true,
+              "sha256" => sha256(content)
+            }
+          else
+            {:error, reason} -> checkpoint_error(resolved, reason)
+          end
+
+        {:ok, _stat} ->
+          checkpoint_error(resolved, %{"reason" => "workspace_path_not_regular"})
+
+        {:error, reason} ->
+          checkpoint_error(resolved, %{
+            "reason" => "workspace_path_unavailable",
+            "detail" => reason
+          })
+      end
+    else
+      {:error, reason} -> checkpoint_error(path, reason)
+    end
+  end
+
+  defp checkpoint_error(path, reason) do
+    %{
+      "enabled" => false,
+      "path" => path,
+      "reason" => reason["reason"] || "checkpoint_failed",
+      "error" => reason
+    }
+  end
+
+  defp current_contents(root, path) do
+    case File.lstat(path) do
+      {:error, :enoent} ->
+        {:ok, ""}
+
+      {:ok, %File.Stat{type: :regular}} ->
+        WorkspacePath.read_regular(root, path)
+
+      {:ok, %File.Stat{type: :symlink}} ->
+        {:error, %{"reason" => "workspace_path_symlink", "path" => path}}
+
+      {:ok, _stat} ->
+        {:error, %{"reason" => "workspace_path_not_regular", "path" => path}}
+
+      {:error, reason} ->
+        {:error, %{"reason" => "workspace_path_unavailable", "detail" => reason}}
+    end
+  end
+
+  defp restored_sha(root, path) do
+    case WorkspacePath.read_regular(root, path) do
+      {:ok, content} -> sha256(content)
+      _missing_or_error -> nil
+    end
+  end
+
+  defp restore_contents(%CheckpointRecord{existed: true}, root, target_path, previous),
+    do: WorkspacePath.atomic_write(root, target_path, previous, :overwrite)
+
+  defp restore_contents(%CheckpointRecord{existed: false}, root, target_path, _previous),
+    do: WorkspacePath.remove(root, target_path)
+
+  defp sha256(content) do
+    content
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end

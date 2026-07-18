@@ -3,6 +3,15 @@ defmodule HydraAgentWeb.SkillController do
 
   alias HydraAgent.{Runtime, Skills}
 
+  plug HydraAgentWeb.Plugs.RequireOperatorAuthority
+       when action in [
+              :approve_import,
+              :create_code_skill,
+              :import_directory,
+              :approve_proposal,
+              :activate
+            ]
+
   def index(conn, %{"workspace_id" => workspace_id} = params) do
     skills = Skills.list_skills(workspace_id, status: params["status"])
     json(conn, %{data: Enum.map(skills, &skill_json/1)})
@@ -59,8 +68,11 @@ defmodule HydraAgentWeb.SkillController do
     end
   end
 
-  def approve_import(conn, %{"import_id" => import_id} = params) do
-    skill_import = Skills.get_skill_import!(import_id)
+  def approve_import(
+        conn,
+        %{"workspace_id" => workspace_id, "import_id" => import_id} = params
+      ) do
+    skill_import = Skills.get_skill_import_for_workspace!(workspace_id, import_id)
 
     case Skills.approve_skill_import(skill_import, params) do
       {:ok, result} ->
@@ -76,8 +88,11 @@ defmodule HydraAgentWeb.SkillController do
     end
   end
 
-  def reject_import(conn, %{"import_id" => import_id} = params) do
-    skill_import = Skills.get_skill_import!(import_id)
+  def reject_import(
+        conn,
+        %{"workspace_id" => workspace_id, "import_id" => import_id} = params
+      ) do
+    skill_import = Skills.get_skill_import_for_workspace!(workspace_id, import_id)
 
     case Skills.reject_skill_import(skill_import, params) do
       {:ok, skill_import} ->

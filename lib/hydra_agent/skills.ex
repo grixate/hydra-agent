@@ -15,6 +15,7 @@ defmodule HydraAgent.Skills do
   alias HydraAgent.Repo
   alias HydraAgent.Rooms.Room
   alias HydraAgent.Runtime.{Conversation, Run}
+  alias HydraAgent.Security.WorkspacePath
 
   alias HydraAgent.Skills.{
     Experiment,
@@ -102,6 +103,24 @@ defmodule HydraAgent.Skills do
 
   def get_skill!(id), do: Repo.get!(Skill, id)
 
+  def get_skill_for_workspace(workspace_id, id) do
+    Skill
+    |> where(
+      [skill],
+      skill.workspace_id == ^normalize_id(workspace_id) and skill.id == ^normalize_id(id)
+    )
+    |> Repo.one()
+  end
+
+  def get_skill_for_workspace!(workspace_id, id) do
+    Skill
+    |> where(
+      [skill],
+      skill.workspace_id == ^normalize_id(workspace_id) and skill.id == ^normalize_id(id)
+    )
+    |> Repo.one!()
+  end
+
   def list_usage_events(workspace_id, opts \\ []) do
     UsageEvent
     |> where([event], event.workspace_id == ^normalize_id(workspace_id))
@@ -132,6 +151,31 @@ defmodule HydraAgent.Skills do
     |> Repo.get!(id)
     |> Repo.preload([:target_skill])
   end
+
+  def get_improvement_proposal_for_workspace(workspace_id, id) do
+    ImprovementProposal
+    |> where(
+      [proposal],
+      proposal.workspace_id == ^normalize_id(workspace_id) and
+        proposal.id == ^normalize_id(id)
+    )
+    |> Repo.one()
+    |> maybe_preload_target_skill()
+  end
+
+  def get_improvement_proposal_for_workspace!(workspace_id, id) do
+    ImprovementProposal
+    |> where(
+      [proposal],
+      proposal.workspace_id == ^normalize_id(workspace_id) and
+        proposal.id == ^normalize_id(id)
+    )
+    |> Repo.one!()
+    |> Repo.preload([:target_skill])
+  end
+
+  defp maybe_preload_target_skill(nil), do: nil
+  defp maybe_preload_target_skill(proposal), do: Repo.preload(proposal, [:target_skill])
 
   def get_skill_by_source_run_id(run_id) do
     Skill
@@ -400,7 +444,7 @@ defmodule HydraAgent.Skills do
          {:ok, root} <- project_skill_root(workspace_id, attrs),
          {:ok, normalized_files} <- normalize_code_skill_files(files),
          skill_dir <- Path.join(root, slug),
-         :ok <- write_code_skill_files(skill_dir, slug, attrs, normalized_files) do
+         :ok <- write_code_skill_files(root, skill_dir, slug, attrs, normalized_files) do
       create_skill(%{
         workspace_id: workspace_id,
         name: attrs["name"] || titleize(slug),
@@ -437,9 +481,9 @@ defmodule HydraAgent.Skills do
     skill_path = Path.expand(path)
     skill_md = Path.join(skill_path, "SKILL.md")
 
-    with true <- File.dir?(skill_path) || {:error, %{"reason" => "skill_directory_missing"}},
-         true <- File.regular?(skill_md) || {:error, %{"reason" => "skill_markdown_missing"}},
-         {:ok, markdown} <- File.read(skill_md) do
+    with {:ok, skill_path} <- WorkspacePath.root(skill_path),
+         {:ok, markdown} <- WorkspacePath.read_regular(skill_path, skill_md),
+         {:ok, supporting_files} <- supporting_skill_files(skill_path) do
       import_markdown(
         workspace_id,
         markdown,
@@ -447,7 +491,7 @@ defmodule HydraAgent.Skills do
           "provenance" => %{
             "kind" => "skill_directory_import",
             "source_path" => skill_path,
-            "supporting_files" => supporting_skill_files(skill_path)
+            "supporting_files" => supporting_files
           }
         })
       )
@@ -1422,7 +1466,7 @@ defmodule HydraAgent.Skills do
     workspace = Runtime.get_workspace!(workspace_id)
     project_root = attrs["project_root"] || get_in(workspace.settings || %{}, ["project_root"])
 
-    root =
+    skills_root =
       project_root
       |> case do
         nil -> File.cwd!()
@@ -1430,7 +1474,7 @@ defmodule HydraAgent.Skills do
       end
       |> Path.join(".hydra/skills")
 
-    {:ok, root}
+    WorkspacePath.ensure_root(skills_root)
   end
 
   defp normalize_code_skill_files(files) when is_map(files) do
@@ -1440,7 +1484,8 @@ defmodule HydraAgent.Skills do
         content = to_string(content)
 
         cond do
-          Path.type(path) == :absolute or String.contains?(path, "..") ->
+          path == "" or Path.type(path) == :absolute or
+              Enum.any?(Path.split(path), &(&1 in ["..", ".", ""])) ->
             {:error, %{"reason" => "unsafe_skill_file_path", "path" => path}}
 
           not allowed_skill_file_path?(path) ->
@@ -1465,13 +1510,13 @@ defmodule HydraAgent.Skills do
   defp allowed_skill_file_path?("SKILL.md"), do: true
 
   defp allowed_skill_file_path?(path) do
-    [dir | _rest] = String.split(path, "/", parts: 2)
-    dir in ~w(references templates scripts assets)
+    case String.split(path, "/", parts: 2) do
+      [dir, rest] when rest != "" -> dir in ~w(references templates scripts assets)
+      _invalid -> false
+    end
   end
 
-  defp write_code_skill_files(skill_dir, slug, attrs, files) do
-    File.mkdir_p!(skill_dir)
-
+  defp write_code_skill_files(root, skill_dir, slug, attrs, files) do
     skill_markdown =
       files
       |> Enum.find_value(fn
@@ -1480,17 +1525,17 @@ defmodule HydraAgent.Skills do
       end) ||
         code_skill_markdown(slug, attrs)
 
-    File.write!(Path.join(skill_dir, "SKILL.md"), skill_markdown)
+    writes =
+      [{"SKILL.md", skill_markdown} | Enum.reject(files, fn {path, _} -> path == "SKILL.md" end)]
 
-    files
-    |> Enum.reject(fn {path, _content} -> path == "SKILL.md" end)
-    |> Enum.each(fn {path, content} ->
+    Enum.reduce_while(writes, :ok, fn {path, content}, :ok ->
       target = Path.join(skill_dir, path)
-      File.mkdir_p!(Path.dirname(target))
-      File.write!(target, content)
-    end)
 
-    :ok
+      case WorkspacePath.atomic_write(root, target, content, :overwrite) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp code_skill_markdown(slug, attrs) do
@@ -1556,13 +1601,10 @@ defmodule HydraAgent.Skills do
     markdown = attrs["markdown"]
 
     if is_binary(markdown) and String.trim(markdown) != "" do
-      tmp_dir =
-        Path.join(System.tmp_dir!(), "hydra-skill-import-#{System.unique_integer([:positive])}")
-
-      File.mkdir_p!(tmp_dir)
-      File.write!(Path.join(tmp_dir, "SKILL.md"), markdown)
-      Process.put(:hydra_skill_import_tmp_dir, tmp_dir)
-      {:ok, tmp_dir, %{"source_url" => attrs["source_url"], "source_path" => "SKILL.md"}}
+      with {:ok, tmp_dir} <- secure_import_tmp_dir(),
+           :ok <- WorkspacePath.atomic_write(tmp_dir, "SKILL.md", markdown, :create_new) do
+        {:ok, tmp_dir, %{"source_url" => attrs["source_url"], "source_path" => "SKILL.md"}}
+      end
     else
       {:error, %{"reason" => "raw_skill_markdown_missing"}}
     end
@@ -1578,14 +1620,13 @@ defmodule HydraAgent.Skills do
            (is_binary(repo_url) and repo_url != "") ||
              {:error, %{"reason" => "github_repo_url_missing"}},
          :ok <- validate_github_repo_url(repo_url),
+         :ok <- validate_github_ref(repo_ref),
          {:ok, checkout_dir} <- clone_skill_import_repo(repo_url, repo_ref),
          skill_path <- Path.expand(repo_path, checkout_dir),
          true <-
-           String.starts_with?(skill_path, checkout_dir) ||
+           WorkspacePath.lexically_inside?(skill_path, checkout_dir) ||
              {:error, %{"reason" => "unsafe_skill_import_path"}},
-         true <-
-           File.dir?(skill_path) ||
-             {:error, %{"reason" => "github_skill_path_not_found", "path" => repo_path}} do
+         {:ok, skill_path} <- WorkspacePath.resolve(checkout_dir, skill_path, kind: :directory) do
       {:ok, skill_path,
        %{"source_url" => repo_url, "source_path" => repo_path, "source_ref" => repo_ref}}
     end
@@ -1595,36 +1636,91 @@ defmodule HydraAgent.Skills do
     do: {:error, %{"reason" => "unsupported_skill_import_source", "source_type" => source_type}}
 
   defp clone_skill_import_repo(repo_url, repo_ref) do
-    tmp_dir =
-      Path.join(System.tmp_dir!(), "hydra-skill-import-#{System.unique_integer([:positive])}")
+    with {:ok, tmp_dir} <- secure_import_tmp_dir() do
+      checkout_dir = Path.join(tmp_dir, "checkout")
 
-    case System.cmd("git", ["clone", "--depth", "1", repo_url, tmp_dir], stderr_to_stdout: true) do
-      {_output, 0} ->
-        Process.put(:hydra_skill_import_tmp_dir, tmp_dir)
+      case System.cmd(
+             "git",
+             [
+               "-c",
+               "protocol.file.allow=never",
+               "-c",
+               "protocol.ext.allow=never",
+               "-c",
+               "core.hooksPath=/dev/null",
+               "clone",
+               "--depth",
+               "1",
+               repo_url,
+               checkout_dir
+             ],
+             stderr_to_stdout: true
+           ) do
+        {_output, 0} ->
+          if repo_ref in [nil, "", "HEAD"] do
+            {:ok, checkout_dir}
+          else
+            case System.cmd("git", ["-C", checkout_dir, "checkout", "--detach", repo_ref],
+                   stderr_to_stdout: true
+                 ) do
+              {_output, 0} ->
+                {:ok, checkout_dir}
 
-        if repo_ref in [nil, "", "HEAD"] do
-          {:ok, tmp_dir}
-        else
-          case System.cmd("git", ["-C", tmp_dir, "checkout", repo_ref], stderr_to_stdout: true) do
-            {_output, 0} ->
-              {:ok, tmp_dir}
-
-            {output, _status} ->
-              {:error, %{"reason" => "github_ref_checkout_failed", "detail" => output}}
+              {output, _status} ->
+                {:error, %{"reason" => "github_ref_checkout_failed", "detail" => output}}
+            end
           end
-        end
 
-      {output, _status} ->
-        {:error, %{"reason" => "github_clone_failed", "detail" => output}}
+        {output, _status} ->
+          {:error, %{"reason" => "github_clone_failed", "detail" => output}}
+      end
     end
   end
 
   defp cleanup_skill_import_source(nil), do: :ok
-  defp cleanup_skill_import_source(path), do: File.rm_rf(path)
+
+  defp cleanup_skill_import_source(%{path: path, base: base}) do
+    if Path.dirname(path) == base and
+         String.starts_with?(Path.basename(path), "hydra-skill-import-") do
+      case File.lstat(path) do
+        {:ok, %File.Stat{type: :directory}} -> File.rm_rf(path)
+        _missing_or_unsafe -> :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp cleanup_skill_import_source(_untrusted), do: :ok
+
+  defp secure_import_tmp_dir(attempts \\ 8)
+
+  defp secure_import_tmp_dir(0),
+    do: {:error, %{"reason" => "skill_import_temp_directory_unavailable"}}
+
+  defp secure_import_tmp_dir(attempts) do
+    base = Path.expand(System.tmp_dir!())
+    token = :crypto.strong_rand_bytes(24) |> Base.url_encode64(padding: false)
+    path = Path.join(base, "hydra-skill-import-#{token}")
+
+    case File.mkdir(path) do
+      :ok ->
+        :ok = File.chmod(path, 0o700)
+        Process.put(:hydra_skill_import_tmp_dir, %{path: path, base: base})
+        {:ok, path}
+
+      {:error, :eexist} ->
+        secure_import_tmp_dir(attempts - 1)
+
+      {:error, reason} ->
+        {:error, %{"reason" => "skill_import_temp_directory_unavailable", "detail" => reason}}
+    end
+  end
 
   defp scan_skill_path(skill_path, attrs) do
-    with {:ok, instruction_file} <- skill_instruction_file(skill_path, attrs),
-         {:ok, markdown} <- File.read(instruction_file.path),
+    with {:ok, skill_path} <- WorkspacePath.root(skill_path),
+         {:ok, instruction_file} <- skill_instruction_file(skill_path, attrs),
+         {:ok, markdown} <- WorkspacePath.read_regular(skill_path, instruction_file.path),
          {:ok, manifest, contents} <- scan_skill_files(skill_path, attrs) do
       parsed = parse_import_instructions(markdown, instruction_file)
       name = attrs["name"] || parsed["name"] || titleize(Path.basename(skill_path))
@@ -1685,15 +1781,20 @@ defmodule HydraAgent.Skills do
         :ok ->
           path = Path.join(skill_path, relative_path)
 
-          if File.regular?(path) do
-            {:halt,
-             %{
-               path: path,
-               relative_path: relative_path,
-               format: instruction_file_format(relative_path)
-             }}
-          else
-            {:cont, nil}
+          case WorkspacePath.resolve(skill_path, path, kind: :regular) do
+            {:ok, path} ->
+              {:halt,
+               %{
+                 path: path,
+                 relative_path: relative_path,
+                 format: instruction_file_format(relative_path)
+               }}
+
+            {:error, %{"reason" => "workspace_path_missing"}} ->
+              {:cont, nil}
+
+            {:error, reason} ->
+              {:halt, {:error, reason}}
           end
 
         {:error, error} ->
@@ -1717,44 +1818,43 @@ defmodule HydraAgent.Skills do
     max_files = parse_positive_int(attrs["max_files"], 64)
     max_bytes = parse_positive_int(attrs["max_bytes"], 512_000)
 
-    files =
-      skill_path
-      |> Path.join("**/*")
-      |> Path.wildcard()
-      |> Enum.filter(&File.regular?/1)
-      |> Enum.sort()
-
-    if length(files) > max_files do
-      {:error, %{"reason" => "skill_import_too_many_files", "count" => length(files)}}
-    else
-      read_skill_files(skill_path, files, max_bytes)
+    with {:ok, files} <- WorkspacePath.list_regular_files(skill_path) do
+      if length(files) > max_files do
+        {:error, %{"reason" => "skill_import_too_many_files", "count" => length(files)}}
+      else
+        read_skill_files(skill_path, files, max_bytes)
+      end
     end
   end
 
   defp read_skill_files(skill_path, files, max_bytes) do
     Enum.reduce_while(files, {:ok, [], %{}, 0}, fn file, {:ok, manifest, contents, total} ->
       relative = Path.relative_to(file, skill_path)
-      stat = File.stat!(file)
-      next_total = total + stat.size
 
-      cond do
-        not safe_relative_path?(relative) ->
+      with {:ok, %File.Stat{type: :regular} = stat} <- File.lstat(file),
+           {:ok, content} <- WorkspacePath.read_regular(skill_path, file) do
+        next_total = total + byte_size(content)
+
+        cond do
+          not safe_relative_path?(relative) ->
+            {:halt, {:error, %{"reason" => "unsafe_skill_import_file", "path" => relative}}}
+
+          next_total > max_bytes ->
+            {:halt, {:error, %{"reason" => "skill_import_too_large", "bytes" => next_total}}}
+
+          true ->
+            entry = %{
+              "path" => relative,
+              "bytes" => byte_size(content),
+              "sha256" => sha256(content),
+              "executable" => executable_skill_file?(stat, relative)
+            }
+
+            {:cont, {:ok, manifest ++ [entry], Map.put(contents, relative, content), next_total}}
+        end
+      else
+        _changed_or_unsafe ->
           {:halt, {:error, %{"reason" => "unsafe_skill_import_file", "path" => relative}}}
-
-        next_total > max_bytes ->
-          {:halt, {:error, %{"reason" => "skill_import_too_large", "bytes" => next_total}}}
-
-        true ->
-          content = File.read!(file)
-
-          entry = %{
-            "path" => relative,
-            "bytes" => stat.size,
-            "sha256" => sha256(content),
-            "executable" => executable_skill_file?(file, relative)
-          }
-
-          {:cont, {:ok, manifest ++ [entry], Map.put(contents, relative, content), next_total}}
       end
     end)
     |> case do
@@ -1805,13 +1905,8 @@ defmodule HydraAgent.Skills do
 
   defp maybe_add_warning(warnings, _condition, _severity, _code, _message), do: warnings
 
-  defp executable_skill_file?(file, relative) do
-    executable_bit? =
-      case File.stat(file) do
-        {:ok, %File.Stat{mode: mode}} -> Bitwise.band(mode, 0o111) != 0
-        _error -> false
-      end
-
+  defp executable_skill_file?(%File.Stat{mode: mode}, relative) do
+    executable_bit? = Bitwise.band(mode, 0o111) != 0
     executable_ext? = Path.extname(relative) in [".sh", ".py", ".js", ".ts", ".exs"]
     executable_bit? or executable_ext?
   end
@@ -1829,19 +1924,38 @@ defmodule HydraAgent.Skills do
   end
 
   defp validate_github_repo_url(repo_url) when is_binary(repo_url) do
-    cond do
-      String.starts_with?(repo_url, "https://github.com/") ->
-        :ok
+    case URI.parse(repo_url) do
+      %URI{
+        scheme: "https",
+        host: "github.com",
+        userinfo: nil,
+        query: nil,
+        fragment: nil,
+        path: "/" <> repo_path
+      } ->
+        if Regex.match?(~r/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/, repo_path),
+          do: :ok,
+          else: {:error, %{"reason" => "unsupported_github_repo_url"}}
 
-      String.starts_with?(repo_url, "git@github.com:") ->
-        :ok
-
-      true ->
+      _uri ->
         {:error, %{"reason" => "unsupported_github_repo_url"}}
     end
   end
 
   defp validate_github_repo_url(_repo_url), do: {:error, %{"reason" => "github_repo_url_missing"}}
+
+  defp validate_github_ref(ref) when ref in [nil, "", "HEAD"], do: :ok
+
+  defp validate_github_ref(ref) when is_binary(ref) and byte_size(ref) <= 255 do
+    if Regex.match?(~r/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/, ref) and
+         not String.contains?(ref, "..") do
+      :ok
+    else
+      {:error, %{"reason" => "unsafe_github_ref"}}
+    end
+  end
+
+  defp validate_github_ref(_ref), do: {:error, %{"reason" => "unsafe_github_ref"}}
 
   defp safe_relative_path?(path) when is_binary(path) do
     path == "." or
@@ -1865,20 +1979,31 @@ defmodule HydraAgent.Skills do
   defp parse_positive_int(_value, default), do: default
 
   defp supporting_skill_files(skill_path) do
-    skill_path
-    |> Path.join("**/*")
-    |> Path.wildcard()
-    |> Enum.filter(&File.regular?/1)
-    |> Enum.reject(&(Path.basename(&1) == "SKILL.md"))
-    |> Enum.map(fn file ->
-      relative = Path.relative_to(file, skill_path)
+    with {:ok, files} <- WorkspacePath.list_regular_files(skill_path) do
+      files
+      |> Enum.reject(&(Path.basename(&1) == "SKILL.md"))
+      |> Enum.reduce_while({:ok, []}, fn file, {:ok, acc} ->
+        relative = Path.relative_to(file, skill_path)
 
-      %{
-        "path" => relative,
-        "bytes" => File.stat!(file).size,
-        "sha256" => sha256(File.read!(file))
-      }
-    end)
+        case WorkspacePath.read_regular(skill_path, file) do
+          {:ok, content} ->
+            entry = %{
+              "path" => relative,
+              "bytes" => byte_size(content),
+              "sha256" => sha256(content)
+            }
+
+            {:cont, {:ok, [entry | acc]}}
+
+          {:error, _reason} = error ->
+            {:halt, error}
+        end
+      end)
+      |> case do
+        {:ok, entries} -> {:ok, Enum.reverse(entries)}
+        error -> error
+      end
+    end
   end
 
   defp experiment_examples(skill, attrs) do

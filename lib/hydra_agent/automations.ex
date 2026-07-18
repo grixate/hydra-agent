@@ -9,10 +9,12 @@ defmodule HydraAgent.Automations do
   import Ecto.Query
 
   alias HydraAgent.AgentChat
-  alias HydraAgent.Automations.Automation
+  alias HydraAgent.Automations.{Automation, AutomationExecution}
   alias HydraAgent.Connectors
   alias HydraAgent.Repo
   alias HydraAgent.Runtime
+
+  @in_flight_execution_statuses ~w(claimed running)
 
   @recipes [
     %{
@@ -137,7 +139,34 @@ defmodule HydraAgent.Automations do
     |> Repo.all()
   end
 
+  def list_executions(workspace_id, opts \\ []) do
+    AutomationExecution
+    |> where([execution], execution.workspace_id == ^workspace_id)
+    |> maybe_filter_execution_automation(opt(opts, :automation_id))
+    |> maybe_filter_status(opt(opts, :status))
+    |> order_by([execution], desc: execution.scheduled_for, desc: execution.id)
+    |> preload([:automation, :run])
+    |> Repo.all()
+  end
+
+  def get_execution!(id) do
+    AutomationExecution
+    |> Repo.get!(id)
+    |> Repo.preload([:automation, :run])
+  end
+
   def get_automation!(id), do: Repo.get!(Automation, id) |> Repo.preload([:agent])
+
+  def get_automation_for_workspace(workspace_id, id) do
+    Automation
+    |> where(
+      [automation],
+      automation.workspace_id == ^normalize_id(workspace_id) and
+        automation.id == ^normalize_id(id)
+    )
+    |> Repo.one()
+    |> maybe_preload_agent()
+  end
 
   def create_automation(attrs) do
     attrs =
@@ -243,19 +272,188 @@ defmodule HydraAgent.Automations do
   def run_due_automations(now \\ now()) do
     now
     |> due_automations()
-    |> Enum.map(&run_automation(&1, now))
+    |> Enum.reduce([], fn automation, results ->
+      case claim_due_automation(automation, now) do
+        {:ok, execution, claimed_automation} ->
+          [execute_claimed_automation(claimed_automation, execution) | results]
+
+        {:skip, _reason} ->
+          results
+
+        {:error, _reason} = error ->
+          [error | results]
+      end
+    end)
+    |> Enum.reverse()
   end
 
   def run_automation(%Automation{} = automation, now \\ now()) do
-    automation = Repo.preload(automation, [:agent])
+    case claim_automation_occurrence(automation.id, "manual", now) do
+      {:ok, execution, claimed_automation} ->
+        execute_claimed_automation(claimed_automation, execution)
 
-    with :ok <- ensure_automation_ready(automation, now),
-         {:ok, run} <- create_automation_run(automation, now) do
-      execute_automation_run(automation, run, now)
+      {:skip, reason} ->
+        {:error,
+         %{"reason" => "automation_occurrence_not_claimed", "detail" => to_string(reason)}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp create_automation_run(automation, now) do
+  def claim_due_automation(automation_or_id, observed_at \\ now())
+
+  def claim_due_automation(%Automation{id: automation_id}, observed_at) do
+    claim_automation_occurrence(automation_id, "scheduled", observed_at)
+  end
+
+  def claim_due_automation(automation_id, observed_at) do
+    claim_automation_occurrence(automation_id, "scheduled", observed_at)
+  end
+
+  defp claim_automation_occurrence(automation_id, trigger, observed_at) do
+    Repo.transaction(fn ->
+      automation = lock_automation!(automation_id)
+
+      scheduled_for =
+        case occurrence_time(automation, trigger, observed_at) do
+          {:ok, scheduled_for} -> scheduled_for
+          {:skip, reason} -> Repo.rollback({:skip, reason})
+        end
+
+      if occurrence_exists?(automation.id, scheduled_for) do
+        Repo.rollback({:skip, :already_claimed})
+      end
+
+      if execution_in_flight?(automation.id) do
+        Repo.rollback({:skip, :execution_in_flight})
+      end
+
+      next_scheduled_for =
+        next_run_at(automation.cron_expression, scheduled_for, automation.timezone) ||
+          Repo.rollback(%{
+            "reason" => "automation_schedule_could_not_advance",
+            "automation_id" => automation.id
+          })
+
+      execution =
+        %AutomationExecution{}
+        |> AutomationExecution.changeset(%{
+          workspace_id: automation.workspace_id,
+          automation_id: automation.id,
+          trigger: trigger,
+          status: "claimed",
+          scheduled_for: scheduled_for,
+          next_scheduled_for: next_scheduled_for,
+          claimed_at: now(),
+          metadata: %{
+            "claim_policy" => "at_most_once",
+            "observed_at" => DateTime.to_iso8601(observed_at)
+          }
+        })
+        |> Repo.insert!()
+
+      automation =
+        automation
+        |> Automation.changeset(%{"next_run_at" => next_scheduled_for})
+        |> Repo.update!()
+
+      %{execution: execution, automation: automation}
+    end)
+    |> case do
+      {:ok, %{execution: execution, automation: automation}} ->
+        {:ok, execution, Repo.preload(automation, [:agent])}
+
+      {:error, {:skip, reason}} ->
+        {:skip, reason}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp occurrence_time(%Automation{} = automation, "scheduled", observed_at) do
+    cond do
+      automation.status != "active" ->
+        {:skip, :inactive}
+
+      is_nil(automation.next_run_at) ->
+        {:skip, :not_scheduled}
+
+      DateTime.compare(automation.next_run_at, observed_at) == :gt ->
+        {:skip, :not_due}
+
+      true ->
+        {:ok, automation.next_run_at}
+    end
+  end
+
+  defp occurrence_time(%Automation{}, "manual", observed_at), do: {:ok, observed_at}
+
+  defp occurrence_exists?(automation_id, scheduled_for) do
+    AutomationExecution
+    |> where(
+      [execution],
+      execution.automation_id == ^automation_id and
+        execution.scheduled_for == ^scheduled_for
+    )
+    |> Repo.exists?()
+  end
+
+  defp execution_in_flight?(automation_id) do
+    AutomationExecution
+    |> where(
+      [execution],
+      execution.automation_id == ^automation_id and
+        execution.status in ^@in_flight_execution_statuses
+    )
+    |> Repo.exists?()
+  end
+
+  defp execute_claimed_automation(automation, execution) do
+    with {:ok, execution} <- start_execution(execution) do
+      case readiness(automation) do
+        %{"status" => "blocked"} = readiness ->
+          block_execution(automation, execution, readiness)
+
+        _readiness ->
+          create_and_execute_automation_run(automation, execution)
+      end
+    end
+  end
+
+  defp start_execution(%AutomationExecution{} = execution) do
+    Repo.transaction(fn ->
+      current = lock_execution!(execution.id)
+
+      unless current.status == "claimed" do
+        Repo.rollback(%{
+          "reason" => "automation_execution_not_claimed",
+          "status" => current.status
+        })
+      end
+
+      current
+      |> AutomationExecution.changeset(%{"status" => "running", "started_at" => now()})
+      |> Repo.update!()
+    end)
+    |> transaction_result()
+  end
+
+  defp create_and_execute_automation_run(automation, execution) do
+    case create_automation_run(automation, execution) do
+      {:ok, run} ->
+        case attach_execution_run(execution, run) do
+          {:ok, execution} -> execute_automation_run(automation, execution, run)
+          {:error, error} -> fail_automation_run(automation, execution, run, error)
+        end
+
+      {:error, error} ->
+        fail_execution(automation, execution, nil, error)
+    end
+  end
+
+  defp create_automation_run(automation, execution) do
     Runtime.create_run(%{
       workspace_id: automation.workspace_id,
       supervisor_agent_id: automation.agent_id,
@@ -266,94 +464,217 @@ defmodule HydraAgent.Automations do
         "kind" => "automation_execution",
         "automation_id" => automation.id,
         "automation_slug" => automation.slug,
-        "scheduled_for" => DateTime.to_iso8601(now)
+        "automation_execution_id" => execution.id,
+        "automation_trigger" => execution.trigger,
+        "scheduled_for" => DateTime.to_iso8601(execution.scheduled_for)
       }
     })
   end
 
-  defp execute_automation_run(automation, run, now) do
+  defp attach_execution_run(execution, run) do
+    Repo.transaction(fn ->
+      current = lock_execution!(execution.id)
+
+      unless current.status == "running" and is_nil(current.run_id) do
+        Repo.rollback(%{
+          "reason" => "automation_execution_run_not_attachable",
+          "status" => current.status,
+          "run_id" => current.run_id
+        })
+      end
+
+      current
+      |> AutomationExecution.changeset(%{"run_id" => run.id})
+      |> Repo.update!()
+    end)
+    |> transaction_result()
+  end
+
+  defp execute_automation_run(automation, execution, run) do
     case Runtime.start_run(run) do
       {:ok, running_run} ->
-        execute_started_automation_run(automation, running_run, now)
+        execute_started_automation_run(automation, execution, running_run)
 
       {:error, error} ->
-        fail_automation_run(automation, run, now, error)
+        fail_automation_run(automation, execution, run, error)
     end
   end
 
-  defp execute_started_automation_run(automation, run, now) do
+  defp execute_started_automation_run(automation, execution, run) do
     with {:ok, conversation} <- start_automation_conversation(automation, run),
          {:ok, response} <-
            AgentChat.respond(conversation, automation.prompt, source: "automation") do
-      complete_automation_run(automation, run, now, response)
+      complete_automation_run(automation, execution, run, response)
     else
-      {:error, error} -> fail_automation_run(automation, run, now, error)
+      {:error, error} -> fail_automation_run(automation, execution, run, error)
     end
   end
 
-  defp complete_automation_run(automation, run, now, response) do
+  defp complete_automation_run(automation, execution, run, response) do
     run = Runtime.get_run!(run.id)
 
-    {:ok, _completed_run} =
-      Runtime.complete_run(run, %{
+    case Runtime.complete_run(run, %{
+           "result" => %{
+             "conversation_id" => response.conversation.id,
+             "assistant_turn_id" => response.assistant_turn.id
+           },
+           "metadata" =>
+             Map.merge(run.metadata || %{}, %{
+               "conversation_id" => response.conversation.id,
+               "assistant_turn_id" => response.assistant_turn.id
+             })
+         }) do
+      {:ok, _completed_run} ->
+        complete_execution(automation, execution, run, response)
+
+      {:error, error} ->
+        fail_automation_run(automation, execution, run, error)
+    end
+  end
+
+  defp complete_execution(automation, execution, run, response) do
+    finished_at = now()
+
+    finalize_execution(
+      automation,
+      execution,
+      %{
+        "status" => "completed",
+        "finished_at" => finished_at,
         "result" => %{
+          "run_id" => run.id,
           "conversation_id" => response.conversation.id,
           "assistant_turn_id" => response.assistant_turn.id
         },
-        "metadata" =>
-          Map.merge(run.metadata || %{}, %{
-            "conversation_id" => response.conversation.id,
-            "assistant_turn_id" => response.assistant_turn.id
-          })
-      })
-
-    update_automation(automation, %{
-      "last_run_at" => now,
-      "next_run_at" => next_run_at(automation.cron_expression, now, automation.timezone),
-      "last_error" => %{},
-      "metadata" =>
-        Map.merge(automation.metadata || %{}, %{
-          "last_run_id" => run.id,
-          "last_conversation_id" => response.conversation.id,
-          "last_assistant_turn_id" => response.assistant_turn.id
-        })
-    })
+        "last_error" => %{}
+      },
+      fn current_automation ->
+        %{
+          "last_run_at" => finished_at,
+          "last_error" => %{},
+          "metadata" =>
+            Map.merge(current_automation.metadata || %{}, %{
+              "last_execution_id" => execution.id,
+              "last_run_id" => run.id,
+              "last_conversation_id" => response.conversation.id,
+              "last_assistant_turn_id" => response.assistant_turn.id
+            })
+        }
+      end
+    )
   end
 
-  defp fail_automation_run(automation, run, now, error) do
+  defp fail_automation_run(automation, execution, run, error) do
     normalized_error = normalize_error(error)
     run = Runtime.get_run!(run.id)
-    {:ok, _failed_run} = Runtime.fail_run(run, %{"result" => %{"error" => normalized_error}})
 
-    update_automation(automation, %{
-      "last_run_at" => now,
-      "next_run_at" => next_run_at(automation.cron_expression, now, automation.timezone),
-      "last_error" => normalized_error,
-      "metadata" => Map.merge(automation.metadata || %{}, %{"last_run_id" => run.id})
-    })
+    _result = Runtime.fail_run(run, %{"result" => %{"error" => normalized_error}})
+
+    fail_execution(automation, execution, run, normalized_error)
   end
 
-  defp fail_automation_before_run(automation, now, error) do
-    update_automation(automation, %{
-      "last_run_at" => now,
-      "next_run_at" => next_run_at(automation.cron_expression, now, automation.timezone),
-      "last_error" => normalize_error(error)
-    })
+  defp fail_execution(automation, execution, run, error) do
+    finished_at = now()
+    normalized_error = normalize_error(error)
+
+    finalize_execution(
+      automation,
+      execution,
+      %{
+        "status" => "failed",
+        "finished_at" => finished_at,
+        "last_error" => normalized_error,
+        "result" => if(run, do: %{"run_id" => run.id}, else: %{})
+      },
+      fn current_automation ->
+        metadata =
+          if run do
+            Map.merge(current_automation.metadata || %{}, %{
+              "last_execution_id" => execution.id,
+              "last_run_id" => run.id
+            })
+          else
+            Map.put(current_automation.metadata || %{}, "last_execution_id", execution.id)
+          end
+
+        %{
+          "last_run_at" => finished_at,
+          "last_error" => normalized_error,
+          "metadata" => metadata
+        }
+      end
+    )
   end
 
-  defp ensure_automation_ready(automation, now) do
-    case readiness(automation) do
-      %{"status" => "blocked"} = readiness ->
-        fail_automation_before_run(automation, now, %{
-          "reason" => "automation_connector_readiness_blocked",
-          "message" => "Required connectors must be configured before this automation can run.",
-          "readiness" => readiness
+  defp block_execution(automation, execution, readiness) do
+    finished_at = now()
+
+    error = %{
+      "reason" => "automation_connector_readiness_blocked",
+      "message" => "Required connectors must be configured before this automation can run.",
+      "readiness" => readiness
+    }
+
+    finalize_execution(
+      automation,
+      execution,
+      %{
+        "status" => "blocked",
+        "finished_at" => finished_at,
+        "last_error" => error,
+        "result" => %{"executed" => false}
+      },
+      fn current_automation ->
+        %{
+          "last_run_at" => finished_at,
+          "last_error" => error,
+          "metadata" =>
+            Map.put(current_automation.metadata || %{}, "last_execution_id", execution.id)
+        }
+      end
+    )
+  end
+
+  defp finalize_execution(automation, execution, execution_attrs, automation_attrs) do
+    Repo.transaction(fn ->
+      current_automation = lock_automation!(automation.id)
+      current_execution = lock_execution!(execution.id)
+
+      unless current_execution.automation_id == current_automation.id and
+               current_execution.status == "running" do
+        Repo.rollback(%{
+          "reason" => "automation_execution_not_running",
+          "status" => current_execution.status
         })
+      end
 
-      _readiness ->
-        :ok
-    end
+      current_execution
+      |> AutomationExecution.changeset(execution_attrs)
+      |> Repo.update!()
+
+      current_automation
+      |> Automation.changeset(automation_attrs.(current_automation))
+      |> Repo.update!()
+    end)
+    |> transaction_result()
   end
+
+  defp lock_automation!(id) do
+    Automation
+    |> where([automation], automation.id == ^id)
+    |> lock("FOR UPDATE")
+    |> Repo.one!()
+  end
+
+  defp lock_execution!(id) do
+    AutomationExecution
+    |> where([execution], execution.id == ^id)
+    |> lock("FOR UPDATE")
+    |> Repo.one!()
+  end
+
+  defp transaction_result({:ok, result}), do: {:ok, result}
+  defp transaction_result({:error, reason}), do: {:error, reason}
 
   defp start_automation_conversation(automation, run) do
     AgentChat.start_conversation(automation.agent, %{
@@ -372,8 +693,10 @@ defmodule HydraAgent.Automations do
     timezone = timezone || "Etc/UTC"
 
     with {:ok, local_from} <- DateTime.shift_zone(from, timezone),
+         scheduler_cursor <- DateTime.add(local_from, 1, :microsecond),
          {:ok, cron} <- Crontab.CronExpression.Parser.parse(expression),
-         {:ok, naive} <- Crontab.Scheduler.get_next_run_date(cron, DateTime.to_naive(local_from)),
+         {:ok, naive} <-
+           Crontab.Scheduler.get_next_run_date(cron, DateTime.to_naive(scheduler_cursor)),
          {:ok, local_next} <- DateTime.from_naive(naive, timezone),
          {:ok, utc_next} <- DateTime.shift_zone(local_next, "Etc/UTC") do
       utc_next
@@ -386,6 +709,11 @@ defmodule HydraAgent.Automations do
 
   defp maybe_filter_status(query, status),
     do: where(query, [automation], automation.status == ^status)
+
+  defp maybe_filter_execution_automation(query, nil), do: query
+
+  defp maybe_filter_execution_automation(query, automation_id),
+    do: where(query, [execution], execution.automation_id == ^automation_id)
 
   defp opt(opts, key) when is_list(opts), do: Keyword.get(opts, key)
   defp opt(opts, key) when is_map(opts), do: Map.get(opts, key) || Map.get(opts, to_string(key))
@@ -474,6 +802,20 @@ defmodule HydraAgent.Automations do
 
   defp stringify_keys(map) when is_map(map),
     do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
+
+  defp maybe_preload_agent(nil), do: nil
+  defp maybe_preload_agent(automation), do: Repo.preload(automation, [:agent])
+
+  defp normalize_id(value) when is_integer(value), do: value
+
+  defp normalize_id(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {id, ""} -> id
+      _invalid -> -1
+    end
+  end
+
+  defp normalize_id(_value), do: -1
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
 end

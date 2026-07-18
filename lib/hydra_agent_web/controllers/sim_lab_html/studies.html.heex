@@ -1,0 +1,87 @@
+<main class="simlab-shell" id="simlab-studies" data-page="studies">
+  <section class="simlab-topbar">
+    <a class="simlab-brand" href="/demo/simulations">
+      <span class="brand-mark">H</span><span>Hydra <em>Simulations</em></span>
+    </a>
+    <div class="simlab-top-meta">
+      <span class="live-dot"></span><span>Illustrative workspace</span><span class="top-divider"></span><span>Demo data</span>
+    </div>
+    <a class="quiet-link" href="/demo/simulations/certificate-visibility/observatory">
+      Open demo <span>↗</span>
+    </a>
+  </section>
+
+  <section class="study-hero">
+    <div class="eyebrow"><span class="eyebrow-dot"></span> Guided example</div>
+    <h1>Start with the question,<br /><i>not the machinery.</i></h1>
+    <p class="hero-copy">
+      Hydra turns the evidence you have—and the gaps you can name—into an inspectable behavioral simulation.
+    </p>
+    <div class="question-card">
+      <label for="study-question">Prepared study question</label>
+      <textarea id="study-question" rows="3" aria-label="Prepared study question" readonly><%= @study.question %></textarea>
+      <div class="question-footer">
+        <span>
+          <span class="sparkle">✦</span> Guided demo. No live research is performed.
+        </span>
+        <button
+          class="primary-button"
+          id="build-context"
+          data-study-url="/demo/simulations/certificate-visibility"
+        >
+          Explore prepared context <span>→</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <section class="study-details" aria-label="Study settings">
+    <div class="detail-chip active">
+      <span>Audience</span><b>Employees in large enterprise</b>
+    </div>
+    <div class="detail-chip"><span>Context</span><b>Corporate learning · Russia</b></div>
+    <div class="detail-chip"><span>Horizon</span><b>60 days</b></div>
+    <a class="detail-chip add" href="/login"><span>＋</span> Create your own</a>
+  </section>
+
+  <section class="getting-started" id="context-preview">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">One clear path</p>
+        <h2>From question to decision.</h2>
+      </div>
+      <p>In a live workspace, every layer stays editable and every assumption stays visible.</p>
+    </div>
+    <div class="path-grid">
+      <article class="path-step active">
+        <span class="step-number">01</span><span class="step-status">Ready now</span>
+        <h3>Research context</h3>
+        <p>Build a source-aware brief from your notes, public context, and marked assumptions.</p>
+        <div class="mini-source-row">
+          <span class="source-pill data">2 example notes</span><span class="source-pill web">8 example sources</span><span class="source-pill assumption">3 assumptions</span>
+        </div>
+      </article>
+      <article class="path-step">
+        <span class="step-number">02</span><span class="step-status">Then</span>
+        <h3>Behavior models</h3>
+        <p>Review the personas and action patterns that make scale cheap, not hand-wavy.</p>
+        <div class="tiny-bars"><i></i><i></i><i></i><i></i></div>
+      </article>
+      <article class="path-step dark">
+        <span class="step-number">03</span><span class="step-status">The payoff</span>
+        <h3>Observatory</h3>
+        <p>Watch how cohorts shift, inspect the why, and compare a better launch.</p>
+        <a href="/demo/simulations/certificate-visibility/observatory" class="text-link">
+          See the simulation <span>→</span>
+        </a>
+      </article>
+    </div>
+  </section>
+
+  <section class="proof-strip">
+    <div><strong>5,000</strong><span>modeled population</span></div>
+    <div><strong>100%</strong><span>deterministic decisions</span></div>
+    <div><strong>62%</strong><span>directional confidence</span></div>
+    <div><strong>3</strong><span>explicit assumptions</span></div>
+  </section>
+</main>

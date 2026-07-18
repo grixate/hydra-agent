@@ -2,6 +2,8 @@ defmodule HydraAgent.Runtime.Mission do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.Security.WorkspaceAssociation
+
   @statuses ~w(draft planned running paused blocked awaiting_approval completed failed canceled archived)
   @mission_types ~w(research coding analysis monitoring planning knowledge_ingestion custom)
   @start_modes ~w(draft plan_only start_worker)
@@ -62,6 +64,7 @@ defmodule HydraAgent.Runtime.Mission do
     |> validate_number(:priority, greater_than_or_equal_to: 0, less_than_or_equal_to: 100)
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:supervisor_agent)
+    |> WorkspaceAssociation.validate(:supervisor_agent_id, HydraAgent.Runtime.AgentProfile)
     |> unique_constraint(:slug, name: :missions_workspace_id_slug_index)
   end
 

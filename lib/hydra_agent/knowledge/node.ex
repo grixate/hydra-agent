@@ -2,6 +2,8 @@ defmodule HydraAgent.Knowledge.Node do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.Security.WorkspaceAssociation
+
   @statuses ~w(draft active verified conflicted superseded archived)
 
   schema "knowledge_nodes" do
@@ -51,5 +53,6 @@ defmodule HydraAgent.Knowledge.Node do
     |> validate_number(:confidence, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:created_by_agent)
+    |> WorkspaceAssociation.validate(:created_by_agent_id, HydraAgent.Runtime.AgentProfile)
   end
 end

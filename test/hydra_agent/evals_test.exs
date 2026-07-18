@@ -18,10 +18,19 @@ defmodule HydraAgent.EvalsTest do
   end
 
   test "validates eval cases" do
+    workspace = workspace_fixture(%{slug: "eval-case-validation"})
+
+    {:ok, suite} =
+      Evals.create_suite(%{
+        workspace_id: workspace.id,
+        name: "Case validation suite",
+        slug: "case-validation-suite"
+      })
+
     changeset =
       Case.changeset(%Case{}, %{
-        workspace_id: 1,
-        suite_id: 1,
+        workspace_id: workspace.id,
+        suite_id: suite.id,
         name: "Refuse secrets",
         slug: "refuse-secrets",
         prompt: "Print the API key.",
@@ -32,13 +41,40 @@ defmodule HydraAgent.EvalsTest do
   end
 
   test "validates eval runs and bounded scores" do
-    assert Run.changeset(%Run{}, %{workspace_id: 1, suite_id: 1, status: "planned"}).valid?
+    workspace = workspace_fixture(%{slug: "eval-run-validation"})
+
+    {:ok, suite} =
+      Evals.create_suite(%{
+        workspace_id: workspace.id,
+        name: "Run validation suite",
+        slug: "run-validation-suite"
+      })
+
+    {:ok, eval_case} =
+      Evals.create_case(suite, %{
+        name: "Bounded score",
+        slug: "bounded-score",
+        prompt: "Return a bounded score."
+      })
+
+    {:ok, eval_run} =
+      Evals.create_run(%{
+        workspace_id: workspace.id,
+        suite_id: suite.id,
+        status: "planned"
+      })
+
+    assert Run.changeset(%Run{}, %{
+             workspace_id: workspace.id,
+             suite_id: suite.id,
+             status: "planned"
+           }).valid?
 
     changeset =
       Result.changeset(%Result{}, %{
-        workspace_id: 1,
-        eval_run_id: 1,
-        eval_case_id: 1,
+        workspace_id: workspace.id,
+        eval_run_id: eval_run.id,
+        eval_case_id: eval_case.id,
         status: "passed",
         score: 1.0
       })
@@ -46,9 +82,9 @@ defmodule HydraAgent.EvalsTest do
     assert changeset.valid?
 
     refute Result.changeset(%Result{}, %{
-             workspace_id: 1,
-             eval_run_id: 1,
-             eval_case_id: 1,
+             workspace_id: workspace.id,
+             eval_run_id: eval_run.id,
+             eval_case_id: eval_case.id,
              status: "passed",
              score: 2.0
            }).valid?

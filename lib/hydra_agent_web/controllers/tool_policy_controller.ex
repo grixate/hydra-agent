@@ -3,6 +3,8 @@ defmodule HydraAgentWeb.ToolPolicyController do
 
   alias HydraAgent.Runtime
 
+  plug HydraAgentWeb.Plugs.RequireOperatorAuthority when action in [:create]
+
   def index(conn, %{"workspace_id" => workspace_id}) do
     policies = Runtime.list_tool_policies(workspace_id)
     json(conn, %{data: Enum.map(policies, &policy_json/1)})

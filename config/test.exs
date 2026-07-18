@@ -12,7 +12,7 @@ config :hydra_agent, HydraAgent.Repo,
       "ecto://#{System.get_env("PGUSER") || System.get_env("USER") || "postgres"}@localhost/hydra_agent_test#{System.get_env("MIX_TEST_PARTITION")}"
     ),
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: 1
+  pool_size: 10
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
@@ -23,6 +23,22 @@ config :hydra_agent, HydraAgentWeb.Endpoint,
 
 # Print only warnings and errors during test
 config :logger, level: :warning
+
+config :hydra_agent, Oban,
+  repo: HydraAgent.Repo,
+  queues: false,
+  plugins: false,
+  testing: :manual
+
+config :hydra_agent, :mcp_security,
+  stdio_executable_allowlist: ["sh", "npx"],
+  env_ref_allowlist: [
+    "MCP_DOCS_TOKEN",
+    "MCP_FILESYSTEM_TOKEN",
+    "MCP_MISSING_STDIO_TOKEN",
+    "MCP_STDIO_TOKEN",
+    "MCP_TEST_TOKEN"
+  ]
 
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime

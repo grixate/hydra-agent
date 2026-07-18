@@ -1,0 +1,86 @@
+<main class="comparison-workspace">
+  <header class="study-workspace-bar">
+    <a class="simlab-brand" href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}"}>
+      <span class="brand-mark">H</span><span>Hydra <em>Simulations</em></span>
+    </a>
+    <div class="workspace-crumb">
+      <a href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}"}>{@study.title}</a><span>/</span><strong>Comparison</strong>
+    </div>
+    <a class="workspace-run-link" href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}"}>
+      Back to study <span>←</span>
+    </a>
+  </header>
+
+  <section class="comparison-document">
+    <p class="panel-overline">Scenario comparison · directional aggregate forecast</p>
+    <h1>What changed between the two runs?</h1>
+    <p class="comparison-lede">
+      Compare the saved aggregate outcomes without hiding uncertainty. Positive values mean the variant predicts more of that action than the base run.
+    </p>
+
+    <section class="comparison-runs" aria-label="Compared simulation runs">
+      <article class="comparison-run base">
+        <span class="comparison-run-label">Base run</span>
+        <h2>{@comparison.base.scenario.name}</h2>
+        <p>{@comparison.base.scenario.description}</p>
+        <dl>
+          <div>
+            <dt>Mode</dt>
+            <dd>{String.capitalize(@comparison.base.mode)}</dd>
+          </div>
+          <div>
+            <dt>Confidence</dt>
+            <dd>{round((@comparison.base.confidence || 0.0) * 100)}%</dd>
+          </div>
+        </dl>
+        <a href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/reports/#{@comparison.base.id}"}>
+          Read base forecast →
+        </a>
+      </article>
+      <article class="comparison-run variant">
+        <span class="comparison-run-label">Variant run</span>
+        <h2>{@comparison.variant.scenario.name}</h2>
+        <p>{@comparison.variant.scenario.description}</p>
+        <dl>
+          <div>
+            <dt>Mode</dt>
+            <dd>{String.capitalize(@comparison.variant.mode)}</dd>
+          </div>
+          <div>
+            <dt>Confidence</dt>
+            <dd>{round((@comparison.variant.confidence || 0.0) * 100)}%</dd>
+          </div>
+        </dl>
+        <a href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/reports/#{@comparison.variant.id}"}>
+          Read variant forecast →
+        </a>
+      </article>
+    </section>
+
+    <section class="comparison-outcomes" aria-label="Outcome deltas">
+      <%= for action <- ["adopt", "resist", "ignore", "share"] do %>
+        <% delta = @comparison.deltas[action] || 0.0 %>
+        <article class={if delta > 0, do: "up", else: if(delta < 0, do: "down", else: "flat")}>
+          <span>{String.upcase(action)}</span>
+          <b>{if delta > 0, do: "+", else: ""}{round(delta * 100)} pts</b>
+          <p>
+            {if delta > 0,
+              do: "More likely in the variant.",
+              else:
+                if(delta < 0,
+                  do: "Less likely in the variant.",
+                  else: "No directional difference."
+                )}
+          </p>
+        </article>
+      <% end %>
+    </section>
+
+    <section class={["comparison-reading", @comparison.recommendation.tone]}>
+      <p class="panel-overline">{@comparison.recommendation.label}</p>
+      <h2>{@comparison.recommendation.headline}</h2>
+      <p>{@comparison.recommendation.body}</p>
+      <small>{@comparison.recommendation.disclosure}</small>
+    </section>
+  </section>
+</main>

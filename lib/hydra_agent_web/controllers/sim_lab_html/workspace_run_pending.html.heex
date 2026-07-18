@@ -1,0 +1,74 @@
+<main
+  class="run-pending-workspace"
+  data-pending-run={if @run.status in ["queued", "running"], do: "true", else: "false"}
+>
+  <header class="study-workspace-bar">
+    <a class="simlab-brand" href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}"}>
+      <span class="brand-mark">H</span><span>Hydra <em>Simulations</em></span>
+    </a>
+    <div class="workspace-crumb">
+      <a href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}"}>{@study.title}</a><span>/</span><strong>Replay preparation</strong>
+    </div>
+    <span class="pending-status">{String.capitalize(@run.status)}</span>
+  </header>
+  <section class="run-pending-card">
+    <span class={if @run.status in ["queued", "running"], do: "pending-orb", else: "terminal-orb"}>
+    </span>
+    <p class="panel-overline">Durable simulation run · {@run.id}</p>
+    <%= case @run.status do %>
+      <% status when status in ["queued", "running"] -> %>
+        <h1>Preparing the aggregate replay.</h1>
+        <p>
+          Hydra has saved the compiled behavior model, seed, and scenario before execution. The Observatory will open automatically when the replay snapshots are ready.
+        </p>
+      <% "cancelled" -> %>
+        <h1>Replay cancelled.</h1>
+        <p>
+          This run was withdrawn before publication. Hydra kept the run record for auditability but did not publish replay snapshots or a forecast.
+        </p>
+      <% _ -> %>
+        <h1>Replay needs attention.</h1>
+        <p>
+          This run did not complete. Its saved input remains available for review; create a new run after adjusting the scenario or behavior model.
+        </p>
+    <% end %>
+    <dl>
+      <div>
+        <dt>Scenario</dt>
+        <dd>{@scenario.name}</dd>
+      </div>
+      <div>
+        <dt>Population</dt>
+        <dd>{@run.agent_count} modeled population</dd>
+      </div>
+      <div>
+        <dt>Mode</dt>
+        <dd>{String.capitalize(@run.mode)}</dd>
+      </div>
+      <div>
+        <dt>Input</dt>
+        <dd>Fingerprinted</dd>
+      </div>
+    </dl>
+    <div class="pending-actions">
+      <%= if @run.status in ["queued", "running"] do %>
+        <a
+          class="workspace-run-link"
+          href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/observatory/#{@run.id}"}
+        >
+          Refresh status <span>↻</span>
+        </a>
+      <% end %>
+      <a href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}"}>Back to study →</a>
+      <%= if @run.status in ["queued", "running"] do %>
+        <form
+          action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/observatory/#{@run.id}/cancel"}
+          method="post"
+        >
+          <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+          <button class="cancel-run-button" type="submit">Cancel replay</button>
+        </form>
+      <% end %>
+    </div>
+  </section>
+</main>

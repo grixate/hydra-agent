@@ -8,7 +8,11 @@ defmodule HydraAgentWeb.Endpoint do
     store: :cookie,
     key: "_hydra_agent_key",
     signing_salt: "GaV96qT3",
-    same_site: "Lax"
+    encryption_salt: "a9VJf4pQ7x2Nk6Ls",
+    same_site: "Lax",
+    http_only: true,
+    secure: Mix.env() == :prod,
+    max_age: 43_200
   ]
 
   socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]
@@ -20,7 +24,7 @@ defmodule HydraAgentWeb.Endpoint do
   plug Plug.Static,
     at: "/",
     from: :hydra_agent,
-    gzip: false,
+    gzip: Mix.env() == :prod,
     only: HydraAgentWeb.static_paths()
 
   # Code reloading can be explicitly enabled under the

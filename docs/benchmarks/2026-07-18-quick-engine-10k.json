@@ -1,0 +1,38 @@
+{
+  "benchmark": "legacy_simlab_quick_engine",
+  "recorded_at": "2026-07-18T14:10:00.693996Z",
+  "environment": {
+    "architecture": "arm64",
+    "macos": "26.5.1",
+    "erlang_otp": "28",
+    "elixir": "1.19.5"
+  },
+  "population": 10000,
+  "iterations": 10,
+  "seed": 713,
+  "rounds": 4,
+  "provider_calls": 0,
+  "population_conserved": true,
+  "final_population": 10000,
+  "decision_counts": {
+    "pattern": 40000,
+    "small_model": 0,
+    "large_model": 0
+  },
+  "duration_ms": {
+    "min": 0.229,
+    "p50": 0.236,
+    "p95": 0.362,
+    "max": 0.362
+  },
+  "beam_memory_bytes": {
+    "before": 64980559,
+    "after": 65330567,
+    "delta": 350008
+  },
+  "notes": [
+    "This measures the existing aggregate Decision Replay engine, not the future general Script engine.",
+    "The engine represents cohorts rather than allocating 10000 independent actor processes.",
+    "The result is a migration baseline and not yet evidence for the Blueprint-first 10k release target."
+  ]
+}

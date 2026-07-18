@@ -1,7 +1,22 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${HYDRA_LOG_MAX_SIZE:-20m}
+    max-file: "${HYDRA_LOG_MAX_FILES:-5}"
+
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    init: true
+    stop_grace_period: 1m
+    shm_size: ${HYDRA_POSTGRES_SHM_SIZE:-256m}
+    mem_limit: ${HYDRA_POSTGRES_MEMORY_LIMIT:-2g}
+    cpus: ${HYDRA_POSTGRES_CPUS:-2.0}
+    pids_limit: ${HYDRA_POSTGRES_PIDS_LIMIT:-256}
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
     environment:
       POSTGRES_DB: hydra_agent
       POSTGRES_USER: hydra
@@ -13,16 +28,40 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - backend
 
   browser-worker:
-    image: mcr.microsoft.com/playwright:v1.44.0-jammy
+    build:
+      context: ./services/browser-worker
+    image: ${HYDRA_BROWSER_WORKER_IMAGE:-hydra-browser-worker:local}
     restart: unless-stopped
-    working_dir: /worker
-    command: ["node", "server.js"]
+    init: true
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m
+    shm_size: ${HYDRA_BROWSER_SHM_SIZE:-512m}
+    mem_limit: ${HYDRA_BROWSER_MEMORY_LIMIT:-1g}
+    cpus: ${HYDRA_BROWSER_CPUS:-1.0}
+    pids_limit: ${HYDRA_BROWSER_PIDS_LIMIT:-256}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
     environment:
       PORT: "4100"
-    volumes:
-      - ./services/browser-worker:/worker:ro
+      HYDRA_BROWSER_ALLOW_PRIVATE_NETWORKS: ${HYDRA_BROWSER_ALLOW_PRIVATE_NETWORKS:-false}
+      HYDRA_BROWSER_ALLOWED_HOSTS: ${HYDRA_BROWSER_ALLOWED_HOSTS:-}
+      HYDRA_BROWSER_ALLOWED_PORTS: ${HYDRA_BROWSER_ALLOWED_PORTS:-80,443}
+      HYDRA_BROWSER_MAX_SESSIONS: ${HYDRA_BROWSER_MAX_SESSIONS:-32}
+      HYDRA_BROWSER_MAX_CONCURRENT_ACTIONS: ${HYDRA_BROWSER_MAX_CONCURRENT_ACTIONS:-8}
+      HYDRA_BROWSER_MAX_PROXY_CONNECTIONS: ${HYDRA_BROWSER_MAX_PROXY_CONNECTIONS:-256}
+      HYDRA_BROWSER_DNS_TIMEOUT_MS: ${HYDRA_BROWSER_DNS_TIMEOUT_MS:-5000}
+      HYDRA_BROWSER_SESSION_TTL_MS: ${HYDRA_BROWSER_SESSION_TTL_MS:-1800000}
+      HYDRA_BROWSER_MAX_EXTRACT_BYTES: ${HYDRA_BROWSER_MAX_EXTRACT_BYTES:-250000}
+      HYDRA_BROWSER_MAX_SCREENSHOT_BYTES: ${HYDRA_BROWSER_MAX_SCREENSHOT_BYTES:-5000000}
     healthcheck:
       test:
         [
@@ -30,29 +69,66 @@ services:
           "node -e \"fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
         ]
       interval: 10s
-      timeout: 5s
+      timeout: 8s
+      start_period: 30s
       retries: 10
+    networks:
+      - browser_control
+      - browser_egress
 
   app:
     build: .
+    image: ${HYDRA_IMAGE:-hydra-agent:local}
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=${HYDRA_APP_TMPFS_SIZE:-256m}
+    mem_limit: ${HYDRA_APP_MEMORY_LIMIT:-2g}
+    cpus: ${HYDRA_APP_CPUS:-2.0}
+    pids_limit: ${HYDRA_APP_PIDS_LIMIT:-512}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
     depends_on:
       postgres:
         condition: service_healthy
       browser-worker:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
-      - "${PORT:-4000}:4000"
+      - "${HYDRA_BIND_ADDRESS:-127.0.0.1}:${PORT:-4000}:4000"
+    env_file:
+      - path: ${HYDRA_PROVIDER_ENV_FILE:-./.env.providers}
+        required: false
     environment:
       PHX_SERVER: "true"
       PHX_HOST: ${PHX_HOST:?set PHX_HOST}
       PORT: "4000"
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE}
       DATABASE_URL: ecto://hydra:${POSTGRES_PASSWORD}@postgres/hydra_agent
-      HYDRA_API_AUTH_REQUIRED: ${HYDRA_API_AUTH_REQUIRED:-true}
       HYDRA_API_TOKEN_ENV: HYDRA_API_TOKEN
       HYDRA_API_TOKEN: ${HYDRA_API_TOKEN:?set HYDRA_API_TOKEN}
+      HYDRA_BOOTSTRAP_ADMIN_EMAIL: ${HYDRA_BOOTSTRAP_ADMIN_EMAIL:-}
+      HYDRA_BOOTSTRAP_ADMIN_PASSWORD: ${HYDRA_BOOTSTRAP_ADMIN_PASSWORD:-}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      RATE_LIMIT_API_EDGE: ${RATE_LIMIT_API_EDGE:-1200}
+      RATE_LIMIT_API_READ: ${RATE_LIMIT_API_READ:-600}
+      RATE_LIMIT_API_WRITE: ${RATE_LIMIT_API_WRITE:-120}
+      HYDRA_TRUSTED_PROXY_IPS: ${HYDRA_TRUSTED_PROXY_IPS:-127.0.0.1,::1}
       HYDRA_BROWSER_WORKER_URL: http://browser-worker:4100/actions
+      HYDRA_MCP_STDIO_EXECUTABLES: ${HYDRA_MCP_STDIO_EXECUTABLES:-}
+      HYDRA_MCP_ENV_REFS: ${HYDRA_MCP_ENV_REFS:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      MOONSHOT_API_KEY: ${MOONSHOT_API_KEY:-}
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       EMAIL_ACCESS_TOKEN: ${EMAIL_ACCESS_TOKEN:-}
@@ -61,6 +137,85 @@ services:
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
       X_ACCESS_TOKEN: ${X_ACCESS_TOKEN:-}
       LINKEDIN_ACCESS_TOKEN: ${LINKEDIN_ACCESS_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-H", "x-forwarded-proto: https", "http://127.0.0.1:4000/readyz"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    networks:
+      - backend
+      - browser_control
+
+  migrate:
+    build: .
+    image: ${HYDRA_IMAGE:-hydra-agent:local}
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=${HYDRA_MIGRATE_TMPFS_SIZE:-256m}
+    mem_limit: ${HYDRA_MIGRATE_MEMORY_LIMIT:-1g}
+    cpus: ${HYDRA_MIGRATE_CPUS:-2.0}
+    pids_limit: ${HYDRA_MIGRATE_PIDS_LIMIT:-256}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["/app/bin/hydra_agent", "eval", "HydraAgent.Release.migrate()"]
+    environment:
+      PHX_HOST: ${PHX_HOST:?set PHX_HOST}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE}
+      DATABASE_URL: ecto://hydra:${POSTGRES_PASSWORD}@postgres/hydra_agent
+      HYDRA_API_TOKEN_ENV: HYDRA_API_TOKEN
+      HYDRA_API_TOKEN: ${HYDRA_API_TOKEN:?set HYDRA_API_TOKEN}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+    networks:
+      - backend
+
+  backup:
+    build: ./ops/backup
+    image: ${HYDRA_BACKUP_IMAGE:-hydra-agent-backup:local}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 1m
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=${HYDRA_BACKUP_TMPFS_SIZE:-2g}
+    mem_limit: ${HYDRA_BACKUP_MEMORY_LIMIT:-2304m}
+    cpus: ${HYDRA_BACKUP_CPUS:-1.0}
+    pids_limit: ${HYDRA_BACKUP_PIDS_LIMIT:-128}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ecto://hydra:${POSTGRES_PASSWORD}@postgres/hydra_agent
+      HYDRA_BACKUP_KEY_FILE: /run/secrets/hydra_backup_key
+      HYDRA_BACKUP_DIR: /backups
+      HYDRA_BACKUP_INTERVAL_SECONDS: ${HYDRA_BACKUP_INTERVAL_SECONDS:-86400}
+      HYDRA_BACKUP_RETENTION_DAYS: ${HYDRA_BACKUP_RETENTION_DAYS:-30}
+    volumes:
+      - ${HYDRA_BACKUP_VOLUME:-hydra_agent_backups}:/backups
+      - ${HYDRA_BACKUP_KEY_FILE:?set HYDRA_BACKUP_KEY_FILE}:/run/secrets/hydra_backup_key:ro
+    networks:
+      - backend
 
 volumes:
   hydra_agent_pg_prod:
+  hydra_agent_backups:
+
+networks:
+  backend:
+  browser_control:
+    internal: true
+  browser_egress:

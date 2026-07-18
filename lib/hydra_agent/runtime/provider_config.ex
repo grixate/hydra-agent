@@ -2,6 +2,8 @@ defmodule HydraAgent.Runtime.ProviderConfig do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.Security.WorkspaceAssociation
+
   @kinds ~w(openai_compatible anthropic ollama mock)
 
   schema "provider_configs" do
@@ -39,5 +41,8 @@ defmodule HydraAgent.Runtime.ProviderConfig do
     )
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:credential_pool)
+    |> WorkspaceAssociation.validate(:credential_pool_id, HydraAgent.Runtime.CredentialPool,
+      allow_global: true
+    )
   end
 end

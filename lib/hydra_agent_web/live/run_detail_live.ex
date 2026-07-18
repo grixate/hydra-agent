@@ -2,7 +2,7 @@ defmodule HydraAgentWeb.RunDetailLive do
   use HydraAgentWeb, :live_view
 
   alias HydraAgent.Agent.Supervisor, as: AgentSupervisor
-  alias HydraAgent.Memory
+  alias HydraAgent.{Accounts, Memory}
   alias HydraAgent.Runtime
   alias HydraAgent.Runtime.PubSub
   alias HydraAgent.Safety
@@ -80,9 +80,14 @@ defmodule HydraAgentWeb.RunDetailLive do
   def handle_event("start-worker", _params, socket) do
     socket =
       case AgentSupervisor.start_run_worker(socket.assigns.run.id) do
-        {:ok, _pid} -> put_flash(socket, :info, "Worker started")
-        {:error, {:already_started, _pid}} -> put_flash(socket, :info, "Worker already running")
-        {:error, reason} -> put_flash(socket, :error, "Worker start failed: #{inspect(reason)}")
+        {:ok, _pid} ->
+          put_flash(socket, :info, "Worker started")
+
+        {:error, {:already_started, _pid}} ->
+          put_flash(socket, :info, "Worker already running")
+
+        {:error, reason} ->
+          put_flash(socket, :error, HydraAgentWeb.UserError.message("start the worker", reason))
       end
 
     {:noreply, load_run_state(socket, socket.assigns.run.id)}
@@ -91,9 +96,14 @@ defmodule HydraAgentWeb.RunDetailLive do
   def handle_event("stop-worker", _params, socket) do
     socket =
       case AgentSupervisor.stop_run_worker(socket.assigns.run.id) do
-        :ok -> put_flash(socket, :info, "Worker stopped")
-        {:error, :not_found} -> put_flash(socket, :info, "No worker was running")
-        {:error, reason} -> put_flash(socket, :error, "Worker stop failed: #{inspect(reason)}")
+        :ok ->
+          put_flash(socket, :info, "Worker stopped")
+
+        {:error, :not_found} ->
+          put_flash(socket, :info, "No worker was running")
+
+        {:error, reason} ->
+          put_flash(socket, :error, HydraAgentWeb.UserError.message("stop the worker", reason))
       end
 
     {:noreply, load_run_state(socket, socket.assigns.run.id)}
@@ -111,7 +121,11 @@ defmodule HydraAgentWeb.RunDetailLive do
 
       {:error, error} ->
         {:noreply,
-         put_flash(socket, :error, "Skill proposal failed: #{inspect(error_message(error))}")}
+         put_flash(
+           socket,
+           :error,
+           HydraAgentWeb.UserError.message("create the skill proposal", error_message(error))
+         )}
     end
   end
 
@@ -124,14 +138,19 @@ defmodule HydraAgentWeb.RunDetailLive do
          |> push_navigate(to: ~p"/control/memory?workspace_id=#{socket.assigns.run.workspace_id}")}
 
       {:error, %{} = error} ->
-        {:noreply, put_flash(socket, :error, "Memory proposal failed: #{inspect(error)}")}
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           HydraAgentWeb.UserError.message("create the memory proposal", error)
+         )}
     end
   end
 
   def handle_event("approve-step", %{"id" => id}, socket) do
     socket =
       id
-      |> get_step()
+      |> get_step(socket.assigns.run)
       |> Runtime.approve_run_step(%{"actor" => "run_detail"})
       |> handle_step_result(socket, "Step approved")
 
@@ -141,7 +160,7 @@ defmodule HydraAgentWeb.RunDetailLive do
   def handle_event("reject-step", %{"id" => id}, socket) do
     socket =
       id
-      |> get_step()
+      |> get_step(socket.assigns.run)
       |> Runtime.reject_run_step(%{"actor" => "run_detail"})
       |> handle_step_result(socket, "Step rejected")
 
@@ -149,13 +168,30 @@ defmodule HydraAgentWeb.RunDetailLive do
   end
 
   def handle_event("restore-checkpoint", %{"id" => id}, socket) do
+    checkpoint =
+      Checkpoints.get_record_for_workspace!(socket.assigns.run.workspace_id, parse_id(id))
+
+    unless checkpoint.run_id == socket.assigns.run.id do
+      raise Ecto.NoResultsError, queryable: HydraAgent.Tools.CheckpointRecord
+    end
+
     socket =
-      case Checkpoints.restore_record(id, %{"workspace_root" => File.cwd!()}) do
+      case Checkpoints.restore_record_for_workspace(
+             socket.assigns.run.workspace_id,
+             checkpoint.id,
+             %{
+               "workspace_root" => Runtime.trusted_workspace_root(socket.assigns.run.workspace_id)
+             }
+           ) do
         {:ok, _restored} ->
           put_flash(socket, :info, "Checkpoint restored")
 
         {:error, error} ->
-          put_flash(socket, :error, "Checkpoint restore failed: #{inspect(error)}")
+          put_flash(
+            socket,
+            :error,
+            HydraAgentWeb.UserError.message("restore the checkpoint", error)
+          )
       end
 
     {:noreply, load_run_state(socket, socket.assigns.run.id)}
@@ -163,6 +199,15 @@ defmodule HydraAgentWeb.RunDetailLive do
 
   defp load_run_state(socket, run_id) do
     run = Runtime.get_run_detail!(run_id)
+
+    unless Accounts.workspace_authorized?(
+             socket.assigns[:current_user],
+             run.workspace_id,
+             "admin"
+           ) do
+      raise Ecto.NoResultsError, queryable: HydraAgent.Runtime.Run
+    end
+
     safety_events = Safety.list_events(run.workspace_id, run_id: run.id, limit: 20)
     checkpoints = Checkpoints.list_records(run.workspace_id, run_id: run.id, limit: 20)
 
@@ -236,17 +281,23 @@ defmodule HydraAgentWeb.RunDetailLive do
 
   defp parse_id(_id), do: nil
 
-  defp get_step(id), do: id |> parse_id() |> Runtime.get_run_step!()
+  defp get_step(id, run) do
+    step = Runtime.get_run_step_for_workspace_by_id!(run.workspace_id, parse_id(id))
+
+    if step.run_id == run.id,
+      do: step,
+      else: raise(Ecto.NoResultsError, queryable: HydraAgent.Runtime.RunStep)
+  end
 
   defp handle_run_result({:ok, _run}, socket, message), do: put_flash(socket, :info, message)
 
   defp handle_run_result({:error, changeset}, socket, _message),
-    do: put_flash(socket, :error, "Run update failed: #{inspect(changeset.errors)}")
+    do: put_flash(socket, :error, HydraAgentWeb.UserError.message("update the run", changeset))
 
   defp handle_step_result({:ok, _step}, socket, message), do: put_flash(socket, :info, message)
 
   defp handle_step_result({:error, changeset}, socket, _message),
-    do: put_flash(socket, :error, "Step update failed: #{inspect(changeset.errors)}")
+    do: put_flash(socket, :error, HydraAgentWeb.UserError.message("update the step", changeset))
 
   defp error_message(%Ecto.Changeset{} = changeset), do: changeset.errors
   defp error_message(error), do: error

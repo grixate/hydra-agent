@@ -3,6 +3,8 @@ defmodule HydraAgentWeb.McpController do
 
   alias HydraAgent.MCP
 
+  plug HydraAgentWeb.Plugs.RequireOperatorAuthority when action in [:create, :update]
+
   def index(conn, %{"workspace_id" => workspace_id}) do
     servers = MCP.list_servers(workspace_id)
     json(conn, %{data: Enum.map(servers, &server_json/1)})

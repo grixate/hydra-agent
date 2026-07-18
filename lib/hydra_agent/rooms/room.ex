@@ -2,6 +2,8 @@ defmodule HydraAgent.Rooms.Room do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.Security.WorkspaceAssociation
+
   @statuses ~w(active paused archived)
 
   schema "agent_rooms" do
@@ -38,6 +40,7 @@ defmodule HydraAgent.Rooms.Room do
     |> validate_inclusion(:status, @statuses)
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:coordinator_agent)
+    |> WorkspaceAssociation.validate(:coordinator_agent_id, HydraAgent.Runtime.AgentProfile)
     |> unique_constraint([:workspace_id, :slug])
   end
 end

@@ -64,4 +64,25 @@ defmodule HydraAgentWeb.KnowledgeNodeLiveTest do
 
     assert render(view) =~ "relates_to -&gt; Remember Mission Lineage"
   end
+
+  test "node detail keeps its shell anchored to the node workspace", %{conn: conn} do
+    first = workspace_fixture(%{name: "First", slug: "node-shell-first"})
+    second = workspace_fixture(%{name: "Second", slug: "node-shell-second"})
+
+    {:ok, memory} =
+      Knowledge.create_node(%{
+        workspace_id: first.id,
+        type_key: "memory",
+        title: "Workspace anchored memory",
+        body: "The shell must not suggest this record belongs elsewhere.",
+        provenance: %{"kind" => "test"}
+      })
+
+    {:ok, view, _html} =
+      live(conn, ~p"/control/memory/#{memory.id}?workspace_id=#{second.id}")
+
+    active_workspace = view |> element(".workspace-option.is-active") |> render()
+    assert active_workspace =~ "workspace_id=#{first.id}"
+    refute active_workspace =~ "workspace_id=#{second.id}"
+  end
 end

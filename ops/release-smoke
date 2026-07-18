@@ -1,0 +1,127 @@
+#!/bin/sh
+set -eu
+
+image="${HYDRA_IMAGE:-hydra-agent:production-smoke}"
+network="hydra-release-smoke-$$"
+postgres="hydra-release-smoke-postgres-$$"
+app="hydra-release-smoke-app-$$"
+port="${HYDRA_SMOKE_PORT:-4199}"
+secret_key_base="${SECRET_KEY_BASE:-$(openssl rand 64 | base64 | tr -d '\n')}"
+api_token="${HYDRA_API_TOKEN:-$(openssl rand 32 | od -An -tx1 | tr -d ' \n')}"
+postgres_password="${POSTGRES_PASSWORD:-$(openssl rand 24 | od -An -tx1 | tr -d ' \n')}"
+login_body="/tmp/hydra-login-$$.html"
+asset_headers="/tmp/hydra-asset-$$.headers"
+asset_body="/tmp/hydra-asset-$$.body"
+
+cleanup() {
+  docker rm -f "$app" "$postgres" >/dev/null 2>&1 || true
+  docker network rm "$network" >/dev/null 2>&1 || true
+  rm -f "/tmp/hydra-ready-$$.json" "/tmp/hydra-load-$$.txt" \
+    "$login_body" "$asset_headers" "$asset_body"
+}
+trap cleanup EXIT HUP INT TERM
+
+docker network create "$network" >/dev/null
+docker run -d --name "$postgres" --network "$network" \
+  -e POSTGRES_DB=hydra_release_smoke \
+  -e POSTGRES_USER=hydra \
+  -e "POSTGRES_PASSWORD=$postgres_password" \
+  postgres:16-alpine >/dev/null
+
+attempt=0
+until docker exec "$postgres" pg_isready -U hydra -d hydra_release_smoke >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 30 ]; then
+    echo "PostgreSQL did not become ready" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+database_url="ecto://hydra:$postgres_password@$postgres/hydra_release_smoke"
+
+docker run --rm --network "$network" \
+  -e PHX_HOST=hydra.test \
+  -e "SECRET_KEY_BASE=$secret_key_base" \
+  -e "HYDRA_API_TOKEN=$api_token" \
+  -e "DATABASE_URL=$database_url" \
+  "$image" /app/bin/hydra_agent eval 'HydraAgent.Release.migrate()'
+
+docker run -d --name "$app" --network "$network" -p "$port:4000" \
+  -e PHX_SERVER=true \
+  -e PHX_HOST=hydra.test \
+  -e "SECRET_KEY_BASE=$secret_key_base" \
+  -e "HYDRA_API_TOKEN=$api_token" \
+  -e "DATABASE_URL=$database_url" \
+  "$image" >/dev/null
+
+attempt=0
+until curl -fsS -H 'host: hydra.test' -H 'x-forwarded-proto: https' \
+  "http://127.0.0.1:$port/readyz" >/tmp/hydra-ready-$$.json 2>/dev/null; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 45 ]; then
+    docker logs "$app" >&2
+    echo "Hydra did not become ready" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+grep -q '"status":"ready"' "/tmp/hydra-ready-$$.json"
+rm -f "/tmp/hydra-ready-$$.json"
+
+unauthorized="$(curl -sS -o /dev/null -w '%{http_code}' -H 'host: hydra.test' \
+  -H 'x-forwarded-proto: https' "http://127.0.0.1:$port/api/health")"
+test "$unauthorized" = "401"
+
+curl -fsS -H 'host: hydra.test' -H 'x-forwarded-proto: https' \
+  -H "authorization: Bearer $api_token" "http://127.0.0.1:$port/api/health" >/dev/null
+curl -fsS -H 'host: hydra.test' -H 'x-forwarded-proto: https' \
+  -H "authorization: Bearer $api_token" \
+  "http://127.0.0.1:$port/api/metrics/openmetrics" | grep -q '^hydra_up 1$'
+curl -fsS -H 'host: hydra.test' -H 'x-forwarded-proto: https' \
+  "http://127.0.0.1:$port/login" > "$login_body"
+
+asset_path="$(grep -Eo '/assets/[A-Za-z0-9._-]+-[0-9a-f]{32}\.(css|js)(\?vsn=d)?' \
+  "$login_body" | sed -n '1p')"
+test -n "$asset_path"
+
+curl -fsS -D "$asset_headers" -o "$asset_body" \
+  -H 'host: hydra.test' -H 'x-forwarded-proto: https' \
+  -H 'accept-encoding: gzip' \
+  "http://127.0.0.1:$port$asset_path"
+
+normalized_asset_headers="$(tr -d '\r' < "$asset_headers")"
+echo "$normalized_asset_headers" | grep -Eqi '^cache-control:.*public'
+asset_max_age="$(echo "$normalized_asset_headers" |
+  sed -n 's/^[Cc]ache-[Cc]ontrol:.*max-age=\([0-9][0-9]*\).*/\1/p' | sed -n '1p')"
+test -n "$asset_max_age"
+test "$asset_max_age" -ge 31536000
+echo "$normalized_asset_headers" | grep -Eqi '^content-encoding:[[:space:]]*gzip$'
+test "$(od -An -tx1 -N2 "$asset_body" | tr -d ' \n')" = "1f8b"
+
+headers="$(curl -sSI -H 'host: hydra.test' -H 'x-forwarded-proto: https' \
+  "http://127.0.0.1:$port/login")"
+echo "$headers" | grep -qi '^strict-transport-security:'
+
+request=0
+while [ "$request" -lt 100 ]; do
+  request=$((request + 1))
+  curl -sS -o /dev/null -w '%{http_code}\n' \
+    -H 'host: hydra.test' -H 'x-forwarded-proto: https' \
+    -H "authorization: Bearer $api_token" \
+    "http://127.0.0.1:$port/api/health" >> "/tmp/hydra-load-$$.txt" &
+
+  if [ $((request % 20)) -eq 0 ]; then
+    wait
+  fi
+done
+wait
+
+test "$(wc -l < "/tmp/hydra-load-$$.txt" | tr -d ' ')" = "100"
+if grep -vq '^200$' "/tmp/hydra-load-$$.txt"; then
+  echo "concurrent API smoke produced a non-200 response" >&2
+  exit 1
+fi
+
+echo "production release smoke test passed"

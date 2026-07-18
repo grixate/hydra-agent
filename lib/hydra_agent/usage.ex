@@ -23,6 +23,7 @@ defmodule HydraAgent.Usage do
         "output_tokens" => usage["output_tokens"] || 0,
         "total_tokens" =>
           usage["total_tokens"] || (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0),
+        "estimated_cost" => provider_response["estimated_cost"] || usage["estimated_cost"],
         "metadata" => %{"route" => provider_response["route"] || %{}}
       })
 
@@ -46,6 +47,60 @@ defmodule HydraAgent.Usage do
     %Record{} |> Record.changeset(attrs) |> Repo.insert()
   end
 
+  def reserve_provider_call(context, category, requested_tokens, estimated_cost \\ nil)
+      when is_integer(requested_tokens) and requested_tokens >= 0 do
+    context
+    |> stringify_keys()
+    |> Map.merge(%{
+      "category" => category,
+      "status" => "reserved",
+      "total_tokens" => requested_tokens,
+      "estimated_cost" => estimated_cost,
+      "metadata" => %{"kind" => "provider_budget_reservation"}
+    })
+    |> create_record()
+  end
+
+  def complete_provider_reservation(%Record{} = reservation, provider_response) do
+    usage = provider_response["usage"] || %{}
+
+    reservation
+    |> Record.changeset(%{
+      "provider" => provider_response["provider"],
+      "model" => provider_response["model"],
+      "status" => "ok",
+      "input_tokens" => usage["input_tokens"] || 0,
+      "output_tokens" => usage["output_tokens"] || 0,
+      "total_tokens" =>
+        usage["total_tokens"] || (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0),
+      "estimated_cost" =>
+        provider_response["estimated_cost"] || usage["estimated_cost"] ||
+          reservation.estimated_cost,
+      "metadata" =>
+        Map.merge(reservation.metadata || %{}, %{"route" => provider_response["route"] || %{}})
+    })
+    |> Repo.update()
+  end
+
+  def fail_provider_reservation(%Record{} = reservation, error) do
+    reservation
+    |> Record.changeset(%{
+      "status" => "error",
+      "input_tokens" => 0,
+      "output_tokens" => 0,
+      "total_tokens" => 0,
+      "estimated_cost" => nil,
+      "metadata" => Map.merge(reservation.metadata || %{}, %{"error" => error})
+    })
+    |> Repo.update()
+  end
+
+  def attach_provider_context(%Record{} = reservation, attrs) do
+    reservation
+    |> Record.changeset(attrs)
+    |> Repo.update()
+  end
+
   def list_records(workspace_id, opts \\ []) do
     Record
     |> where([record], record.workspace_id == ^workspace_id)
@@ -59,17 +114,46 @@ defmodule HydraAgent.Usage do
   end
 
   def summarize(workspace_id, opts \\ []) do
-    records = list_records(workspace_id, Keyword.merge([limit: 10_000], opts))
+    query =
+      Record
+      |> where([record], record.workspace_id == ^workspace_id)
+      |> maybe_filter_category(opt(opts, :category))
+      |> maybe_filter_agent(opt(opts, :agent_id))
+      |> maybe_filter_run(opt(opts, :run_id))
+      |> maybe_filter_inserted_after(opt(opts, :since))
+
+    totals =
+      query
+      |> select([record], %{
+        records: count(record.id),
+        input_tokens: coalesce(sum(record.input_tokens), 0),
+        output_tokens: coalesce(sum(record.output_tokens), 0),
+        total_tokens: coalesce(sum(record.total_tokens), 0),
+        estimated_cost: coalesce(sum(record.estimated_cost), 0),
+        unpriced_records:
+          fragment(
+            "count(*) FILTER (WHERE ? IS NULL AND ? IN ('ok', 'reserved'))",
+            record.estimated_cost,
+            record.status
+          )
+      })
+      |> Repo.one!()
+
+    by_category =
+      query
+      |> group_by([record], record.category)
+      |> select([record], {record.category, count(record.id)})
+      |> Repo.all()
+      |> Map.new()
 
     %{
-      "records" => length(records),
-      "input_tokens" => Enum.sum(Enum.map(records, & &1.input_tokens)),
-      "output_tokens" => Enum.sum(Enum.map(records, & &1.output_tokens)),
-      "total_tokens" => Enum.sum(Enum.map(records, & &1.total_tokens)),
-      "by_category" =>
-        records
-        |> Enum.group_by(& &1.category)
-        |> Map.new(fn {category, category_records} -> {category, length(category_records)} end)
+      "records" => totals.records,
+      "input_tokens" => totals.input_tokens,
+      "output_tokens" => totals.output_tokens,
+      "total_tokens" => totals.total_tokens,
+      "estimated_cost" => totals.estimated_cost,
+      "unpriced_records" => totals.unpriced_records,
+      "by_category" => by_category
     }
   end
 

@@ -1,5 +1,17 @@
 import Config
 
+if server_workspace_root = System.get_env("HYDRA_SERVER_WORKSPACE_ROOT") do
+  config :hydra_agent, :server_workspace_root, server_workspace_root
+end
+
+if trusted_proxy_ips = System.get_env("HYDRA_TRUSTED_PROXY_IPS") do
+  config :hydra_agent,
+         :trusted_proxy_ips,
+         trusted_proxy_ips
+         |> String.split(",", trim: true)
+         |> Enum.map(&String.trim/1)
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
@@ -24,20 +36,40 @@ if browser_worker_url = System.get_env("HYDRA_BROWSER_WORKER_URL") do
   config :hydra_agent, :browser_worker_url, browser_worker_url
 end
 
+if executables = System.get_env("HYDRA_MCP_STDIO_EXECUTABLES") do
+  config :hydra_agent, :mcp_security,
+    stdio_executable_allowlist:
+      executables |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+end
+
+if env_refs = System.get_env("HYDRA_MCP_ENV_REFS") do
+  config :hydra_agent, :mcp_security,
+    env_ref_allowlist: env_refs |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+end
+
+product_surface =
+  HydraAgent.ReleaseConfig.enum_env!(
+    "HYDRA_PRODUCT_SURFACE",
+    ~w(legacy_simlab blueprint_studio),
+    "legacy_simlab"
+  )
+
+config :hydra_agent, :product_features,
+  surface: String.to_existing_atom(product_surface),
+  balanced_mode: HydraAgent.ReleaseConfig.boolean_env!("HYDRA_BALANCED_MODE", true),
+  deep_mode: HydraAgent.ReleaseConfig.boolean_env!("HYDRA_DEEP_MODE", false),
+  blueprint_import: HydraAgent.ReleaseConfig.boolean_env!("HYDRA_BLUEPRINT_IMPORT", true),
+  legacy_simlab: HydraAgent.ReleaseConfig.boolean_env!("HYDRA_LEGACY_SIMLAB", true)
+
 if config_env() == :prod do
-  database_url =
-    System.get_env("DATABASE_URL") ||
-      raise """
-      environment variable DATABASE_URL is missing.
-      For example: ecto://USER:PASS@HOST/DATABASE
-      """
+  database_url = HydraAgent.ReleaseConfig.required_env!("DATABASE_URL")
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
   config :hydra_agent, HydraAgent.Repo,
-    # ssl: true,
     url: database_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+    pool_size: HydraAgent.ReleaseConfig.positive_integer_env!("POOL_SIZE", 10),
+    ssl: HydraAgent.ReleaseConfig.boolean_env!("DATABASE_SSL"),
     socket_options: maybe_ipv6
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
@@ -45,24 +77,28 @@ if config_env() == :prod do
   # want to use a different value for prod and you most likely don't want
   # to check this value into version control, so we use an environment
   # variable instead.
-  secret_key_base =
-    System.get_env("SECRET_KEY_BASE") ||
-      raise """
-      environment variable SECRET_KEY_BASE is missing.
-      You can generate one by calling: mix phx.gen.secret
-      """
+  secret_key_base = HydraAgent.ReleaseConfig.secret_env!("SECRET_KEY_BASE", 64)
 
-  host = System.get_env("PHX_HOST") || "example.com"
-  port = String.to_integer(System.get_env("PORT") || "4000")
+  host = HydraAgent.ReleaseConfig.public_host_env!("PHX_HOST")
+  port = HydraAgent.ReleaseConfig.positive_integer_env!("PORT", 4000)
 
   config :hydra_agent, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   api_token_env = System.get_env("HYDRA_API_TOKEN_ENV") || "HYDRA_API_TOKEN"
-  api_auth_required? = System.get_env("HYDRA_API_AUTH_REQUIRED") in ~w(true 1)
+  _api_token = HydraAgent.ReleaseConfig.secret_env!(api_token_env, 32)
 
   config :hydra_agent, :api_auth,
-    enabled?: api_auth_required? or is_binary(System.get_env("HYDRA_API_TOKEN_ENV")),
+    enabled?: true,
     token_env: api_token_env
+
+  config :hydra_agent, :rate_limits,
+    api_edge: {HydraAgent.ReleaseConfig.positive_integer_env!("RATE_LIMIT_API_EDGE", 1_200), 60},
+    api_read: {HydraAgent.ReleaseConfig.positive_integer_env!("RATE_LIMIT_API_READ", 600), 60},
+    api_write: {HydraAgent.ReleaseConfig.positive_integer_env!("RATE_LIMIT_API_WRITE", 120), 60}
+
+  # The browser control plane contains workspace data and mutations. Unlike
+  # local loopback development, a production release always fails closed.
+  config :hydra_agent, :browser_auth, enabled?: true
 
   config :hydra_agent, HydraAgentWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
@@ -74,7 +110,9 @@ if config_env() == :prod do
       ip: {0, 0, 0, 0, 0, 0, 0, 0},
       port: port
     ],
-    secret_key_base: secret_key_base
+    secret_key_base: secret_key_base,
+    check_origin: ["//#{host}"],
+    force_ssl: [hsts: true, rewrite_on: [:x_forwarded_proto]]
 
   # ## SSL Support
   #

@@ -3,6 +3,7 @@ defmodule HydraAgent.Runtime.ToolPolicy do
   import Ecto.Changeset
 
   alias HydraAgent.Runtime.Autonomy
+  alias HydraAgent.Security.WorkspaceAssociation
   alias HydraAgent.Tools.Registry
 
   schema "tool_policies" do
@@ -47,6 +48,7 @@ defmodule HydraAgent.Runtime.ToolPolicy do
     |> validate_dangerous_approval()
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:agent)
+    |> WorkspaceAssociation.validate(:agent_id, HydraAgent.Runtime.AgentProfile)
   end
 
   defp validate_allowed_values(changeset, field, allowed) do

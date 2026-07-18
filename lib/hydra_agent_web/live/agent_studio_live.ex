@@ -124,7 +124,7 @@ defmodule HydraAgentWeb.AgentStudioLive do
               |> load_workspace_state()
 
             {:error, error} ->
-              put_flash(socket, :error, "Room could not be created: #{inspect(error)}")
+              put_flash(socket, :error, HydraAgentWeb.UserError.message("create the room", error))
           end
       end
 
@@ -156,7 +156,11 @@ defmodule HydraAgentWeb.AgentStudioLive do
               |> load_workspace_state()
 
             {:error, error} ->
-              put_flash(socket, :error, "Member could not be added: #{inspect(error)}")
+              put_flash(
+                socket,
+                :error,
+                HydraAgentWeb.UserError.message("add the room member", error)
+              )
           end
       end
 
@@ -187,7 +191,11 @@ defmodule HydraAgentWeb.AgentStudioLive do
               |> load_workspace_state()
 
             {:error, error} ->
-              put_flash(socket, :error, "Room message failed: #{inspect(error)}")
+              put_flash(
+                socket,
+                :error,
+                HydraAgentWeb.UserError.message("send the room message", error)
+              )
           end
       end
 
@@ -224,7 +232,11 @@ defmodule HydraAgentWeb.AgentStudioLive do
               |> load_workspace_state()
 
             {:error, error} ->
-              put_flash(socket, :error, "Binding could not be created: #{inspect(error)}")
+              put_flash(
+                socket,
+                :error,
+                HydraAgentWeb.UserError.message("create the gateway binding", error)
+              )
           end
       end
 
@@ -244,7 +256,11 @@ defmodule HydraAgentWeb.AgentStudioLive do
           put_flash(socket, :error, "Create or select a room first")
 
         {:error, error} ->
-          put_flash(socket, :error, "Telegram test failed: #{inspect(error)}")
+          put_flash(
+            socket,
+            :error,
+            HydraAgentWeb.UserError.message("send the Telegram test", error)
+          )
       end
 
     {:noreply, load_workspace_state(socket)}
@@ -265,7 +281,11 @@ defmodule HydraAgentWeb.AgentStudioLive do
           put_flash(socket, :error, "Create or select a room first")
 
         {:error, error} ->
-          put_flash(socket, :error, "Telegram retry failed: #{inspect(error)}")
+          put_flash(
+            socket,
+            :error,
+            HydraAgentWeb.UserError.message("retry Telegram delivery", error)
+          )
       end
 
     {:noreply, socket}
@@ -286,7 +306,7 @@ defmodule HydraAgentWeb.AgentStudioLive do
           put_flash(socket, :error, "Create or select a room first")
 
         {:error, error} ->
-          put_flash(socket, :error, "Delivery retry failed: #{inspect(error)}")
+          put_flash(socket, :error, HydraAgentWeb.UserError.message("retry the delivery", error))
       end
 
     {:noreply, socket}
@@ -307,7 +327,11 @@ defmodule HydraAgentWeb.AgentStudioLive do
           put_flash(socket, :error, "Create or select a room first")
 
         {:error, error} ->
-          put_flash(socket, :error, "Proposal approval failed: #{inspect(error)}")
+          put_flash(
+            socket,
+            :error,
+            HydraAgentWeb.UserError.message("approve the proposal", error)
+          )
       end
 
     {:noreply, socket}
@@ -330,7 +354,8 @@ defmodule HydraAgentWeb.AgentStudioLive do
          |> load_workspace_state()}
 
       {:error, error} ->
-        {:noreply, put_flash(socket, :error, "Agent could not be created: #{inspect(error)}")}
+        {:noreply,
+         put_flash(socket, :error, HydraAgentWeb.UserError.message("create the agent", error))}
     end
   end
 
@@ -367,12 +392,16 @@ defmodule HydraAgentWeb.AgentStudioLive do
                   put_flash(
                     socket,
                     :error,
-                    "Starter pack could not be imported: #{inspect(error)}"
+                    HydraAgentWeb.UserError.message("import the starter pack", error)
                   )
               end
 
             {:error, errors} ->
-              put_flash(socket, :error, "Starter pack is invalid: #{inspect(errors)}")
+              put_flash(
+                socket,
+                :error,
+                HydraAgentWeb.UserError.message("apply the starter pack", errors)
+              )
           end
       end
 
@@ -423,7 +452,7 @@ defmodule HydraAgentWeb.AgentStudioLive do
 
     socket =
       with false <- is_nil(agent),
-           suite <- Evals.get_suite!(suite_id),
+           {:ok, suite} <- selected_eval_suite(socket, suite_id),
            {:ok, run} <-
              Evals.create_run(%{
                workspace_id: socket.assigns.workspace_id,
@@ -434,8 +463,14 @@ defmodule HydraAgentWeb.AgentStudioLive do
            {:ok, completed_run} <- Evals.execute_run(run) do
         assign(socket, :eval_result, Evals.report(completed_run))
       else
-        true -> put_flash(socket, :error, "Select an agent before running evals")
-        {:error, error} -> put_flash(socket, :error, "Eval failed: #{inspect(error)}")
+        true ->
+          put_flash(socket, :error, "Select an agent before running evals")
+
+        {:error, :suite_not_found} ->
+          put_flash(socket, :error, "Eval suite not found in this workspace")
+
+        {:error, error} ->
+          put_flash(socket, :error, HydraAgentWeb.UserError.message("run the eval", error))
       end
 
     {:noreply, socket}
@@ -504,7 +539,7 @@ defmodule HydraAgentWeb.AgentStudioLive do
         {:error, "No Daily OS starter packs are available"}
 
       {:error, error} ->
-        {:error, "Daily OS setup failed: #{inspect(error)}"}
+        {:error, HydraAgentWeb.UserError.message("finish Daily OS setup", error)}
     end
   end
 
@@ -1026,11 +1061,13 @@ defmodule HydraAgentWeb.AgentStudioLive do
         )
 
       {:error, error} ->
-        put_flash(socket, :error, "Studio run failed: #{inspect(error)}")
+        put_flash(socket, :error, HydraAgentWeb.UserError.message("start the studio run", error))
     end
   end
 
-  defp load_workspaces(socket), do: assign(socket, :workspaces, Runtime.list_workspaces())
+  defp load_workspaces(socket) do
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
+  end
 
   defp load_workspace_state(%{assigns: %{workspace_id: nil}} = socket) do
     socket
@@ -1060,6 +1097,13 @@ defmodule HydraAgentWeb.AgentStudioLive do
 
   defp selected_agent(socket) do
     Enum.find(socket.assigns.agents, &(&1.id == socket.assigns.agent_id))
+  end
+
+  defp selected_eval_suite(socket, suite_id) do
+    case Enum.find(socket.assigns.eval_suites, &(&1.id == parse_id(suite_id))) do
+      nil -> {:error, :suite_not_found}
+      suite -> {:ok, suite}
+    end
   end
 
   defp selected_room(%{assigns: assigns}), do: selected_room(assigns)

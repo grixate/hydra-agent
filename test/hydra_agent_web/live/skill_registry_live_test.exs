@@ -221,6 +221,49 @@ defmodule HydraAgentWeb.SkillRegistryLiveTest do
     assert Skills.get_skill!(skill.id).status == "archived"
   end
 
+  test "forged skill and proposal ids cannot mutate another workspace", %{conn: conn} do
+    enable_browser_auth()
+
+    allowed = workspace_fixture(%{name: "Allowed", slug: "skill-mutation-allowed"})
+    denied = workspace_fixture(%{name: "Denied", slug: "skill-mutation-denied"})
+    operator = user_fixture()
+    membership_fixture(operator, allowed, "admin")
+
+    {:ok, foreign_skill} =
+      Skills.create_skill(%{
+        workspace_id: denied.id,
+        name: "Foreign Skill",
+        slug: "foreign-skill-mutation",
+        description: "Must remain in its workspace.",
+        instructions: "Do not accept forged lifecycle events."
+      })
+
+    {:ok, foreign_proposal} =
+      Skills.create_refinement_proposal(foreign_skill, %{
+        "description" => "Foreign refinement",
+        "instructions" => "Must not be approved elsewhere."
+      })
+
+    {:ok, skill_view, _html} =
+      live(authenticated_session(conn, operator), ~p"/control/skills?workspace_id=#{allowed.id}")
+
+    assert render_click(skill_view, "test-skill", %{"id" => foreign_skill.id}) =~
+             "Skill not found in this workspace"
+
+    assert Skills.get_skill!(foreign_skill.id).status == "proposed"
+
+    {:ok, proposal_view, _html} =
+      live(
+        authenticated_session(build_conn(), operator),
+        ~p"/control/skills?workspace_id=#{allowed.id}"
+      )
+
+    assert render_click(proposal_view, "approve-proposal", %{"id" => foreign_proposal.id}) =~
+             "Skill proposal not found in this workspace"
+
+    assert Skills.get_improvement_proposal!(foreign_proposal.id).status == "draft"
+  end
+
   test "registry skill learning actions seed, evaluate, refine, and prune", %{conn: conn} do
     workspace = workspace_fixture(%{name: "Ops", slug: "ops-skills-learning-actions"})
 
@@ -709,5 +752,20 @@ defmodule HydraAgentWeb.SkillRegistryLiveTest do
     assert html =~ "Activation Overrides"
     assert html =~ "Ship with human supervision"
     assert html =~ "actor skill_detail"
+  end
+
+  defp enable_browser_auth do
+    original = Application.get_env(:hydra_agent, :browser_auth)
+    Application.put_env(:hydra_agent, :browser_auth, enabled?: true)
+
+    on_exit(fn ->
+      if original,
+        do: Application.put_env(:hydra_agent, :browser_auth, original),
+        else: Application.delete_env(:hydra_agent, :browser_auth)
+    end)
+  end
+
+  defp authenticated_session(conn, user) do
+    init_test_session(conn, user_id: user.id, session_version: user.session_version)
   end
 end

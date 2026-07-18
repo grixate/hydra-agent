@@ -41,14 +41,19 @@ defmodule HydraAgentWeb.ControlLive do
 
   @impl true
   def handle_event("start-run", %{"id" => id}, socket) do
-    socket = id |> get_run() |> Runtime.start_run() |> handle_run_result(socket, "Run started")
+    socket =
+      socket
+      |> get_run(id)
+      |> Runtime.start_run()
+      |> handle_run_result(socket, "Run started")
+
     {:noreply, load_workspace_state(socket)}
   end
 
   def handle_event("pause-run", %{"id" => id}, socket) do
     socket =
-      id
-      |> get_run()
+      socket
+      |> get_run(id)
       |> Runtime.pause_run(%{"actor" => "control_plane"})
       |> handle_run_result(socket, "Run paused")
 
@@ -57,8 +62,8 @@ defmodule HydraAgentWeb.ControlLive do
 
   def handle_event("resume-run", %{"id" => id}, socket) do
     socket =
-      id
-      |> get_run()
+      socket
+      |> get_run(id)
       |> Runtime.resume_run(%{"actor" => "control_plane"})
       |> handle_run_result(socket, "Run resumed")
 
@@ -66,12 +71,10 @@ defmodule HydraAgentWeb.ControlLive do
   end
 
   def handle_event("cancel-run", %{"id" => id}, socket) do
-    result =
-      id
-      |> get_run()
-      |> Runtime.cancel_run(%{"actor" => "control_plane"})
+    run = get_run(socket, id)
+    result = Runtime.cancel_run(run, %{"actor" => "control_plane"})
 
-    AgentSupervisor.stop_run_worker(id)
+    AgentSupervisor.stop_run_worker(run.id)
 
     socket = handle_run_result(result, socket, "Run canceled")
     {:noreply, load_workspace_state(socket)}
@@ -79,10 +82,25 @@ defmodule HydraAgentWeb.ControlLive do
 
   def handle_event("start-worker", %{"id" => id}, socket) do
     socket =
-      case AgentSupervisor.start_run_worker(id) do
-        {:ok, _pid} -> put_flash(socket, :info, "Worker started")
-        {:error, {:already_started, _pid}} -> put_flash(socket, :info, "Worker already running")
-        {:error, reason} -> put_flash(socket, :error, "Worker start failed: #{inspect(reason)}")
+      case find_run(socket, id) do
+        nil ->
+          put_flash(socket, :error, "Run not found in this workspace")
+
+        run ->
+          case AgentSupervisor.start_run_worker(run.id) do
+            {:ok, _pid} ->
+              put_flash(socket, :info, "Worker started")
+
+            {:error, {:already_started, _pid}} ->
+              put_flash(socket, :info, "Worker already running")
+
+            {:error, reason} ->
+              put_flash(
+                socket,
+                :error,
+                HydraAgentWeb.UserError.message("start the worker", reason)
+              )
+          end
       end
 
     {:noreply, load_workspace_state(socket)}
@@ -90,10 +108,25 @@ defmodule HydraAgentWeb.ControlLive do
 
   def handle_event("stop-worker", %{"id" => id}, socket) do
     socket =
-      case AgentSupervisor.stop_run_worker(id) do
-        :ok -> put_flash(socket, :info, "Worker stopped")
-        {:error, :not_found} -> put_flash(socket, :info, "No worker was running")
-        {:error, reason} -> put_flash(socket, :error, "Worker stop failed: #{inspect(reason)}")
+      case find_run(socket, id) do
+        nil ->
+          put_flash(socket, :error, "Run not found in this workspace")
+
+        run ->
+          case AgentSupervisor.stop_run_worker(run.id) do
+            :ok ->
+              put_flash(socket, :info, "Worker stopped")
+
+            {:error, :not_found} ->
+              put_flash(socket, :info, "No worker was running")
+
+            {:error, reason} ->
+              put_flash(
+                socket,
+                :error,
+                HydraAgentWeb.UserError.message("stop the worker", reason)
+              )
+          end
       end
 
     {:noreply, load_workspace_state(socket)}
@@ -101,8 +134,8 @@ defmodule HydraAgentWeb.ControlLive do
 
   def handle_event("approve-step", %{"id" => id}, socket) do
     socket =
-      id
-      |> get_step()
+      socket
+      |> get_step(id)
       |> Runtime.approve_run_step(%{"actor" => "control_plane"})
       |> handle_step_result(socket, "Step approved")
 
@@ -111,8 +144,8 @@ defmodule HydraAgentWeb.ControlLive do
 
   def handle_event("reject-step", %{"id" => id}, socket) do
     socket =
-      id
-      |> get_step()
+      socket
+      |> get_step(id)
       |> Runtime.reject_run_step(%{"actor" => "control_plane"})
       |> handle_step_result(socket, "Step rejected")
 
@@ -120,23 +153,15 @@ defmodule HydraAgentWeb.ControlLive do
   end
 
   def handle_event("promote-memory", %{"id" => id}, socket) do
-    socket =
-      id
-      |> parse_id()
-      |> Memory.promote_proposal(%{"actor" => "control_plane"})
-      |> handle_memory_result(socket, "Memory promoted")
-
-    {:noreply, load_workspace_state(socket)}
+    with_scoped_memory(socket, id, "Memory promoted", fn node ->
+      Memory.promote_proposal(node, %{"actor" => "control_plane"})
+    end)
   end
 
   def handle_event("reject-memory", %{"id" => id}, socket) do
-    socket =
-      id
-      |> parse_id()
-      |> Memory.reject_proposal(%{"actor" => "control_plane"})
-      |> handle_memory_result(socket, "Memory rejected")
-
-    {:noreply, load_workspace_state(socket)}
+    with_scoped_memory(socket, id, "Memory rejected", fn node ->
+      Memory.reject_proposal(node, %{"actor" => "control_plane"})
+    end)
   end
 
   def handle_event(
@@ -147,20 +172,18 @@ defmodule HydraAgentWeb.ControlLive do
       when decision in ["promote", "reject"] do
     attrs = %{"actor" => "control_plane", "reason" => Map.get(params, "reason", "")}
 
-    result =
-      case decision do
-        "promote" -> id |> parse_id() |> Memory.promote_proposal(attrs)
-        "reject" -> id |> parse_id() |> Memory.reject_proposal(attrs)
-      end
-
     message = if decision == "promote", do: "Memory promoted", else: "Memory rejected"
-    socket = handle_memory_result(result, socket, message)
 
-    {:noreply, load_workspace_state(socket)}
+    with_scoped_memory(socket, id, message, fn node ->
+      case decision do
+        "promote" -> Memory.promote_proposal(node, attrs)
+        "reject" -> Memory.reject_proposal(node, attrs)
+      end
+    end)
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
 
   defp load_workspace_state(%{assigns: %{workspace_id: nil}} = socket) do
@@ -257,23 +280,46 @@ defmodule HydraAgentWeb.ControlLive do
 
   defp parse_id(_id), do: nil
 
-  defp get_run(id), do: id |> parse_id() |> Runtime.get_run!()
-  defp get_step(id), do: id |> parse_id() |> Runtime.get_run_step!()
+  defp get_run(socket, id),
+    do: Runtime.get_run_for_workspace!(socket.assigns.workspace_id, parse_id(id))
+
+  defp find_run(socket, id) do
+    parsed_id = parse_id(id)
+    Enum.find(socket.assigns.runs, &(&1.id == parsed_id))
+  end
+
+  defp get_step(socket, id),
+    do:
+      Runtime.get_run_step_for_workspace_by_id!(
+        socket.assigns.workspace_id,
+        parse_id(id)
+      )
 
   defp handle_run_result({:ok, _run}, socket, message), do: put_flash(socket, :info, message)
 
   defp handle_run_result({:error, changeset}, socket, _message),
-    do: put_flash(socket, :error, "Run update failed: #{inspect(changeset.errors)}")
+    do: put_flash(socket, :error, HydraAgentWeb.UserError.message("update the run", changeset))
 
   defp handle_step_result({:ok, _step}, socket, message), do: put_flash(socket, :info, message)
 
   defp handle_step_result({:error, changeset}, socket, _message),
-    do: put_flash(socket, :error, "Step update failed: #{inspect(changeset.errors)}")
+    do: put_flash(socket, :error, HydraAgentWeb.UserError.message("update the step", changeset))
 
   defp handle_memory_result({:ok, _node}, socket, message), do: put_flash(socket, :info, message)
 
   defp handle_memory_result({:error, %{} = error}, socket, _message),
-    do: put_flash(socket, :error, "Memory update failed: #{inspect(error)}")
+    do: put_flash(socket, :error, HydraAgentWeb.UserError.message("update memory", error))
+
+  defp with_scoped_memory(socket, id, message, callback) do
+    case Knowledge.get_node_for_workspace(socket.assigns.workspace_id, parse_id(id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Memory not found in this workspace")}
+
+      node ->
+        socket = node |> callback.() |> handle_memory_result(socket, message)
+        {:noreply, load_workspace_state(socket)}
+    end
+  end
 
   defp status_counts(records) do
     records
@@ -289,10 +335,10 @@ defmodule HydraAgentWeb.ControlLive do
     ~H"""
     <section id="control-plane" class="space-y-8">
       <ControlShell.header
-        active={:mission}
-        description="Durable orchestration, policy pressure, budgets, and graph state for the selected workspace."
+        active={:overview}
+        description="Durable runs, approvals, budgets, and knowledge for the selected workspace."
         eyebrow="Operator control"
-        title="Runtime Console"
+        title="Runtime console"
         workspaces={@workspaces}
         workspace_id={@workspace_id}
       />
@@ -307,7 +353,7 @@ defmodule HydraAgentWeb.ControlLive do
           relationships={@relationships}
         />
 
-        <div class="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
+        <div class="grid min-w-0 gap-6 xl:grid-cols-[1.3fr_0.7fr]">
           <ControlComponents.runs_panel runs={@runs} worker_statuses={@worker_statuses} />
           <ControlComponents.approvals_panel approvals={@approvals} />
         </div>

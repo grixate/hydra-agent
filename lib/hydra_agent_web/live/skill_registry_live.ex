@@ -6,6 +6,7 @@ defmodule HydraAgentWeb.SkillRegistryLive do
   alias HydraAgentWeb.ControlShell
 
   @statuses ["all" | Skill.statuses()]
+  @eval_atoms %{"suite_id" => :suite_id, "threshold" => :threshold}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -44,19 +45,35 @@ defmodule HydraAgentWeb.SkillRegistryLive do
   end
 
   def handle_event("test-skill", %{"id" => id}, socket) do
-    id |> skill() |> Skills.test_skill() |> handle_skill_result(socket, "Skill moved to testing")
+    with_scoped_skill(socket, id, fn skill ->
+      skill
+      |> Skills.test_skill()
+      |> handle_skill_result(socket, "Skill moved to testing")
+    end)
   end
 
   def handle_event("activate-skill", %{"id" => id}, socket) do
-    id |> skill() |> Skills.activate_skill() |> handle_skill_result(socket, "Skill activated")
+    with_scoped_skill(socket, id, fn skill ->
+      skill
+      |> Skills.activate_skill()
+      |> handle_skill_result(socket, "Skill activated")
+    end)
   end
 
   def handle_event("deprecate-skill", %{"id" => id}, socket) do
-    id |> skill() |> Skills.deprecate_skill() |> handle_skill_result(socket, "Skill deprecated")
+    with_scoped_skill(socket, id, fn skill ->
+      skill
+      |> Skills.deprecate_skill()
+      |> handle_skill_result(socket, "Skill deprecated")
+    end)
   end
 
   def handle_event("archive-skill", %{"id" => id}, socket) do
-    id |> skill() |> Skills.archive_skill() |> handle_skill_result(socket, "Skill archived")
+    with_scoped_skill(socket, id, fn skill ->
+      skill
+      |> Skills.archive_skill()
+      |> handle_skill_result(socket, "Skill archived")
+    end)
   end
 
   def handle_event("seed-standard-pack", _params, socket) do
@@ -68,97 +85,135 @@ defmodule HydraAgentWeb.SkillRegistryLive do
          |> load_workspace_state()}
 
       {:error, error} ->
-        {:noreply, put_flash(socket, :error, "Skill pack seeding failed: #{inspect(error)}")}
+        {:noreply,
+         put_flash(socket, :error, HydraAgentWeb.UserError.message("seed the skill pack", error))}
     end
   end
 
   def handle_event("generate-eval-suite", %{"id" => id}, socket) do
-    case id |> skill() |> Skills.generate_eval_suite_for_skill() do
-      {:ok, _result} ->
-        {:noreply,
-         socket |> put_flash(:info, "Skill eval suite generated") |> load_workspace_state()}
+    with_scoped_skill(socket, id, fn skill ->
+      case Skills.generate_eval_suite_for_skill(skill) do
+        {:ok, _result} ->
+          {:noreply,
+           socket |> put_flash(:info, "Skill eval suite generated") |> load_workspace_state()}
 
-      {:error, error} ->
-        {:noreply, put_flash(socket, :error, "Eval generation failed: #{inspect(error)}")}
-    end
+        {:error, error} ->
+          {:noreply,
+           put_flash(socket, :error, HydraAgentWeb.UserError.message("generate the eval", error))}
+      end
+    end)
   end
 
   def handle_event("run-experiment", %{"id" => id}, socket) do
-    case id |> skill() |> Skills.run_skill_experiment(%{"created_by" => "skill_registry"}) do
-      {:ok, experiment} ->
-        message =
-          if experiment.selected_proposal_id do
-            "Skill experiment completed and drafted a winning refinement"
-          else
-            "Skill experiment completed; baseline remained strongest"
-          end
+    with_scoped_skill(socket, id, fn skill ->
+      case Skills.run_skill_experiment(skill, %{"created_by" => "skill_registry"}) do
+        {:ok, experiment} ->
+          message =
+            if experiment.selected_proposal_id do
+              "Skill experiment completed and drafted a winning refinement"
+            else
+              "Skill experiment completed; baseline remained strongest"
+            end
 
-        {:noreply, socket |> put_flash(:info, message) |> load_workspace_state()}
+          {:noreply, socket |> put_flash(:info, message) |> load_workspace_state()}
 
-      {:error, error} ->
-        {:noreply, put_flash(socket, :error, "Skill experiment failed: #{inspect(error)}")}
-    end
+        {:error, error} ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             HydraAgentWeb.UserError.message("run the skill experiment", error)
+           )}
+      end
+    end)
   end
 
   def handle_event("propose-refinement", %{"id" => id}, socket) do
-    selected_skill = skill(id)
+    with_scoped_skill(socket, id, fn selected_skill ->
+      case Skills.create_refinement_proposal(selected_skill, %{
+             "description" => selected_skill.description,
+             "instructions" => refinement_instructions(selected_skill),
+             "metadata" => %{
+               "created_by" => "skill_registry",
+               "reason" => "operator refinement"
+             }
+           }) do
+        {:ok, _proposal} ->
+          {:noreply,
+           socket |> put_flash(:info, "Refinement proposal drafted") |> load_workspace_state()}
 
-    case Skills.create_refinement_proposal(selected_skill, %{
-           "description" => selected_skill.description,
-           "instructions" => refinement_instructions(selected_skill),
-           "metadata" => %{"created_by" => "skill_registry", "reason" => "operator refinement"}
-         }) do
-      {:ok, _proposal} ->
-        {:noreply,
-         socket |> put_flash(:info, "Refinement proposal drafted") |> load_workspace_state()}
-
-      {:error, error} ->
-        {:noreply, put_flash(socket, :error, "Refinement proposal failed: #{inspect(error)}")}
-    end
+        {:error, error} ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             HydraAgentWeb.UserError.message("create the refinement proposal", error)
+           )}
+      end
+    end)
   end
 
   def handle_event("propose-prune", %{"id" => id}, socket) do
-    case id
-         |> skill()
-         |> Skills.create_prune_proposal(%{
-           "metadata" => %{"created_by" => "skill_registry", "reason" => "operator prune review"}
-         }) do
-      {:ok, _proposal} ->
-        {:noreply, socket |> put_flash(:info, "Prune proposal drafted") |> load_workspace_state()}
+    with_scoped_skill(socket, id, fn skill ->
+      case Skills.create_prune_proposal(skill, %{
+             "metadata" => %{
+               "created_by" => "skill_registry",
+               "reason" => "operator prune review"
+             }
+           }) do
+        {:ok, _proposal} ->
+          {:noreply,
+           socket |> put_flash(:info, "Prune proposal drafted") |> load_workspace_state()}
 
-      {:error, error} ->
-        {:noreply, put_flash(socket, :error, "Prune proposal failed: #{inspect(error)}")}
-    end
+        {:error, error} ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             HydraAgentWeb.UserError.message("create the prune proposal", error)
+           )}
+      end
+    end)
   end
 
   def handle_event("approve-proposal", %{"id" => id}, socket) do
-    proposal = id |> parse_id() |> Skills.get_improvement_proposal!()
+    with_scoped_proposal(socket, id, fn proposal ->
+      case Skills.approve_improvement_proposal(proposal, %{"actor" => "skill_registry"}) do
+        {:ok, _result} ->
+          {:noreply,
+           socket |> put_flash(:info, "Skill proposal approved") |> load_workspace_state()}
 
-    case Skills.approve_improvement_proposal(proposal, %{"actor" => "skill_registry"}) do
-      {:ok, _result} ->
-        {:noreply,
-         socket |> put_flash(:info, "Skill proposal approved") |> load_workspace_state()}
-
-      {:error, error} ->
-        {:noreply, put_flash(socket, :error, "Proposal approval failed: #{inspect(error)}")}
-    end
+        {:error, error} ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             HydraAgentWeb.UserError.message("approve the proposal", error)
+           )}
+      end
+    end)
   end
 
   def handle_event("reject-proposal", %{"id" => id}, socket) do
-    proposal = id |> parse_id() |> Skills.get_improvement_proposal!()
+    with_scoped_proposal(socket, id, fn proposal ->
+      case Skills.reject_improvement_proposal(proposal, %{"actor" => "skill_registry"}) do
+        {:ok, _proposal} ->
+          {:noreply,
+           socket |> put_flash(:info, "Skill proposal rejected") |> load_workspace_state()}
 
-    case Skills.reject_improvement_proposal(proposal, %{"actor" => "skill_registry"}) do
-      {:ok, _proposal} ->
-        {:noreply,
-         socket |> put_flash(:info, "Skill proposal rejected") |> load_workspace_state()}
-
-      {:error, error} ->
-        {:noreply, put_flash(socket, :error, "Proposal rejection failed: #{inspect(error)}")}
-    end
+        {:error, error} ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             HydraAgentWeb.UserError.message("reject the proposal", error)
+           )}
+      end
+    end)
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
 
   defp load_workspace_state(%{assigns: %{workspace_id: nil}} = socket) do
@@ -207,7 +262,8 @@ defmodule HydraAgentWeb.SkillRegistryLive do
   end
 
   defp handle_skill_result({:error, changeset}, socket, _message) do
-    {:noreply, put_flash(socket, :error, "Skill update failed: #{inspect(changeset.errors)}")}
+    {:noreply,
+     put_flash(socket, :error, HydraAgentWeb.UserError.message("update the skill", changeset))}
   end
 
   defp selected_workspace_id([], _param), do: nil
@@ -232,7 +288,22 @@ defmodule HydraAgentWeb.SkillRegistryLive do
     end
   end
 
-  defp skill(id), do: id |> parse_id() |> Skills.get_skill!()
+  defp with_scoped_skill(socket, id, callback) do
+    case Skills.get_skill_for_workspace(socket.assigns.workspace_id, parse_id(id)) do
+      nil -> {:noreply, put_flash(socket, :error, "Skill not found in this workspace")}
+      skill -> callback.(skill)
+    end
+  end
+
+  defp with_scoped_proposal(socket, id, callback) do
+    case Skills.get_improvement_proposal_for_workspace(
+           socket.assigns.workspace_id,
+           parse_id(id)
+         ) do
+      nil -> {:noreply, put_flash(socket, :error, "Skill proposal not found in this workspace")}
+      proposal -> callback.(proposal)
+    end
+  end
 
   defp refinement_instructions(skill) do
     base = skill.instructions |> to_string() |> String.trim()
@@ -340,7 +411,7 @@ defmodule HydraAgentWeb.SkillRegistryLive do
 
   defp eval_meta(skill, key) do
     evals = skill.evals || %{}
-    Map.get(evals, key) || Map.get(evals, String.to_atom(key))
+    Map.get(evals, key) || Map.get(evals, Map.get(@eval_atoms, key))
   end
 
   defp parse_float(value) do

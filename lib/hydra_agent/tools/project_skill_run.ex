@@ -1,6 +1,8 @@
 defmodule HydraAgent.Tools.ProjectSkillRun do
   @behaviour HydraAgent.Tool
 
+  alias HydraAgent.Security.{TrustedProgram, WorkspacePath}
+
   @runtimes %{
     "shell" => "bash",
     "node" => "node",
@@ -28,20 +30,25 @@ defmodule HydraAgent.Tools.ProjectSkillRun do
     input = stringify_keys(input || %{})
     context = stringify_keys(context || %{})
 
-    with {:ok, runtime} <- runtime(input["runtime"]),
+    max_output_bytes = input["max_output_bytes"] || 100_000
+
+    with {:ok, runtime_name} <- runtime(input["runtime"]),
          {:ok, root} <- workspace_root(context),
          {:ok, slug} <- safe_segment(input["skill_slug"], "skill_slug"),
          {:ok, entrypoint} <- safe_entrypoint(input["entrypoint"]),
-         skill_dir <- Path.join([root, ".hydra", "skills", slug]),
-         executable <- Path.expand(Path.join(skill_dir, entrypoint)),
-         :ok <- inside?(executable, skill_dir),
-         true <- File.regular?(executable) do
-      args = safe_args(input["args"] || [])
-
+         {:ok, skill_dir} <-
+           WorkspacePath.resolve(root, Path.join([".hydra", "skills", slug]), kind: :directory),
+         {:ok, executable} <-
+           WorkspacePath.resolve(root, Path.join(skill_dir, entrypoint), kind: :regular),
+         true <- WorkspacePath.lexically_inside?(executable, skill_dir),
+         {:ok, runtime} <-
+           TrustedProgram.resolve(runtime_name, root, allowed: Map.values(@runtimes)),
+         {:ok, args} <- safe_args(input["args"] || []),
+         :ok <- validate_max_output_bytes(max_output_bytes) do
       {output, exit_status} =
         System.cmd(runtime, [executable | args], cd: skill_dir, stderr_to_stdout: true)
 
-      {output, truncated?} = truncate(output, input["max_output_bytes"] || 100_000)
+      {output, truncated?} = truncate(output, max_output_bytes)
 
       {:ok,
        %{
@@ -53,7 +60,7 @@ defmodule HydraAgent.Tools.ProjectSkillRun do
          "truncated" => truncated?
        }}
     else
-      false -> {:error, %{"reason" => "project_skill_entrypoint_missing"}}
+      false -> {:error, %{"reason" => "project_skill_entrypoint_outside_workspace"}}
       error -> error
     end
   rescue
@@ -73,7 +80,7 @@ defmodule HydraAgent.Tools.ProjectSkillRun do
 
   defp workspace_root(context) do
     root = context["workspace_root"] || File.cwd!()
-    {:ok, Path.expand(root)}
+    WorkspacePath.root(root)
   end
 
   defp safe_segment(value, field) when is_binary(value) do
@@ -93,7 +100,9 @@ defmodule HydraAgent.Tools.ProjectSkillRun do
       Path.type(normalized) == :absolute ->
         {:error, %{"reason" => "unsafe_project_skill_entrypoint"}}
 
-      String.contains?(normalized, "..") ->
+      normalized
+      |> Path.split()
+      |> Enum.any?(&(&1 in ["..", ".", ""])) ->
         {:error, %{"reason" => "unsafe_project_skill_entrypoint"}}
 
       normalized == "" ->
@@ -106,18 +115,22 @@ defmodule HydraAgent.Tools.ProjectSkillRun do
 
   defp safe_entrypoint(_value), do: {:error, %{"reason" => "unsafe_project_skill_entrypoint"}}
 
-  defp safe_args(args) when is_list(args), do: Enum.map(args, &to_string/1) |> Enum.take(20)
-  defp safe_args(_args), do: []
-
-  defp inside?(path, root) do
-    expanded_root = Path.expand(root)
-
-    if path == expanded_root or String.starts_with?(path, expanded_root <> "/") do
-      :ok
+  defp safe_args(args) when is_list(args) do
+    if length(args) <= 20 and Enum.all?(args, &(is_binary(&1) and byte_size(&1) <= 8_192)) do
+      {:ok, args}
     else
-      {:error, %{"reason" => "project_skill_entrypoint_outside_workspace"}}
+      {:error, %{"reason" => "unsafe_project_skill_args"}}
     end
   end
+
+  defp safe_args(_args), do: {:error, %{"reason" => "unsafe_project_skill_args"}}
+
+  defp validate_max_output_bytes(value)
+       when is_integer(value) and value >= 1 and value <= 1_000_000,
+       do: :ok
+
+  defp validate_max_output_bytes(value),
+    do: {:error, %{"reason" => "invalid_max_output_bytes", "max_output_bytes" => value}}
 
   defp truncate(output, max_bytes) when byte_size(output) > max_bytes,
     do: {binary_part(output, 0, max_bytes), true}

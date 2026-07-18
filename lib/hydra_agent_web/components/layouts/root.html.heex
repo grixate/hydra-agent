@@ -3,15 +3,24 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f7f7f5" />
+    <meta
+      name="description"
+      content="Hydra is a self-hosted runtime for durable, policy-governed agents."
+    />
     <meta name="csrf-token" content={get_csrf_token()} />
-    <.live_title suffix=" · Hydra Agent">
-      {assigns[:page_title] || "HydraAgent"}
+    <.live_title suffix=" · Hydra">
+      {assigns[:page_title] || "Agent runtime"}
     </.live_title>
+    <link phx-track-static rel="stylesheet" href={~p"/assets/tailwind.css"} />
     <link phx-track-static rel="stylesheet" href={~p"/assets/app.css"} />
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/live.js"}>
+    </script>
     <script defer phx-track-static type="text/javascript" src={~p"/assets/app.js"}>
     </script>
   </head>
-  <body class="bg-zinc-50 antialiased">
+  <body class="bg-zinc-50 text-zinc-950 antialiased">
+    <div id="page-progress" aria-hidden="true"></div>
     {@inner_content}
   </body>
 </html>

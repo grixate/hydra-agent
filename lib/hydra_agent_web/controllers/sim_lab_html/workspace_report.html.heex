@@ -1,0 +1,215 @@
+<main class="report-workspace">
+  <header class="study-workspace-bar">
+    <a class="simlab-brand" href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}"}>
+      <span class="brand-mark">H</span><span>Hydra <em>Simulations</em></span>
+    </a>
+    <div class="workspace-crumb">
+      <a href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}"}>{@study.title}</a><span>/</span><strong>Forecast</strong>
+    </div>
+    <a
+      class="workspace-run-link"
+      href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/reports/#{@run.id}/export.md"}
+    >
+      Export Markdown <span>↓</span>
+    </a>
+  </header>
+  <section class="forecast-document">
+    <p class="panel-overline">
+      Forecast report · run {@run.id} · {String.capitalize(@run.mode)} replay
+    </p>
+    <h1>{@study.question}</h1>
+    <p class="forecast-summary">{@report.executive_summary}</p>
+    <div class="forecast-outcomes">
+      <%= for action <- ["adopt", "resist", "ignore", "share"] do %>
+        <article>
+          <span>{if action == "ignore", do: "WAIT", else: String.upcase(action)}</span><b><%= round((@report.outcome_probabilities[action] || 0.0) * 100) %>%</b>
+          <p>
+            {if action == "resist",
+              do: "Primary friction to validate",
+              else: "Directional aggregate outcome"}
+          </p>
+        </article>
+      <% end %>
+    </div>
+    <section class="forecast-grounding">
+      <p class="panel-overline">Grounding mix</p>
+      <div>
+        <span class="source-pill data">
+          {@report.evidence_map["direct_user_data"] || 0} direct workspace
+        </span>
+        <span class="source-pill web">
+          {@report.evidence_map["external_research"] || 0} external research
+        </span>
+        <span class="source-pill assumption">
+          {@report.evidence_map["assumptions"] || 0} explicit assumptions
+        </span>
+      </div>
+      <p>Counts reflect the Context Pack saved with this run; they are not a confidence score.</p>
+    </section>
+    <div class="forecast-grid">
+      <article>
+        <p class="panel-overline">What drives movement</p>
+        <%= for driver <- @report.behavior_drivers do %>
+          <div class="forecast-line">
+            <b>{driver["driver"] || driver[:driver]}</b>
+            <p>{driver["impact"] || driver[:impact]}</p>
+          </div>
+        <% end %>
+      </article>
+      <article>
+        <p class="panel-overline">What could distort it</p>
+        <%= for driver <- @report.resistance_drivers do %>
+          <div class="forecast-line">
+            <b>{driver["driver"] || driver[:driver]}</b>
+            <p>{driver["impact"] || driver[:impact]}</p>
+          </div>
+        <% end %>
+      </article>
+    </div>
+    <section class="forecast-caveat">
+      <p class="panel-overline">Uncertainty</p>
+      <h2>{@report.uncertainty["note"] || @report.uncertainty[:note]}</h2>
+      <div>
+        <%= for assumption <- @report.assumptions do %>
+          <span class="source-pill assumption">
+            {assumption["statement"] || assumption[:statement]}
+          </span>
+        <% end %>
+      </div>
+    </section>
+    <section class="forecast-validation">
+      <p class="panel-overline">Validate next</p>
+      <ol>
+        <%= for recommendation <- @report.validation_recommendations do %>
+          <li>{recommendation}</li>
+        <% end %>
+      </ol>
+    </section>
+    <section class="replay-protocol">
+      <div>
+        <p class="panel-overline">Replay protocol</p>
+        <h2>What was fixed for this forecast?</h2>
+        <p>
+          Hydra saved the compiled behavior model and deterministic seed used for this aggregate replay. Later edits create a new run; they do not rewrite this forecast.
+        </p>
+      </div>
+      <dl>
+        <div>
+          <dt>Seed</dt>
+          <dd>{@run.seed}</dd>
+        </div>
+        <div>
+          <dt>Segments</dt>
+          <dd>{length(@run.input_snapshot["personas"] || [])}</dd>
+        </div>
+        <div>
+          <dt>Rules</dt>
+          <dd>{length(@run.input_snapshot["patterns"] || [])}</dd>
+        </div>
+        <div>
+          <dt>Events</dt>
+          <dd>{length(@run.input_snapshot["events"] || [])}</dd>
+        </div>
+      </dl>
+      <p class="replay-fingerprint">
+        INPUT FINGERPRINT · {String.slice(@run.input_fingerprint || "legacy run", 0, 16)}
+      </p>
+    </section>
+    <section class="calibration-section">
+      <div>
+        <p class="panel-overline">Calibration</p>
+        <h2>What actually happened?</h2>
+        <p>
+          Record a measured outcome when it arrives. Hydra keeps the delta visible for this forecast review; it does not silently rewrite the original run.
+        </p>
+      </div>
+      <form
+        action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/reports/#{@run.id}/calibrations"}
+        method="post"
+      >
+        <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+        <input type="hidden" name="calibration[unit]" value="percent" />
+        <label>
+          Metric<select name="calibration[metric]"><option value="adopt">Adoption</option><option value="resist">Resistance</option><option value="ignore">Wait</option><option value="share">Sharing</option></select>
+        </label>
+        <label>
+          Actual outcome (%)<input
+            name="calibration[actual_value]"
+            required
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            inputmode="decimal"
+            placeholder="42"
+          />
+        </label>
+        <label>
+          Observation note<input
+            name="calibration[note]"
+            placeholder="e.g. measured after four weeks"
+          />
+        </label>
+        <button class="primary-button" type="submit">Record outcome <span>→</span></button>
+      </form>
+      <div class="calibration-list">
+        <%= if @calibrations == [] do %>
+          <p>No actual outcomes recorded for this run yet.</p>
+        <% else %>
+          <%= for record <- @calibrations do %>
+            <article>
+              <span>{String.upcase(record.metric)}</span><b><%= round(record.forecast_value * 100) %>% → <%= round(record.actual_value * 100) %>%</b><i class={
+                if record.delta >= 0, do: "positive", else: "negative"
+              }><%= if record.delta >= 0, do: "+", else: "" %><%= round(record.delta * 100) %> pts</i><small>{record.note || "No observation note"}</small>
+            </article>
+          <% end %>
+        <% end %>
+      </div>
+      <aside class={["calibration-review", @calibration_review.tone]}>
+        <p class="panel-overline">Calibration review · {@calibration_review.label}</p>
+        <h3>{@calibration_review.headline}</h3>
+        <p>{@calibration_review.body}</p>
+      </aside>
+      <%= if @calibration_proposals != [] do %>
+        <section class="calibration-proposals">
+          <div>
+            <p class="panel-overline">Reviewable update</p>
+            <h3>Use measured drift in future runs.</h3>
+            <p>
+              The original forecast stays fixed. Applying a proposal only lowers confidence on the named rule for new simulations.
+            </p>
+          </div>
+          <%= for proposal <- @calibration_proposals do %>
+            <article>
+              <div>
+                <span>
+                  {String.upcase(proposal.metric)} · {if proposal.delta >= 0, do: "+", else: ""}{round(
+                    proposal.delta * 100
+                  )} PTS
+                </span>
+                <b>{proposal.pattern_name}</b>
+                <p>{proposal.reason}</p>
+                <small>
+                  Confidence {round(proposal.current_confidence * 100)}% → {round(
+                    proposal.suggested_confidence * 100
+                  )}%
+                </small>
+              </div>
+              <form
+                action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/reports/#{@run.id}/calibration-proposals/#{proposal.pattern_id}/apply"}
+                method="post"
+              >
+                <input
+                  type="hidden"
+                  name="_csrf_token"
+                  value={Plug.CSRFProtection.get_csrf_token()}
+                />
+                <button type="submit">Apply for future runs →</button>
+              </form>
+            </article>
+          <% end %>
+        </section>
+      <% end %>
+    </section>
+  </section>
+</main>

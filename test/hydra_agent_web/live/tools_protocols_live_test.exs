@@ -195,8 +195,8 @@ defmodule HydraAgentWeb.ToolsProtocolsLiveTest do
       |> element("#tools-connector-action-#{action.id} button", "Approve")
       |> render_click()
 
-    assert html =~ "Connector action approved"
-    assert html =~ "completed"
+    assert html =~ "Approval recorded, but connector setup is incomplete"
+    assert html =~ "blocked"
   end
 
   test "creates connector accounts with config json from tools protocols", %{conn: conn} do

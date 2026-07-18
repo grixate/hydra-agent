@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+
+interval="${HYDRA_BACKUP_INTERVAL_SECONDS:-86400}"
+backup_dir="${HYDRA_BACKUP_DIR:-/backups}"
+case "$interval" in
+  ''|*[!0-9]*) echo "HYDRA_BACKUP_INTERVAL_SECONDS must be a positive integer" >&2; exit 64 ;;
+  0) echo "HYDRA_BACKUP_INTERVAL_SECONDS must be greater than zero" >&2; exit 64 ;;
+esac
+
+# Stop promptly under Compose while allowing the container runtime to reap any
+# interrupted child. A subsequent start removes unpublished encrypted pieces.
+sleep_pid=""
+stop() {
+  if [ -n "$sleep_pid" ]; then
+    kill "$sleep_pid" 2>/dev/null || true
+    wait "$sleep_pid" 2>/dev/null || true
+  fi
+  exit 0
+}
+trap stop HUP INT TERM
+mkdir -p "$backup_dir"
+find "$backup_dir" -type f -name '.hydra-agent-*.partial.*' -delete
+
+while true; do
+  backup_path="$(/opt/hydra-backup/backup)"
+
+  # Verify the published encrypted archive, not only the temporary plaintext.
+  # Any failure exits the loop so the container health/restart policy surfaces it.
+  if ! /opt/hydra-backup/check-backup "$backup_path"; then
+    rm -f "$backup_path"
+    exit 1
+  fi
+
+  sleep "$interval" &
+  sleep_pid="$!"
+  wait "$sleep_pid"
+  sleep_pid=""
+done

@@ -1,0 +1,142 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+compose_file="$repo_root/docker-compose.prod.yml"
+project="hydra-compose-smoke-$$"
+port="${HYDRA_COMPOSE_SMOKE_PORT:-4299}"
+# Keep bind-mounted fixtures beneath the repository. Colima and other Docker
+# VM runtimes commonly share /Users but not macOS's /var/folders TMPDIR.
+temporary="$(mktemp -d "$repo_root/.hydra-compose-smoke.XXXXXX")"
+
+export HYDRA_IMAGE="${HYDRA_IMAGE:-hydra-agent:production-smoke}"
+export HYDRA_BROWSER_WORKER_IMAGE="${HYDRA_BROWSER_WORKER_IMAGE:-hydra-browser-worker:production-smoke}"
+export HYDRA_BACKUP_IMAGE="${HYDRA_BACKUP_IMAGE:-hydra-agent-backup:production-smoke}"
+export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand 24 | od -An -tx1 | tr -d ' \n')}"
+export PHX_HOST="hydra.test"
+export SECRET_KEY_BASE="${SECRET_KEY_BASE:-$(openssl rand 64 | base64 | tr -d '\n')}"
+export HYDRA_API_TOKEN="${HYDRA_API_TOKEN:-$(openssl rand 32 | od -An -tx1 | tr -d ' \n')}"
+export HYDRA_BOOTSTRAP_ADMIN_EMAIL="compose-smoke@hydra.test"
+export HYDRA_BOOTSTRAP_ADMIN_PASSWORD="compose-smoke-password"
+export HYDRA_BACKUP_KEY_FILE="$temporary/backup.key"
+export HYDRA_BACKUP_VOLUME="hydra_agent_backups"
+export HYDRA_PROVIDER_ENV_FILE="$temporary/providers.env"
+export TAVILY_API_KEY="compose-smoke-tavily"
+export HYDRA_BIND_ADDRESS="127.0.0.1"
+export PORT="$port"
+
+umask 077
+openssl rand -base64 48 > "$HYDRA_BACKUP_KEY_FILE"
+# The containing temporary directory remains mode 0700; world-readability on
+# the mounted file only lets the unprivileged container UID read this test key.
+chmod 0444 "$HYDRA_BACKUP_KEY_FILE"
+printf '%s\n' 'HYDRA_SMOKE_PROVIDER_KEY=provider-file-ok' > "$HYDRA_PROVIDER_ENV_FILE"
+
+compose() {
+  docker compose --project-name "$project" --file "$compose_file" "$@"
+}
+
+assert_bounded_container() {
+  container_id="$1"
+  test "$(docker inspect "$container_id" --format '{{.HostConfig.Memory}}')" -gt 0
+  test "$(docker inspect "$container_id" --format '{{.HostConfig.NanoCpus}}')" -gt 0
+  test "$(docker inspect "$container_id" --format '{{.HostConfig.PidsLimit}}')" -gt 0
+  docker inspect "$container_id" --format '{{json .HostConfig.SecurityOpt}}' |
+    grep -q 'no-new-privileges'
+  test -n "$(docker inspect "$container_id" --format '{{index .HostConfig.LogConfig.Config "max-size"}}')"
+}
+
+assert_locked_down_container() {
+  container_id="$1"
+  assert_bounded_container "$container_id"
+  test "$(docker inspect "$container_id" --format '{{.HostConfig.ReadonlyRootfs}}')" = "true"
+  docker inspect "$container_id" --format '{{json .HostConfig.CapDrop}}' | grep -q '"ALL"'
+}
+
+cleanup() {
+  compose down --volumes --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "$temporary"
+}
+trap cleanup EXIT HUP INT TERM
+
+for image in "$HYDRA_IMAGE" "$HYDRA_BROWSER_WORKER_IMAGE" "$HYDRA_BACKUP_IMAGE"; do
+  docker image inspect "$image" >/dev/null
+done
+
+compose config --quiet
+compose up -d --no-build
+
+attempt=0
+until curl -fsS -H 'host: hydra.test' -H 'x-forwarded-proto: https' \
+  "http://127.0.0.1:$port/readyz" >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 60 ]; then
+    compose ps --all >&2
+    compose logs >&2
+    echo "production Compose stack did not become ready" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+migrate_id="$(compose ps --all --quiet migrate)"
+test -n "$migrate_id"
+test "$(docker inspect "$migrate_id" --format '{{.State.ExitCode}}')" = "0"
+
+postgres_id="$(compose ps --all --quiet postgres)"
+app_id="$(compose ps --all --quiet app)"
+browser_id="$(compose ps --all --quiet browser-worker)"
+backup_id="$(compose ps --all --quiet backup)"
+for container_id in "$postgres_id" "$app_id" "$browser_id" "$backup_id"; do
+  test -n "$container_id"
+done
+assert_bounded_container "$postgres_id"
+for container_id in "$migrate_id" "$app_id" "$browser_id" "$backup_id"; do
+  assert_locked_down_container "$container_id"
+done
+
+browser_networks="$(docker inspect "$browser_id" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}')"
+case "$browser_networks" in
+  *"_browser_control "*"_browser_egress "*|*"_browser_egress "*"_browser_control "*) ;;
+  *) echo "browser worker is missing an isolated control or egress network" >&2; exit 1 ;;
+esac
+case "$browser_networks" in
+  *"_backend "*) echo "browser worker must not share the database network" >&2; exit 1 ;;
+esac
+
+compose exec -T app /bin/sh -c \
+  'test "$TAVILY_API_KEY" = "compose-smoke-tavily" && test "$HYDRA_SMOKE_PROVIDER_KEY" = "provider-file-ok"'
+
+for service in app browser-worker backup; do
+  service_uid="$(compose exec -T "$service" id -u | tr -d '\r')"
+  test "$service_uid" != "0"
+done
+compose exec -T browser-worker npm run smoke
+
+attempt=0
+until docker exec "$backup_id" sh -c \
+  "find /backups -type f -name 'hydra-agent-*.dump.enc' -size +0c -print -quit" 2>/dev/null | grep -q .; do
+  attempt=$((attempt + 1))
+  if [ "$(docker inspect "$backup_id" --format '{{.State.Restarting}}')" = "true" ]; then
+    compose logs backup >&2
+    echo "backup service restarted before producing a verified archive" >&2
+    exit 1
+  fi
+  if [ "$attempt" -ge 60 ]; then
+    compose logs backup >&2
+    echo "verified encrypted backup was not produced" >&2
+    exit 1
+  fi
+  sleep 1
+done
+compose logs backup | grep -q 'archive verified:'
+
+backup_path="$(docker exec "$backup_id" sh -c \
+  "find /backups -type f -name 'hydra-agent-*.dump.enc' -size +0c -print -quit")"
+test -n "$backup_path"
+compose exec -T postgres createdb -U hydra hydra_backup_verify
+docker exec \
+  -e "RESTORE_TEST_DATABASE_URL=ecto://hydra:$POSTGRES_PASSWORD@postgres/hydra_backup_verify" \
+  "$backup_id" /opt/hydra-backup/verify-backup "$backup_path" | grep -q '^restore verified:'
+
+echo "production Compose smoke test passed"

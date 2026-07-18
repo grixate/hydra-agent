@@ -2,6 +2,8 @@ defmodule HydraAgent.Evals.Run do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.Security.WorkspaceAssociation
+
   @statuses ~w(planned running completed failed canceled)
 
   schema "eval_runs" do
@@ -36,5 +38,7 @@ defmodule HydraAgent.Evals.Run do
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:suite)
     |> assoc_constraint(:agent)
+    |> WorkspaceAssociation.validate(:suite_id, HydraAgent.Evals.Suite)
+    |> WorkspaceAssociation.validate(:agent_id, HydraAgent.Runtime.AgentProfile)
   end
 end

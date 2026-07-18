@@ -1,0 +1,114 @@
+<main class="simlab-shell saved-studies-shell">
+  <section class="simlab-topbar">
+    <a class="simlab-brand" href="/lab/studies">
+      <span class="brand-mark">H</span><span>Hydra <em>Simulations</em></span>
+    </a>
+    <div class="simlab-top-meta">
+      <span class="live-dot"></span><span><%= @workspace.name %></span><span class="top-divider"></span><span>Saved studies</span>
+    </div>
+    <div class="simlab-header-actions">
+      <a class="quiet-link" href="/control">Runtime</a>
+      <a class="quiet-link" href="/demo/simulations">View demo <span>↗</span></a>
+      <form action="/logout" method="post">
+        <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+        <input type="hidden" name="_method" value="delete" />
+        <button class="quiet-link quiet-button" type="submit">Sign out</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="workspace-intro">
+    <div>
+      <p class="eyebrow"><span class="eyebrow-dot"></span> Workspace research</p>
+      <h1>A decision starts<br /><i>with one good question.</i></h1>
+      <p>
+        Set the minimum useful context. Every inference stays distinguishable from evidence when you continue.
+      </p>
+    </div>
+    <aside class="workspace-note">
+      <span>Privacy posture</span>
+      <b>Abstract before retrieval</b>
+      <p>
+        Known entities and common identifiers are removed before provider queries. Review the generated query trail.
+      </p>
+    </aside>
+  </section>
+
+  <section class="create-study-card" aria-labelledby="create-study-title">
+    <div class="create-study-title">
+      <span class="step-number">01</span>
+      <div>
+        <p class="eyebrow">New study</p>
+        <h2 id="create-study-title">Frame the decision.</h2>
+      </div>
+    </div>
+    <form
+      action={"/lab/workspaces/#{@workspace.id}/studies"}
+      method="post"
+      class="study-create-form"
+    >
+      <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+      <label for="study-question">What are you deciding or trying to understand?</label>
+      <textarea
+        id="study-question"
+        name="study[question]"
+        rows="3"
+        required
+        placeholder="How will people react if…"
+      ></textarea>
+      <div class="study-form-details">
+        <label>
+          Audience<input name="study[target_audience]" placeholder="e.g. new managers" />
+        </label>
+        <label>Context<input name="study[domain]" placeholder="e.g. workforce learning" /></label>
+        <label>Region<input name="study[region]" placeholder="e.g. Germany" /></label>
+        <label>Horizon<input name="study[timeframe]" placeholder="e.g. 90 days" /></label>
+      </div>
+      <div class="study-submit-row">
+        <span>
+          <span class="sparkle">✦</span> You can refine these details after the brief is created.
+        </span>
+        <button class="primary-button" type="submit">Create study <span>→</span></button>
+      </div>
+    </form>
+  </section>
+
+  <section class="saved-studies-section" aria-labelledby="saved-studies-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Your work</p>
+        <h2 id="saved-studies-title">Saved studies.</h2>
+      </div>
+      <p>
+        {length(@studies)} {if length(@studies) == 1, do: "study", else: "studies"} in this workspace
+      </p>
+    </div>
+    <div class="saved-study-grid">
+      <%= if @studies == [] do %>
+        <article class="empty-study-state">
+          <span class="empty-orb">✦</span>
+          <h3>Nothing to review yet.</h3>
+          <p>
+            Start with the question above. Hydra will keep the trail from evidence to forecast visible.
+          </p>
+        </article>
+      <% else %>
+        <%= for study <- @studies do %>
+          <a
+            class="saved-study-card"
+            href={"/lab/workspaces/#{@workspace.id}/studies/#{study.id}"}
+          >
+            <div>
+              <span class="study-status">{String.replace(study.status, "_", " ")}</span><span>Study <%= study.id %></span>
+            </div>
+            <h3>{study.title}</h3>
+            <p>{study.question}</p>
+            <footer>
+              <span>{study.target_audience || "Audience to refine"}</span><b>Open <span>→</span></b>
+            </footer>
+          </a>
+        <% end %>
+      <% end %>
+    </div>
+  </section>
+</main>

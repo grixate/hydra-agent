@@ -245,6 +245,73 @@ defmodule HydraAgentWeb.GraphWorkbenchLiveTest do
     assert has_element?(view, "#graph-relationship-#{relationship.id}")
   end
 
+  test "forged graph mutation ids cannot cross the selected workspace", %{conn: conn} do
+    enable_browser_auth()
+
+    allowed = workspace_fixture(%{name: "Allowed", slug: "graph-mutation-allowed"})
+    denied = workspace_fixture(%{name: "Denied", slug: "graph-mutation-denied"})
+    operator = user_fixture()
+    membership_fixture(operator, allowed, "admin")
+
+    {:ok, foreign_from} =
+      Knowledge.create_node(%{
+        workspace_id: denied.id,
+        type_key: "claim",
+        title: "Foreign claim",
+        body: "Must not be editable from another workspace.",
+        status: "active",
+        confidence: 0.31
+      })
+
+    {:ok, foreign_to} =
+      Knowledge.create_node(%{
+        workspace_id: denied.id,
+        type_key: "claim",
+        title: "Foreign evidence",
+        body: "Must remain isolated.",
+        status: "active"
+      })
+
+    {:ok, foreign_relationship} =
+      Knowledge.create_relationship(%{
+        workspace_id: denied.id,
+        from_node_id: foreign_from.id,
+        to_node_id: foreign_to.id,
+        type_key: "supports",
+        confidence: 0.42
+      })
+
+    {:ok, node_view, _html} =
+      live(authenticated_session(conn, operator), ~p"/control/graph?workspace_id=#{allowed.id}")
+
+    assert render_click(node_view, "update-node", %{
+             "node_id" => foreign_from.id,
+             "status" => "verified",
+             "confidence" => "0.99",
+             "importance" => "0.99"
+           }) =~ "Graph node not found in this workspace"
+
+    unchanged_node = Knowledge.get_node!(foreign_from.id)
+    assert unchanged_node.status == "active"
+    assert unchanged_node.confidence == 0.31
+
+    {:ok, relationship_view, _html} =
+      live(
+        authenticated_session(build_conn(), operator),
+        ~p"/control/graph?workspace_id=#{allowed.id}"
+      )
+
+    assert render_click(relationship_view, "update-relationship", %{
+             "relationship_id" => foreign_relationship.id,
+             "confidence" => "0.98",
+             "provenance" => ~s({"kind":"forged"})
+           }) =~ "Graph relationship not found in this workspace"
+
+    unchanged_relationship = Knowledge.get_relationship!(foreign_relationship.id)
+    assert unchanged_relationship.confidence == 0.42
+    assert unchanged_relationship.provenance == %{}
+  end
+
   test "bulk verifies filtered draft and active graph nodes", %{conn: conn} do
     workspace = workspace_fixture(%{name: "Ops", slug: "ops-graph-bulk-review"})
 
@@ -414,5 +481,20 @@ defmodule HydraAgentWeb.GraphWorkbenchLiveTest do
     html = render(view)
     assert html =~ "Reviewed 1 filtered graph relationships"
     assert html =~ "confidence 0.88"
+  end
+
+  defp enable_browser_auth do
+    original = Application.get_env(:hydra_agent, :browser_auth)
+    Application.put_env(:hydra_agent, :browser_auth, enabled?: true)
+
+    on_exit(fn ->
+      if original,
+        do: Application.put_env(:hydra_agent, :browser_auth, original),
+        else: Application.delete_env(:hydra_agent, :browser_auth)
+    end)
+  end
+
+  defp authenticated_session(conn, user) do
+    init_test_session(conn, user_id: user.id, session_version: user.session_version)
   end
 end

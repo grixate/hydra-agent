@@ -2,6 +2,8 @@ defmodule HydraAgent.MCP.Server do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.MCP.SecurityPolicy
+
   @statuses ~w(inactive active paused archived)
   @transports ~w(stdio http sse)
   @trust_levels ~w(sandboxed workspace trusted)
@@ -71,6 +73,7 @@ defmodule HydraAgent.MCP.Server do
       less_than_or_equal_to: 300_000
     )
     |> validate_env_refs()
+    |> validate_operator_policy()
     |> validate_config()
     |> validate_env_ref_config()
     |> validate_tool_filters()
@@ -88,6 +91,43 @@ defmodule HydraAgent.MCP.Server do
         [env_refs: "must contain only environment variable names: #{Enum.join(invalid, ", ")}"]
       end
     end)
+  end
+
+  defp validate_operator_policy(changeset) do
+    config = get_field(changeset, :config) || %{}
+    env_refs = get_field(changeset, :env_refs) || []
+
+    changeset
+    |> validate_stdio_executable(get_field(changeset, :transport), config["command"])
+    |> validate_operator_env_refs(env_refs)
+  end
+
+  defp validate_stdio_executable(changeset, "stdio", [program | _args])
+       when is_binary(program) do
+    if SecurityPolicy.executable_allowed?(program) do
+      changeset
+    else
+      add_error(changeset, :config, "stdio executable is not allowed by the deployment")
+    end
+  end
+
+  defp validate_stdio_executable(changeset, _transport, _command), do: changeset
+
+  defp validate_operator_env_refs(changeset, env_refs) do
+    valid_names =
+      Enum.filter(env_refs, &(is_binary(&1) and Regex.match?(~r/^[A-Z][A-Z0-9_]*$/, &1)))
+
+    case SecurityPolicy.disallowed_env_refs(valid_names) do
+      [] ->
+        changeset
+
+      disallowed ->
+        add_error(
+          changeset,
+          :env_refs,
+          "contains names not allowed by the deployment: #{Enum.join(disallowed, ", ")}"
+        )
+    end
   end
 
   defp validate_config(changeset) do
@@ -133,11 +173,11 @@ defmodule HydraAgent.MCP.Server do
   defp validate_transport_config(changeset, transport, config)
        when transport in ["http", "sse"] do
     case URI.parse(config["url"] || "") do
-      %URI{scheme: scheme, host: host} when scheme in ["http", "https"] and is_binary(host) ->
+      %URI{scheme: "https", host: host} when is_binary(host) ->
         changeset
 
       _uri ->
-        add_error(changeset, :config, "#{transport} transport requires an http(s) url")
+        add_error(changeset, :config, "#{transport} transport requires an https url")
     end
   end
 

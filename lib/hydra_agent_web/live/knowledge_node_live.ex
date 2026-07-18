@@ -14,42 +14,22 @@ defmodule HydraAgentWeb.KnowledgeNodeLive do
   end
 
   @impl true
-  def handle_params(%{"id" => id} = params, _uri, socket) do
+  def handle_params(%{"id" => id}, _uri, socket) do
     node = Knowledge.get_node_detail!(id)
 
-    workspace_id =
-      selected_workspace_id(socket.assigns.workspaces, params["workspace_id"]) ||
-        node.workspace_id
+    unless Enum.any?(socket.assigns.workspaces, &(&1.id == node.workspace_id)) do
+      raise Ecto.NoResultsError, queryable: HydraAgent.Knowledge.Node
+    end
 
     {:noreply,
      socket
-     |> assign(:workspace_id, workspace_id)
+     |> assign(:workspace_id, node.workspace_id)
      |> assign(:node, node)}
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
-
-  defp selected_workspace_id([], _param), do: nil
-  defp selected_workspace_id(_workspaces, nil), do: nil
-
-  defp selected_workspace_id(workspaces, workspace_id) do
-    parsed_id = parse_id(workspace_id)
-
-    if Enum.any?(workspaces, &(&1.id == parsed_id)), do: parsed_id
-  end
-
-  defp parse_id(id) when is_integer(id), do: id
-
-  defp parse_id(id) when is_binary(id) do
-    case Integer.parse(id) do
-      {parsed, ""} -> parsed
-      _other -> nil
-    end
-  end
-
-  defp parse_id(_id), do: nil
 
   defp outgoing(node),
     do: (Ecto.assoc_loaded?(node.outgoing_relationships) && node.outgoing_relationships) || []

@@ -98,4 +98,49 @@ defmodule HydraAgent.MCP.ServerTest do
 
     assert {"overlaps include_tools: read_file", _meta} = changeset.errors[:exclude_tools]
   end
+
+  test "rejects stdio executables and env refs not exposed by the deployment" do
+    executable_changeset =
+      Server.changeset(%Server{}, %{
+        workspace_id: 1,
+        name: "Shell MCP",
+        slug: "shell-mcp",
+        transport: "stdio",
+        config: %{"command" => ["/bin/sh", "-c", "env"]}
+      })
+
+    refute executable_changeset.valid?
+
+    assert {"stdio executable is not allowed by the deployment", _meta} =
+             executable_changeset.errors[:config]
+
+    env_changeset =
+      Server.changeset(%Server{}, %{
+        workspace_id: 1,
+        name: "Secret MCP",
+        slug: "secret-mcp",
+        transport: "http",
+        config: %{"url" => "https://mcp.example.com", "bearer_env" => "DATABASE_URL"},
+        env_refs: ["DATABASE_URL"]
+      })
+
+    refute env_changeset.valid?
+
+    assert {"contains names not allowed by the deployment: DATABASE_URL", _meta} =
+             env_changeset.errors[:env_refs]
+  end
+
+  test "requires HTTPS for remote MCP transports" do
+    changeset =
+      Server.changeset(%Server{}, %{
+        workspace_id: 1,
+        name: "Plain HTTP MCP",
+        slug: "plain-http-mcp",
+        transport: "http",
+        config: %{"url" => "http://mcp.example.com"}
+      })
+
+    refute changeset.valid?
+    assert {"http transport requires an https url", _meta} = changeset.errors[:config]
+  end
 end

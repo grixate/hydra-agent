@@ -45,4 +45,31 @@ defmodule HydraAgentWeb.McpControllerTest do
     assert %{"errors" => %{"config" => [message]}} = json_response(conn, 422)
     assert message =~ "must not contain inline secret-like keys"
   end
+
+  test "rejects MCP process and credential access outside deployment allowlists", %{conn: conn} do
+    workspace = workspace_fixture(%{name: "Secure Ops", slug: "secure-ops-mcp-api"})
+
+    stdio_conn =
+      post(conn, ~p"/api/v1/workspaces/#{workspace.id}/mcp_servers", %{
+        name: "Shell MCP",
+        slug: "shell-mcp",
+        transport: "stdio",
+        config: %{"command" => ["/bin/sh", "-c", "env"]}
+      })
+
+    assert %{"errors" => %{"config" => [stdio_error]}} = json_response(stdio_conn, 422)
+    assert stdio_error == "stdio executable is not allowed by the deployment"
+
+    env_conn =
+      post(recycle(conn), ~p"/api/v1/workspaces/#{workspace.id}/mcp_servers", %{
+        name: "Credential MCP",
+        slug: "credential-mcp",
+        transport: "http",
+        config: %{"url" => "https://mcp.example.com", "bearer_env" => "DATABASE_URL"},
+        env_refs: ["DATABASE_URL"]
+      })
+
+    assert %{"errors" => %{"env_refs" => [env_error]}} = json_response(env_conn, 422)
+    assert env_error == "contains names not allowed by the deployment: DATABASE_URL"
+  end
 end

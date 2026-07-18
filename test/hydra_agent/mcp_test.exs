@@ -59,7 +59,7 @@ defmodule HydraAgent.MCPTest do
         slug: "discover-mcp",
         status: "active",
         transport: "http",
-        config: %{"url" => "http://mcp.test"},
+        config: %{"url" => "https://mcp.test"},
         resource_access: true,
         prompt_access: true
       })
@@ -81,7 +81,8 @@ defmodule HydraAgent.MCPTest do
 
     assert {:ok, updated} =
              MCP.discover_server(server, %{"workspace_id" => workspace.id},
-               req_options: [plug: plug]
+               req_options: [plug: plug],
+               resolver: &public_resolver/1
              )
 
     assert updated.health_status == "healthy"
@@ -103,7 +104,7 @@ defmodule HydraAgent.MCPTest do
         slug: "broken-mcp",
         status: "active",
         transport: "http",
-        config: %{"url" => "http://mcp.test"}
+        config: %{"url" => "https://mcp.test"}
       })
 
     plug = fn conn ->
@@ -116,7 +117,8 @@ defmodule HydraAgent.MCPTest do
 
     assert {:error, %{"reason" => "mcp_http_error", "server_id" => server_id}} =
              MCP.discover_server(server, %{"workspace_id" => workspace.id},
-               req_options: [plug: plug]
+               req_options: [plug: plug],
+               resolver: &public_resolver/1
              )
 
     assert server_id == server.id
@@ -140,7 +142,7 @@ defmodule HydraAgent.MCPTest do
         slug: "docs-mcp-exec",
         status: "active",
         transport: "http",
-        config: %{"url" => "http://mcp.test", "bearer_env" => "MCP_TEST_TOKEN"},
+        config: %{"url" => "https://mcp.test", "bearer_env" => "MCP_TEST_TOKEN"},
         env_refs: ["MCP_TEST_TOKEN"],
         include_tools: ["search_docs"]
       })
@@ -173,7 +175,8 @@ defmodule HydraAgent.MCPTest do
                  "run_step_id" => step.id,
                  "agent_id" => agent.id
                },
-               req_options: [plug: plug]
+               req_options: [plug: plug],
+               resolver: &public_resolver/1
              )
 
     assert response["result"]["content"] == [%{"type" => "text", "text" => "ok"}]
@@ -200,6 +203,7 @@ defmodule HydraAgent.MCPTest do
     %{workspace: workspace, agent: agent, run: run} = runtime_fixture()
     {:ok, step} = Runtime.create_run_step(run, %{index: 0, title: "MCP stdio call"})
     System.put_env("MCP_STDIO_TOKEN", "stdio-secret")
+    System.put_env("MCP_UNDECLARED_SECRET", "deployment-secret")
 
     response_json =
       Jason.encode!(%{
@@ -219,10 +223,11 @@ defmodule HydraAgent.MCPTest do
         status: "active",
         transport: "stdio",
         config: %{
+          "cwd" => Path.join(File.cwd!(), "test"),
           "command" => [
             "sh",
             "-c",
-            "read line; test \"$MCP_STDIO_TOKEN\" = \"stdio-secret\" || exit 7; printf '%s\\n' \"$0\"",
+            "read line; test \"$MCP_STDIO_TOKEN\" = \"stdio-secret\" || exit 7; test -z \"$MCP_UNDECLARED_SECRET\" || exit 8; printf '%s\\n' \"$0\"",
             response_json
           ]
         },
@@ -254,6 +259,7 @@ defmodule HydraAgent.MCPTest do
     assert completed.payload["payload"]["token"] == "[REDACTED]"
   after
     System.delete_env("MCP_STDIO_TOKEN")
+    System.delete_env("MCP_UNDECLARED_SECRET")
   end
 
   test "reuses persistent stdio MCP sessions across calls" do
@@ -360,7 +366,7 @@ defmodule HydraAgent.MCPTest do
         slug: "sse-mcp-exec",
         status: "active",
         transport: "sse",
-        config: %{"url" => "http://mcp.test/sse"},
+        config: %{"url" => "https://mcp.test/sse"},
         include_tools: ["search_docs"]
       })
 
@@ -394,7 +400,8 @@ defmodule HydraAgent.MCPTest do
                  "run_step_id" => step.id,
                  "agent_id" => agent.id
                },
-               req_options: [plug: plug]
+               req_options: [plug: plug],
+               resolver: &public_resolver/1
              )
 
     assert response["result"]["content"] == [%{"type" => "text", "text" => "sse ok"}]
@@ -414,7 +421,7 @@ defmodule HydraAgent.MCPTest do
         slug: "bad-sse-mcp",
         status: "active",
         transport: "sse",
-        config: %{"url" => "http://mcp.test/sse"},
+        config: %{"url" => "https://mcp.test/sse"},
         include_tools: ["search_docs"]
       })
 
@@ -430,8 +437,97 @@ defmodule HydraAgent.MCPTest do
               "error" => %{"reason" => "mcp_sse_invalid_json"}
             }} =
              MCP.execute_tool(server, "search_docs", %{}, %{"workspace_id" => workspace.id},
-               req_options: [plug: plug]
+               req_options: [plug: plug],
+               resolver: &public_resolver/1
              )
+  end
+
+  test "rejects non-public and insecure MCP HTTP endpoints before requesting them" do
+    workspace = workspace_fixture()
+
+    {:ok, server} =
+      MCP.create_server(%{
+        workspace_id: workspace.id,
+        name: "Private MCP",
+        slug: "private-mcp",
+        status: "active",
+        transport: "http",
+        config: %{"url" => "https://internal.example/rpc"},
+        include_tools: ["search_docs"]
+      })
+
+    requester = fn _options -> flunk("requester must not run for a rejected endpoint") end
+    private_resolver = fn _host -> {:ok, [{127, 0, 0, 1}]} end
+
+    assert {:error, %{"reason" => "mcp_endpoint_rejected", "detail" => "non_public_host"}} =
+             MCP.execute_tool(server, "search_docs", %{}, %{"workspace_id" => workspace.id},
+               requester: requester,
+               resolver: private_resolver
+             )
+
+    insecure_server = %{server | config: %{"url" => "http://public.example/rpc"}}
+
+    assert {:error,
+            %{
+              "reason" => "mcp_endpoint_rejected",
+              "detail" => "invalid_public_https_url"
+            }} =
+             MCP.execute_tool(
+               insecure_server,
+               "search_docs",
+               %{},
+               %{"workspace_id" => workspace.id},
+               requester: requester,
+               resolver: &public_resolver/1
+             )
+  end
+
+  test "rechecks deployment command and credential allowlists at execution" do
+    workspace = workspace_fixture()
+
+    {:ok, stdio_server} =
+      MCP.create_server(%{
+        workspace_id: workspace.id,
+        name: "Allowed stdio MCP",
+        slug: "allowed-stdio-mcp",
+        status: "active",
+        transport: "stdio",
+        config: %{"command" => ["sh", "-c", "printf '{}'"]},
+        include_tools: ["read_file"]
+      })
+
+    legacy_stdio = %{stdio_server | config: %{"command" => ["/bin/sh", "-c", "env"]}}
+
+    assert {:error, %{"reason" => "mcp_stdio_executable_not_allowed", "program" => "/bin/sh"}} =
+             MCP.execute_tool(legacy_stdio, "read_file", %{}, %{
+               "workspace_id" => workspace.id,
+               "workspace_root" => File.cwd!()
+             })
+
+    {:ok, http_server} =
+      MCP.create_server(%{
+        workspace_id: workspace.id,
+        name: "Allowed remote MCP",
+        slug: "allowed-remote-mcp",
+        status: "active",
+        transport: "http",
+        config: %{"url" => "https://mcp.example.com"},
+        include_tools: ["search_docs"]
+      })
+
+    legacy_http = %{
+      http_server
+      | config: %{
+          "url" => "https://mcp.example.com",
+          "bearer_env" => "DATABASE_URL"
+        },
+        env_refs: ["DATABASE_URL"]
+    }
+
+    assert {:error, %{"reason" => "mcp_env_refs_not_allowed", "env_refs" => ["DATABASE_URL"]}} =
+             MCP.execute_tool(legacy_http, "search_docs", %{}, %{
+               "workspace_id" => workspace.id
+             })
   end
 
   test "fails closed for stdio MCP cwd and missing env refs" do
@@ -470,6 +566,40 @@ defmodule HydraAgent.MCPTest do
              MCP.execute_tool(missing_env, "read_file", %{}, %{
                "workspace_id" => workspace.id,
                "workspace_root" => File.cwd!()
+             })
+  end
+
+  test "rejects a stdio MCP cwd symlink that escapes the workspace root" do
+    workspace = workspace_fixture()
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "hydra-mcp-workspace-#{unique}")
+    outside = Path.join(System.tmp_dir!(), "hydra-mcp-outside-#{unique}")
+    escaped_cwd = Path.join(root, "escaped")
+
+    File.mkdir_p!(root)
+    File.mkdir_p!(outside)
+    File.ln_s!(outside, escaped_cwd)
+
+    on_exit(fn ->
+      File.rm_rf(root)
+      File.rm_rf(outside)
+    end)
+
+    {:ok, server} =
+      MCP.create_server(%{
+        workspace_id: workspace.id,
+        name: "Escaped cwd MCP",
+        slug: "escaped-cwd-mcp",
+        status: "active",
+        transport: "stdio",
+        config: %{"command" => ["sh", "-c", "printf '{}'"], "cwd" => escaped_cwd},
+        include_tools: ["read_file"]
+      })
+
+    assert {:error, %{"reason" => "workspace_path_symlink", "path" => ^escaped_cwd}} =
+             MCP.execute_tool(server, "read_file", %{}, %{
+               "workspace_id" => workspace.id,
+               "workspace_root" => root
              })
   end
 
@@ -520,4 +650,6 @@ defmodule HydraAgent.MCPTest do
   end
 
   defp assert_eventually(fun, 0), do: fun.()
+
+  defp public_resolver(_host), do: {:ok, [{93, 184, 216, 34}]}
 end

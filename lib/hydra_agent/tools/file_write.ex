@@ -1,6 +1,8 @@
 defmodule HydraAgent.Tools.FileWrite do
   @behaviour HydraAgent.Tool
 
+  alias HydraAgent.Security.WorkspacePath
+
   @impl true
   def spec do
     %{
@@ -39,20 +41,21 @@ defmodule HydraAgent.Tools.FileWrite do
     input = stringify_keys(input || %{})
     mode = input["mode"] || "overwrite"
     content = input["content"] || ""
+    root = context["workspace_root"] || File.cwd!()
 
-    with {:ok, path} <- resolve_workspace_path(input["path"], context),
+    with {:ok, path} <- WorkspacePath.resolve(root, input["path"], kind: :write),
          :ok <- validate_mode(mode),
-         :ok <- validate_expected_sha(path, input["expected_sha256"]),
-         :ok <- File.mkdir_p(Path.dirname(path)),
-         existed_before <- File.exists?(path),
+         :ok <- validate_expected_sha(root, path, input["expected_sha256"]),
+         existed_before <- regular_file?(path),
          checkpoint <- checkpoint_file(path, context, input),
-         :ok <- write(path, content, mode) do
+         :ok <- WorkspacePath.atomic_write(root, path, content, String.to_existing_atom(mode)),
+         {:ok, written} <- WorkspacePath.read_regular(root, path) do
       {:ok,
        %{
          "path" => path,
          "bytes_written" => byte_size(content),
          "mode" => mode,
-         "sha256" => sha256_file(path),
+         "sha256" => sha256(written),
          "existed" => existed_before,
          "checkpoint" => checkpoint
        }}
@@ -67,10 +70,6 @@ defmodule HydraAgent.Tools.FileWrite do
         {:error, error}
     end
   end
-
-  defp write(path, content, "append"), do: File.write(path, content, [:append])
-  defp write(path, content, "overwrite"), do: File.write(path, content)
-  defp write(path, content, "create_new"), do: File.write(path, content, [:exclusive])
 
   defp checkpoint_file(_path, _context, %{"mode" => "create_new"}), do: %{"enabled" => false}
 
@@ -89,50 +88,50 @@ defmodule HydraAgent.Tools.FileWrite do
   defp validate_mode(mode),
     do: {:error, %{"reason" => "unsupported_file_write_mode", "mode" => mode}}
 
-  defp validate_expected_sha(_path, nil), do: :ok
+  defp validate_expected_sha(_root, _path, nil), do: :ok
 
-  defp validate_expected_sha(path, expected_sha) when is_binary(expected_sha) do
-    cond do
-      not File.exists?(path) ->
+  defp validate_expected_sha(root, path, expected_sha) when is_binary(expected_sha) do
+    case WorkspacePath.read_regular(root, path) do
+      {:ok, content} ->
+        actual_sha = sha256(content)
+
+        if actual_sha == expected_sha do
+          :ok
+        else
+          {:error,
+           %{
+             "reason" => "expected_sha256_mismatch",
+             "path" => path,
+             "expected_sha256" => expected_sha,
+             "actual_sha256" => actual_sha
+           }}
+        end
+
+      {:error, %{"reason" => "workspace_path_missing"}} ->
         {:error, %{"reason" => "expected_sha256_file_missing", "path" => path}}
 
-      sha256_file(path) == expected_sha ->
-        :ok
-
-      true ->
+      {:error, error} ->
         {:error,
          %{
-           "reason" => "expected_sha256_mismatch",
+           "reason" => "expected_sha256_file_unavailable",
            "path" => path,
-           "expected_sha256" => expected_sha,
-           "actual_sha256" => sha256_file(path)
+           "error" => error
          }}
     end
   end
 
-  defp validate_expected_sha(_path, expected_sha),
+  defp validate_expected_sha(_root, _path, expected_sha),
     do:
       {:error, %{"reason" => "expected_sha256_must_be_string", "expected_sha256" => expected_sha}}
 
-  defp resolve_workspace_path(path, context) when is_binary(path) do
-    root = Path.expand(context["workspace_root"] || File.cwd!())
-    expanded = Path.expand(path, root)
-
-    if expanded == root or String.starts_with?(expanded, root <> "/") do
-      {:ok, expanded}
-    else
-      {:error,
-       %{"reason" => "path_outside_workspace_root", "path" => path, "workspace_root" => root}}
-    end
-  end
-
-  defp resolve_workspace_path(_path, _context), do: {:error, %{"reason" => "path_required"}}
-
-  defp sha256_file(path) do
-    path
-    |> File.read!()
+  defp sha256(content) do
+    content
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
+  end
+
+  defp regular_file?(path) do
+    match?({:ok, %File.Stat{type: :regular}}, File.lstat(path))
   end
 
   defp stringify_keys(map), do: Map.new(map, fn {key, value} -> {to_string(key), value} end)

@@ -7,6 +7,7 @@ defmodule HydraAgent.AgentPack do
   """
 
   alias HydraAgent.Runtime.Autonomy
+  alias HydraAgent.Security.WorkspacePath
   alias HydraAgent.Tools.Bundles
   alias HydraAgent.Tools.Registry
 
@@ -71,7 +72,11 @@ defmodule HydraAgent.AgentPack do
   end
 
   def load_json(path) when is_binary(path) do
-    with {:ok, body} <- File.read(path),
+    expanded = Path.expand(path)
+    root = Path.dirname(expanded)
+
+    with {:ok, body} <- WorkspacePath.read_regular(root, expanded),
+         true <- byte_size(body) <= 1_048_576 || {:error, ["agent pack exceeds 1 MiB"]},
          {:ok, decoded} <- Jason.decode(body) do
       validate(decoded)
     end
@@ -114,6 +119,7 @@ defmodule HydraAgent.AgentPack do
     []
     |> require_field_details(pack)
     |> validate_version_details(pack)
+    |> validate_slug_details(pack)
     |> validate_role_details(pack)
     |> validate_list_details(pack, "tools")
     |> validate_optional_list_details(pack, "tool_bundles")
@@ -235,6 +241,26 @@ defmodule HydraAgent.AgentPack do
       )
       | errors
     ]
+  end
+
+  defp validate_slug_details(errors, %{"slug" => slug}) when is_binary(slug) do
+    if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, slug) and byte_size(slug) <= 100 do
+      errors
+    else
+      [
+        validation_error(
+          "slug",
+          "invalid_slug",
+          "slug must use lowercase letters, numbers, and hyphens",
+          %{"max_length" => 100}
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp validate_slug_details(errors, _pack) do
+    [validation_error("slug", "invalid_slug", "slug must be a string") | errors]
   end
 
   defp validate_role_details(errors, %{"role" => role}) do

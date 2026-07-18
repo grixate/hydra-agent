@@ -1,0 +1,197 @@
+<main
+  class="observatory-page"
+  id="observatory"
+  data-snapshots={Jason.encode!(@snapshots)}
+  data-pattern-insights={Jason.encode!(@pattern_insights)}
+  data-trace-url-base={"/api/v1/workspaces/#{@workspace.id}/sim_lab/studies/#{@study.id}/runs/#{@run.id}/agents"}
+>
+  <header class="obs-topbar">
+    <a class="simlab-brand inverse" href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}"}>
+      <span class="brand-mark">H</span><span>Hydra <em>Simulations</em></span>
+    </a>
+    <div class="obs-study">
+      <span>STUDY</span>
+      <h1 title={@study.question}>{@study.title}</h1>
+      <i>·</i><button id="variant-toggle"><%= @scenario.name %></button>
+    </div>
+    <div class="obs-status">
+      <span>{@run.agent_count} modeled population</span><span class="status-divider"></span><span><%= String.capitalize(@run.mode) %></span><span class="status-divider"></span><span id="cost-used">$<%= @run.actual_cost_usd %></span><span class="confidence-badge"><i></i> <%= round((@run.confidence || 0.0) * 100) %>% confidence</span>
+    </div>
+  </header>
+
+  <section class="observatory-layout">
+    <aside class="timeline-panel">
+      <div class="panel-label">
+        <span>Scenario</span><a
+          href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}"}
+          aria-label="Edit scenario"
+        >✎</a>
+      </div>
+      <div class="scenario-title">{@scenario.name}</div>
+      <p class="scenario-subtitle">{@scenario.description}</p>
+      <div class="event-list" id="event-list">
+        <%= for {event, index} <- Enum.with_index(@scenario.events, 1) do %>
+          <button
+            class={"event-item #{if index == 1, do: "selected", else: ""}"}
+            data-tick={index}
+            aria-pressed={if index == 1, do: "true", else: "false"}
+          >
+            <span class="event-day">DAY {event["day"] || event[:day]}</span><strong><%= event["title"] || event[:title] %></strong><small><%= event["impact"] || event[:impact] || "Behavior may shift." %></small>
+          </button>
+        <% end %>
+      </div>
+      <div class="timeline-foot">
+        <span>{@scenario.forecast_horizon || "Scenario horizon"}</span><span><%= length(@scenario.events) %> events</span>
+      </div>
+    </aside>
+
+    <section class="field-panel">
+      <div class="field-toolbar">
+        <div class="mode-switcher" role="tablist" aria-label="Observatory view">
+          <button class="active" data-mode="constellation" role="tab" aria-selected="true">
+            Constellation
+          </button>
+          <button data-mode="basins" role="tab" aria-selected="false" tabindex="-1">
+            Action basins
+          </button>
+          <button
+            data-mode="pattern"
+            role="tab"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Pattern flow
+          </button>
+          <button
+            data-mode="evidence"
+            role="tab"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Evidence
+          </button>
+          <button
+            data-mode="uncertainty"
+            role="tab"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Uncertainty
+          </button>
+        </div>
+        <div class="field-actions">
+          <button id="zoom-out" aria-label="Zoom out">−</button><span
+            id="zoom-lens"
+            aria-live="polite"
+          >COHORTS</span><button id="zoom-in" aria-label="Zoom in">+</button><button
+            id="pause-play"
+            aria-label="Pause replay"
+          >Ⅱ</button><button
+            id="reset-view"
+            aria-label="Reset view"
+          >⌖</button>
+        </div>
+      </div>
+      <canvas id="simulation-particles" aria-hidden="true"></canvas><canvas
+        id="simulation-field"
+        width="1600"
+        height="1000"
+        tabindex="0"
+        role="img"
+        aria-describedby="simulation-text-summary"
+        aria-label="Interactive simulation field showing behavioral cohorts moving toward actions"
+      >
+      </canvas>
+      <div class="field-key">
+        <span><i class="key-dot adopt"></i>Adopt</span><span><i class="key-dot resist"></i>Resist</span><span><i class="key-dot ignore"></i>Wait</span><span><i class="key-dot share"></i>Share</span>
+      </div>
+      <p class="field-mode-hint" id="field-mode-hint" aria-live="polite">
+        Population weather · aggregate cohorts
+      </p>
+      <div class="field-notice" id="field-notice">
+        <span class="notice-pulse"></span><span id="event-notice"><%= hd(@snapshots).label %> · <%= hd(@snapshots).event %></span>
+      </div>
+      <div class="simulation-text-summary" id="simulation-text-summary">
+        <strong>Text summary</strong>
+        <%= for snapshot <- @snapshots do %>
+          <span>
+            {snapshot.label}: adopt {round((snapshot.metrics["adopt"] || 0) * 100)}%, resist {round(
+              (snapshot.metrics["resist"] || 0) * 100
+            )}%, wait {round((snapshot.metrics["ignore"] || 0) * 100)}%, share {round(
+              (snapshot.metrics["share"] || 0) * 100
+            )}%.
+          </span>
+        <% end %>
+      </div>
+    </section>
+
+    <aside class="insight-panel" id="insight-panel">
+      <div class="panel-label">
+        <span>Selected cohort</span><span class="signal-score">Reviewable</span>
+      </div>
+      <div class="insight-intro">
+        <p class="insight-kicker" id="selected-persona">COHORT</p>
+        <h2 id="selected-title">A visible action pattern.</h2>
+        <p id="selected-summary">
+          Choose a cohort in the field to inspect the action it is taking at this event.
+        </p>
+      </div>
+      <div class="pattern-card">
+        <div class="pattern-top"><span>ACTIVE PATTERN</span><b>Aggregate replay</b></div>
+        <h3 id="pattern-name">No cohort selected</h3>
+        <div class="grounding-row" id="grounding-row">
+          <span class="source-pill data">Stored study</span><span class="source-pill assumption">Review assumptions</span>
+        </div>
+      </div>
+      <button class="trace-button" id="representative-trace" type="button" disabled>
+        <span class="trace-icon">⌁</span><span><b>Inspect representative trace</b><small>Deterministic cohort sample · no individual ledger</small></span><span>→</span>
+      </button>
+      <section class="trace-card" id="trace-card" hidden aria-live="polite"></section>
+      <div class="insight-section">
+        <h3>What could reduce resistance?</h3>
+        <form
+          action={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}/observatory/#{@run.id}/control-first-variant"}
+          method="post"
+        >
+          <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+          <button class="counterfactual" type="submit">
+            <span class="counter-icon">↗</span><span><b>Test opt-in control</b><small>Assumption-marked counterfactual · run separately.</small></span><span>→</span>
+          </button>
+        </form>
+      </div>
+      <a class="why-button" href={"/lab/workspaces/#{@workspace.id}/studies/#{@study.id}"}>
+        Show study evidence &amp; assumptions <span>→</span>
+      </a>
+    </aside>
+  </section>
+
+  <footer class="replay-panel">
+    <div class="replay-info">
+      <span class="replay-label">REPLAY</span><strong id="replay-day"><%= hd(@snapshots).label %></strong><span id="replay-event"><%= hd(@snapshots).event %></span>
+    </div>
+    <div class="scrubber-wrap">
+      <input
+        id="time-scrubber"
+        type="range"
+        min="1"
+        max={length(@snapshots)}
+        value="1"
+        aria-label="Replay day"
+      />
+      <div class="tick-labels">
+        <%= for snapshot <- @snapshots do %>
+          <span>{snapshot.label}</span>
+        <% end %>
+      </div>
+    </div>
+    <div class="metrics">
+      <div><span>ADOPT</span><b id="metric-adopt">—</b><i class="metric-up">·</i></div>
+      <div><span>RESIST</span><b id="metric-resist">—</b><i class="metric-down">·</i></div>
+      <div><span>WAIT</span><b id="metric-ignore">—</b><i>·</i></div>
+      <div><span>SHARE</span><b id="metric-share">—</b><i class="metric-up">·</i></div>
+    </div>
+    <div class="decision-proof">
+      <span>{@run.decision_counts["pattern"] || 0} <em>cohort projections</em></span><span><%= @run.decision_counts["small_model"] || 0 %> <em>small-model calls</em></span><span><%= @run.decision_counts["large_model"] || 0 %> <em>large-model calls</em></span>
+    </div>
+  </footer>
+</main>

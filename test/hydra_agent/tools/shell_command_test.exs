@@ -117,4 +117,12 @@ defmodule HydraAgent.Tools.ShellCommandTest do
                %{"workspace_root" => File.cwd!()}
              )
   end
+
+  test "rejects executable path aliases instead of bypassing the program token" do
+    assert {:error, %{"reason" => "unsafe_command_program"}} =
+             ShellCommand.execute(
+               %{"command" => ["/bin/echo", "hydra"]},
+               %{"workspace_root" => File.cwd!()}
+             )
+  end
 end

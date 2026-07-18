@@ -27,6 +27,10 @@ defmodule HydraAgentWeb.SkillDetailLive do
   def handle_params(%{"id" => id} = params, _uri, socket) do
     skill = Skills.get_skill!(id)
 
+    unless Enum.any?(socket.assigns.workspaces, &(&1.id == skill.workspace_id)) do
+      raise Ecto.NoResultsError, queryable: HydraAgent.Skills.Skill
+    end
+
     workspace_id =
       selected_workspace_id(
         socket.assigns.workspaces,
@@ -131,18 +135,21 @@ defmodule HydraAgentWeb.SkillDetailLive do
   end
 
   defp load_workspaces(socket) do
-    assign(socket, :workspaces, Runtime.list_workspaces())
+    assign(socket, :workspaces, Runtime.list_operator_workspaces(socket.assigns[:current_user]))
   end
 
   defp load_skill_state(%{assigns: %{skill: skill}} = socket) do
     owner_agent =
       if skill.owner_agent_id do
-        Runtime.get_agent!(skill.owner_agent_id)
+        case Runtime.get_agent!(skill.owner_agent_id) do
+          %{workspace_id: workspace_id} = agent when workspace_id == skill.workspace_id -> agent
+          _agent -> raise Ecto.NoResultsError, queryable: HydraAgent.Runtime.AgentProfile
+        end
       end
 
     source_run =
       if skill.source_run_id do
-        Runtime.get_run!(skill.source_run_id)
+        Runtime.get_run_for_workspace!(skill.workspace_id, skill.source_run_id)
       end
 
     socket
@@ -166,7 +173,8 @@ defmodule HydraAgentWeb.SkillDetailLive do
   end
 
   defp handle_skill_result({:error, changeset}, socket, _message) do
-    {:noreply, put_flash(socket, :error, "Skill update failed: #{inspect(changeset.errors)}")}
+    {:noreply,
+     put_flash(socket, :error, HydraAgentWeb.UserError.message("update the skill", changeset))}
   end
 
   defp selected_workspace_id([], _param), do: nil

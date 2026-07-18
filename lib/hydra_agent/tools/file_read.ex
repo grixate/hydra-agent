@@ -1,6 +1,8 @@
 defmodule HydraAgent.Tools.FileRead do
   @behaviour HydraAgent.Tool
 
+  alias HydraAgent.Security.WorkspacePath
+
   @impl true
   def spec do
     %{
@@ -36,12 +38,11 @@ defmodule HydraAgent.Tools.FileRead do
     max_bytes = input["max_bytes"] || 500_000
     allow_binary? = input["allow_binary"] == true
 
-    with {:ok, path} <- resolve_workspace_path(input["path"], context),
-         true <-
-           File.regular?(path) ||
-             {:error, %{"reason" => "not_regular_file", "path" => input["path"]}},
+    root = context["workspace_root"] || File.cwd!()
+
+    with {:ok, path} <- WorkspacePath.resolve(root, input["path"], kind: :regular),
          :ok <- validate_max_bytes(max_bytes),
-         {:ok, content} <- File.read(path) do
+         {:ok, content} <- WorkspacePath.read_regular(root, path) do
       if binary_content?(content) and not allow_binary? do
         {:error,
          %{
@@ -68,20 +69,6 @@ defmodule HydraAgent.Tools.FileRead do
         {:error, error}
     end
   end
-
-  defp resolve_workspace_path(path, context) when is_binary(path) do
-    root = Path.expand(context["workspace_root"] || File.cwd!())
-    expanded = Path.expand(path, root)
-
-    if expanded == root or String.starts_with?(expanded, root <> "/") do
-      {:ok, expanded}
-    else
-      {:error,
-       %{"reason" => "path_outside_workspace_root", "path" => path, "workspace_root" => root}}
-    end
-  end
-
-  defp resolve_workspace_path(_path, _context), do: {:error, %{"reason" => "path_required"}}
 
   defp validate_max_bytes(value) when is_integer(value) and value >= 1 and value <= 1_000_000,
     do: :ok

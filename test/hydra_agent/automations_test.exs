@@ -13,6 +13,12 @@ defmodule HydraAgent.AutomationsTest do
     assert DateTime.compare(next_run, from) == :gt
   end
 
+  test "advances strictly beyond an exact cron boundary" do
+    from = ~U[2026-07-11 10:00:00.000000Z]
+
+    assert Automations.next_run_at("*/5 * * * *", from) == ~U[2026-07-11 10:05:00Z]
+  end
+
   test "computes next run time through supported timezone semantics" do
     from = ~U[2026-05-24 10:01:00Z]
 
@@ -38,6 +44,161 @@ defmodule HydraAgent.AutomationsTest do
       })
 
     assert changeset.valid?
+  end
+
+  test "rejects agent associations outside the automation workspace on create and update" do
+    workspace = workspace_fixture(%{slug: "automation-agent-scope"})
+    other_workspace = workspace_fixture(%{slug: "other-automation-agent-scope"})
+    agent = agent_fixture(workspace, %{slug: "automation-agent-scope-owner"})
+    foreign_agent = agent_fixture(other_workspace, %{slug: "automation-agent-scope-foreign"})
+
+    attrs = %{
+      workspace_id: workspace.id,
+      agent_id: foreign_agent.id,
+      name: "Cross-workspace automation",
+      slug: "cross-workspace-automation",
+      cron_expression: "0 9 * * *",
+      prompt: "This must not be created."
+    }
+
+    assert {:error, changeset} = Automations.create_automation(attrs)
+    assert %{agent_id: ["must belong to the same workspace"]} = errors_on(changeset)
+    assert Automations.list_automations(workspace.id) == []
+    assert Automations.list_automations(other_workspace.id) == []
+
+    assert {:ok, automation} =
+             Automations.create_automation(%{
+               workspace_id: workspace.id,
+               agent_id: agent.id,
+               name: "Scoped automation",
+               slug: "scoped-automation",
+               cron_expression: "0 9 * * *",
+               prompt: "Stay inside the workspace."
+             })
+
+    assert {:error, changeset} =
+             Automations.update_automation(automation, %{agent_id: foreign_agent.id})
+
+    assert %{agent_id: ["must belong to the same workspace"]} = errors_on(changeset)
+
+    assert {:error, changeset} =
+             Automations.update_automation(automation, %{workspace_id: other_workspace.id})
+
+    assert %{agent_id: ["must belong to the same workspace"]} = errors_on(changeset)
+
+    persisted = Repo.get!(Automation, automation.id)
+    assert persisted.workspace_id == workspace.id
+    assert persisted.agent_id == agent.id
+  end
+
+  test "racing dispatchers execute a scheduled occurrence at most once" do
+    workspace = workspace_fixture(%{slug: "automation-occurrence-race"})
+
+    {:ok, _provider} =
+      Runtime.create_provider(%{
+        workspace_id: workspace.id,
+        name: "mock",
+        kind: "mock",
+        model: "mock-model"
+      })
+
+    agent =
+      agent_fixture(workspace, %{
+        slug: "automation-occurrence-race-agent",
+        model_route: %{"default_provider" => "mock"}
+      })
+
+    scheduled_for = ~U[2026-07-11 10:00:00.000000Z]
+    observed_at = ~U[2026-07-11 10:00:30.000000Z]
+
+    assert {:ok, automation} =
+             Automations.create_automation(%{
+               workspace_id: workspace.id,
+               agent_id: agent.id,
+               name: "Race-safe automation",
+               slug: "race-safe-automation",
+               cron_expression: "0 10 * * *",
+               prompt: "Produce one response.",
+               next_run_at: scheduled_for
+             })
+
+    parent = self()
+
+    tasks =
+      for _index <- 1..2 do
+        Task.async(fn ->
+          send(parent, {:ready, self()})
+          receive do: (:go -> Automations.run_due_automations(observed_at))
+        end)
+      end
+
+    Enum.each(tasks, fn _task ->
+      assert_receive {:ready, pid}
+      Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
+      send(pid, :go)
+    end)
+
+    results = tasks |> Enum.map(&Task.await(&1, 10_000)) |> List.flatten()
+    assert Enum.count(results, &match?({:ok, %Automation{}}, &1)) == 1
+
+    assert [run] = Runtime.list_runs(workspace.id)
+    assert [_conversation] = Runtime.list_conversations(workspace.id)
+
+    assert [execution] =
+             Automations.list_executions(workspace.id, automation_id: automation.id)
+
+    assert execution.status == "completed"
+    assert execution.trigger == "scheduled"
+    assert execution.scheduled_for == scheduled_for
+    assert execution.run_id == run.id
+    assert run.metadata["automation_execution_id"] == execution.id
+    assert run.metadata["scheduled_for"] == DateTime.to_iso8601(scheduled_for)
+
+    persisted = Repo.get!(Automation, automation.id)
+    assert persisted.next_run_at == ~U[2026-07-12 10:00:00.000000Z]
+  end
+
+  test "a claimed occurrence is not retried after a dispatcher crash" do
+    workspace = workspace_fixture(%{slug: "automation-occurrence-crash"})
+    agent = agent_fixture(workspace, %{slug: "automation-occurrence-crash-agent"})
+    scheduled_for = ~U[2026-07-11 10:00:00.000000Z]
+    observed_at = ~U[2026-07-11 10:17:00.000000Z]
+
+    assert {:ok, automation} =
+             Automations.create_automation(%{
+               workspace_id: workspace.id,
+               agent_id: agent.id,
+               name: "Crash-safe automation",
+               slug: "crash-safe-automation",
+               cron_expression: "*/5 * * * *",
+               prompt: "Do not duplicate this occurrence.",
+               next_run_at: scheduled_for
+             })
+
+    assert {:ok, claimed, advanced} =
+             Automations.claim_due_automation(automation, observed_at)
+
+    assert claimed.status == "claimed"
+    assert claimed.scheduled_for == scheduled_for
+    assert claimed.next_scheduled_for == ~U[2026-07-11 10:05:00.000000Z]
+    assert advanced.next_run_at == claimed.next_scheduled_for
+
+    assert {:skip, :execution_in_flight} =
+             Automations.claim_due_automation(automation, observed_at)
+
+    assert Automations.run_due_automations(observed_at) == []
+    assert Automations.run_due_automations(observed_at) == []
+    assert Runtime.list_runs(workspace.id) == []
+    assert Runtime.list_conversations(workspace.id) == []
+
+    assert [persisted_claim] =
+             Automations.list_executions(workspace.id, automation_id: automation.id)
+
+    assert persisted_claim.id == claimed.id
+    assert persisted_claim.status == "claimed"
+    assert persisted_claim.run_id == nil
+    assert persisted_claim.metadata["claim_policy"] == "at_most_once"
+    assert Repo.get!(Automation, automation.id).next_run_at == claimed.next_scheduled_for
   end
 
   test "creates automations from seeded recipes" do
@@ -162,6 +323,9 @@ defmodule HydraAgent.AutomationsTest do
     assert blocked.last_error["readiness"]["status"] == "blocked"
     assert blocked.last_run_at
     assert Runtime.list_runs(workspace.id) == []
+
+    assert [%{status: "blocked", result: %{"executed" => false}}] =
+             Automations.list_executions(workspace.id, automation_id: automation.id)
   end
 
   test "rejects invalid cron expressions" do

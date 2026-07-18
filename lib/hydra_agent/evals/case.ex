@@ -2,6 +2,8 @@ defmodule HydraAgent.Evals.Case do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.Security.WorkspaceAssociation
+
   schema "eval_cases" do
     field :name, :string
     field :slug, :string
@@ -32,6 +34,7 @@ defmodule HydraAgent.Evals.Case do
     |> validate_format(:slug, ~r/^[a-z0-9][a-z0-9-]*$/)
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:suite)
+    |> WorkspaceAssociation.validate(:suite_id, HydraAgent.Evals.Suite)
     |> unique_constraint([:suite_id, :slug])
   end
 end

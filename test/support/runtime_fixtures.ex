@@ -3,7 +3,7 @@ defmodule HydraAgent.RuntimeFixtures do
   Helpers for DB-backed runtime tests.
   """
 
-  alias HydraAgent.Runtime
+  alias HydraAgent.{Accounts, Runtime}
 
   def workspace_fixture(attrs \\ %{}) do
     slug = Map.get(attrs, :slug) || Map.get(attrs, "slug") || unique_slug("workspace")
@@ -17,6 +17,24 @@ defmodule HydraAgent.RuntimeFixtures do
 
     {:ok, workspace} = Runtime.create_workspace(attrs)
     workspace
+  end
+
+  def user_fixture(attrs \\ %{}) do
+    attrs =
+      %{
+        email: "operator-#{System.unique_integer([:positive])}@example.test",
+        display_name: "Test operator",
+        password: "correct horse battery staple"
+      }
+      |> Map.merge(attrs)
+
+    {:ok, user} = Accounts.create_user(attrs)
+    user
+  end
+
+  def membership_fixture(user, workspace, role \\ "viewer") do
+    {:ok, membership} = Accounts.add_workspace_member(user, workspace, role)
+    membership
   end
 
   def agent_fixture(workspace, attrs \\ %{}) do

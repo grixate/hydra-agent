@@ -21,6 +21,9 @@ defmodule HydraAgentWeb.AutomationController do
       {:ok, automation} ->
         conn |> put_status(:created) |> json(%{data: automation_json(automation)})
 
+      {:error, %Ecto.Changeset{} = changeset} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{errors: errors_json(changeset)})
+
       {:error, error} ->
         conn |> put_status(:unprocessable_entity) |> json(%{errors: error})
     end
@@ -46,8 +49,8 @@ defmodule HydraAgentWeb.AutomationController do
       {:ok, automation} ->
         json(conn, %{data: automation_json(automation)})
 
-      {:error, changeset} ->
-        conn |> put_status(:unprocessable_entity) |> json(%{errors: errors_json(changeset)})
+      {:error, error} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{errors: errors_json(error)})
     end
   end
 
@@ -101,11 +104,14 @@ defmodule HydraAgentWeb.AutomationController do
     }
   end
 
-  defp errors_json(changeset) do
+  defp errors_json(%Ecto.Changeset{} = changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->
       Enum.reduce(opts, message, fn {key, value}, acc ->
         String.replace(acc, "%{#{key}}", to_string(value))
       end)
     end)
   end
+
+  defp errors_json(error) when is_map(error), do: error
+  defp errors_json(error), do: %{detail: inspect(error)}
 end

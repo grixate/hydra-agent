@@ -2,6 +2,8 @@ defmodule HydraAgent.Evals.Result do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias HydraAgent.Security.WorkspaceAssociation
+
   @statuses ~w(pending passed failed errored skipped)
 
   schema "eval_results" do
@@ -36,6 +38,8 @@ defmodule HydraAgent.Evals.Result do
     |> assoc_constraint(:workspace)
     |> assoc_constraint(:eval_run)
     |> assoc_constraint(:eval_case)
+    |> WorkspaceAssociation.validate(:eval_run_id, HydraAgent.Evals.Run)
+    |> WorkspaceAssociation.validate(:eval_case_id, HydraAgent.Evals.Case)
     |> unique_constraint([:eval_run_id, :eval_case_id])
   end
 end

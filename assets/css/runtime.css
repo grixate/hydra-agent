@@ -1,0 +1,752 @@
+/*
+ * Shared product surface.
+ * Sim Lab deliberately keeps its editorial visual language in app.css; this
+ * file gives the runtime and entry surface a quieter, operational character.
+ */
+
+:focus-visible {
+  outline: 2px solid #18181b;
+  outline-offset: 3px;
+}
+
+::selection {
+  background: #dcefe6;
+  color: #18201c;
+}
+
+#page-progress {
+  position: fixed;
+  z-index: 200;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: #5f8f70;
+  opacity: 0;
+  pointer-events: none;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 180ms ease, opacity 160ms ease;
+}
+
+.is-page-loading #page-progress {
+  opacity: 1;
+  transform: scaleX(0.72);
+}
+
+.runtime-app {
+  min-height: 100vh;
+  background: #f7f7f5;
+  color: #18181b;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.runtime-skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 8px;
+  left: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #18181b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 650;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px);
+}
+
+.runtime-skip-link:focus {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.runtime-topbar {
+  position: sticky;
+  z-index: 40;
+  top: 0;
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 clamp(18px, 3vw, 40px);
+  border-bottom: 1px solid rgba(24, 24, 27, 0.08);
+  background: rgba(247, 247, 245, 0.88);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.runtime-brand,
+.landing-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #18181b;
+  font-size: 14px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.runtime-brand-mark,
+.landing-brand > span {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 8px 8px 8px 3px;
+  background: #202622;
+  color: #e5f4eb;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.runtime-global-nav {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.runtime-global-nav a {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: #71717a;
+  font-size: 13px;
+  font-weight: 520;
+  text-decoration: none;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.runtime-global-nav a:hover {
+  background: rgba(24, 24, 27, 0.055);
+  color: #18181b;
+}
+
+.runtime-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #64a878;
+  box-shadow: 0 0 0 3px rgba(100, 168, 120, 0.12);
+}
+
+.runtime-content {
+  width: min(100%, 1480px);
+  margin: 0 auto;
+  padding: clamp(26px, 4vw, 52px) clamp(18px, 3vw, 40px) 72px;
+}
+
+.account-security {
+  width: min(920px, 100%);
+  margin: 0 auto;
+  padding-top: clamp(34px, 7vw, 76px);
+}
+
+.account-security-header {
+  max-width: 700px;
+}
+
+.account-security-header > p,
+.account-card-heading p {
+  margin: 0;
+  color: #678071;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.account-security-header h1 {
+  margin: 14px 0 18px;
+  color: #181b19;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(42px, 7vw, 68px);
+  font-weight: 500;
+  line-height: 0.96;
+  letter-spacing: -0.065em;
+}
+
+.account-security-header > span {
+  display: block;
+  max-width: 590px;
+  color: #6c746f;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.account-security-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(230px, 0.65fr);
+  gap: 16px;
+  margin-top: 42px;
+}
+
+.account-security-card {
+  border: 1px solid #dcdfda;
+  border-radius: 14px;
+  background: rgba(255, 255, 252, 0.78);
+  box-shadow: 0 18px 50px rgba(34, 45, 39, 0.045);
+}
+
+.account-security-primary {
+  padding: 24px;
+}
+
+.account-card-heading {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 10px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e2e4df;
+}
+
+.account-card-heading > span {
+  padding-top: 2px;
+  color: #8b958f;
+  font-size: 10px;
+}
+
+.account-card-heading h2 {
+  margin: 6px 0 0;
+  color: #202522;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.045em;
+}
+
+.account-security-form label {
+  display: block;
+  margin-top: 18px;
+}
+
+.account-security-form label > span {
+  color: #6b776f;
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.account-security-form input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  border: 0;
+  border-bottom: 1px solid #cbd2cc;
+  padding: 9px 0 11px;
+  background: transparent;
+  color: #1c211e;
+  font-size: 15px;
+  outline: none;
+}
+
+.account-security-form input:focus {
+  border-color: #548b6d;
+  box-shadow: 0 1px 0 #548b6d;
+}
+
+.account-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 26px;
+}
+
+.account-form-footer p,
+.account-session-card > p {
+  margin: 0;
+  color: #727a75;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.account-form-footer p {
+  max-width: 270px;
+}
+
+.account-form-footer button,
+.account-session-card form button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #202824;
+  color: #f2f7f3;
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.account-form-footer button span {
+  margin-left: 7px;
+  color: #9ed0b2;
+}
+
+.account-session-card {
+  align-self: start;
+  padding: 20px;
+  background: #eef2ed;
+}
+
+.account-session-card > p {
+  margin-top: 18px;
+}
+
+.account-session-card form {
+  margin-top: 24px;
+}
+
+.account-session-card form button {
+  border: 1px solid #cbd3cd;
+  background: transparent;
+  color: #46534c;
+}
+
+@media (max-width: 700px) {
+  .account-security {
+    padding-top: 22px;
+  }
+
+  .account-security-header h1 {
+    font-size: clamp(42px, 13vw, 56px);
+  }
+
+  .account-security-grid {
+    grid-template-columns: 1fr;
+    margin-top: 30px;
+  }
+
+  .account-security-primary,
+  .account-session-card {
+    padding: 18px;
+  }
+
+  .account-form-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .account-form-footer button {
+    align-self: stretch;
+  }
+}
+
+.runtime-content:focus {
+  outline: none;
+}
+
+.control-shell-header {
+  display: grid;
+  gap: 25px;
+  margin-bottom: 32px;
+  padding-bottom: 1px;
+  border-bottom: 1px solid #e4e4e2;
+}
+
+.control-shell-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.control-eyebrow {
+  margin: 0;
+  color: #8a8a91;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.control-shell-heading h1 {
+  margin: 4px 0 0;
+  color: #18181b;
+  font-size: clamp(27px, 3vw, 36px);
+  font-weight: 610;
+  letter-spacing: -0.045em;
+  line-height: 1.06;
+}
+
+.control-description {
+  max-width: 760px;
+  margin: 10px 0 0;
+  color: #71717a;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.control-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.control-context-bar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 22px;
+}
+
+.workspace-switcher {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding-right: 20px;
+  border-right: 1px solid #e4e4e2;
+}
+
+.workspace-switcher > span {
+  margin-right: 4px;
+  color: #a1a1aa;
+  font-size: 11px;
+}
+
+.workspace-option,
+.control-section-link {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: #71717a;
+  font-size: 13px;
+  font-weight: 520;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.workspace-option:hover,
+.control-section-link:hover {
+  background: #ececea;
+  color: #27272a;
+}
+
+.workspace-option.is-active,
+.control-section-link.is-active {
+  background: #e8e8e5;
+  color: #18181b;
+  font-weight: 630;
+}
+
+.control-section-nav {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+  scrollbar-width: none;
+}
+
+.control-section-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.runtime-app .rounded-lg.border {
+  border-color: #e4e4e2;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.runtime-app :is(button, a, input, select, textarea) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.runtime-app :is(button, [type="button"], [type="submit"]) {
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease,
+    transform 140ms ease;
+}
+
+.runtime-app :is(button, [type="button"], [type="submit"]):active {
+  transform: translateY(1px);
+}
+
+.landing-page {
+  min-height: 100vh;
+  padding: 0 clamp(20px, 5vw, 76px) 56px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 76% -12%, rgba(174, 215, 193, 0.25), transparent 34rem),
+    #f7f7f4;
+  color: #1c211e;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.landing-nav {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(28, 33, 30, 0.1);
+}
+
+.landing-nav > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.landing-nav > div a {
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: #666c68;
+  font-size: 13px;
+  font-weight: 560;
+  text-decoration: none;
+}
+
+.landing-nav > div a:hover {
+  background: rgba(28, 33, 30, 0.055);
+  color: #1c211e;
+}
+
+.landing-nav > div .landing-nav-primary {
+  background: #222824;
+  color: #f7faf8;
+}
+
+.landing-nav > div .landing-nav-primary:hover {
+  background: #343b37;
+  color: #fff;
+}
+
+.landing-hero {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  padding: clamp(92px, 15vh, 170px) 0 clamp(90px, 14vh, 150px);
+}
+
+.landing-kicker {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 24px;
+  color: #737a75;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.landing-kicker span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #68a97c;
+  box-shadow: 0 0 0 5px rgba(104, 169, 124, 0.1);
+}
+
+.landing-hero h1 {
+  max-width: 920px;
+  margin: 0;
+  color: #1c211e;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: clamp(56px, 8vw, 112px);
+  font-weight: 500;
+  letter-spacing: -0.072em;
+  line-height: 0.86;
+}
+
+.landing-lede {
+  max-width: 570px;
+  margin: 38px 0 0;
+  color: #656d68;
+  font-size: clamp(16px, 1.7vw, 20px);
+  line-height: 1.55;
+}
+
+.landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 34px;
+}
+
+.landing-actions a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 26px;
+  padding: 0 17px;
+  border: 1px solid #d8dbd8;
+  border-radius: 10px;
+  color: #555c58;
+  font-size: 13px;
+  font-weight: 630;
+  text-decoration: none;
+  transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.landing-actions a:first-child {
+  border-color: #222824;
+  background: #222824;
+  color: #f8fbf9;
+}
+
+.landing-actions a:hover {
+  border-color: #b7bcb8;
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.landing-actions a:first-child:hover {
+  border-color: #343b37;
+  background: #343b37;
+}
+
+.landing-principles {
+  display: grid;
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  border-top: 1px solid rgba(28, 33, 30, 0.12);
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.landing-principles article {
+  min-height: 180px;
+  padding: 28px clamp(18px, 3vw, 38px) 10px 0;
+  border-right: 1px solid rgba(28, 33, 30, 0.1);
+}
+
+.landing-principles article + article {
+  padding-left: clamp(18px, 3vw, 38px);
+}
+
+.landing-principles article:last-child {
+  border-right: 0;
+}
+
+.landing-principles article > span {
+  color: #a2a7a3;
+  font: 500 10px "DM Mono", ui-monospace, monospace;
+}
+
+.landing-principles h2 {
+  margin: 31px 0 8px;
+  font-size: 15px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+}
+
+.landing-principles p {
+  max-width: 300px;
+  margin: 0;
+  color: #777e79;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  .runtime-topbar {
+    min-height: 52px;
+    padding-inline: 15px;
+  }
+
+  .runtime-brand > span:last-child,
+  .runtime-global-nav a:last-child {
+    display: none;
+  }
+
+  .runtime-global-nav a {
+    min-height: 32px;
+    padding-inline: 8px;
+    font-size: 12px;
+  }
+
+  .runtime-content {
+    padding: 24px 15px 52px;
+  }
+
+  .control-shell-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .control-context-bar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .workspace-switcher {
+    max-width: 100%;
+    overflow-x: auto;
+    padding-right: 0;
+    border-right: 0;
+    scrollbar-width: none;
+  }
+
+  .control-section-nav {
+    margin-inline: -15px;
+    padding: 0 15px 12px;
+  }
+
+  .landing-page {
+    padding-inline: 18px;
+  }
+
+  .landing-nav > div a:first-child {
+    display: none;
+  }
+
+  .landing-hero {
+    padding: 84px 0 86px;
+  }
+
+  .landing-hero h1 {
+    font-size: clamp(52px, 15vw, 76px);
+    line-height: 0.9;
+  }
+
+  .landing-lede {
+    margin-top: 28px;
+  }
+
+  .landing-principles {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-principles article,
+  .landing-principles article + article {
+    min-height: 0;
+    padding: 24px 0;
+    border-right: 0;
+    border-bottom: 1px solid rgba(28, 33, 30, 0.1);
+  }
+
+  .landing-principles article:last-child {
+    border-bottom: 0;
+  }
+
+  .landing-principles h2 {
+    margin-top: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

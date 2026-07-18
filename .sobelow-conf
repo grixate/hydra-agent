@@ -1,0 +1,6 @@
+[
+  verbose: false,
+  exit: "high",
+  private: true,
+  skip: true
+]

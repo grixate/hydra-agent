@@ -1,6 +1,8 @@
 defmodule HydraAgent.Tools.ShellCommand do
   @behaviour HydraAgent.Tool
 
+  alias HydraAgent.Security.{TrustedProgram, WorkspacePath}
+
   @impl true
   def spec do
     %{
@@ -48,8 +50,11 @@ defmodule HydraAgent.Tools.ShellCommand do
     command = input["command"]
     max_output_bytes = input["max_output_bytes"] || 200_000
 
-    with {:ok, {program, args}} <- normalize_command(command),
+    root = context["workspace_root"] || File.cwd!()
+
+    with {:ok, {program_name, args}} <- normalize_command(command),
          {:ok, cwd} <- allowed_cwd(input["cwd"], context),
+         {:ok, program} <- TrustedProgram.resolve(program_name, root),
          {:ok, env} <- normalize_env(input["env"] || %{}, context["shell_env_allowlist"] || []),
          {:ok, checkpoints} <- checkpoint_paths(input["checkpoint_paths"], command, context),
          :ok <- validate_max_output_bytes(max_output_bytes) do
@@ -64,7 +69,7 @@ defmodule HydraAgent.Tools.ShellCommand do
 
       {:ok,
        %{
-         "command" => [program | args],
+         "command" => [program_name | args],
          "cwd" => cwd,
          "checkpoints" => checkpoints,
          "exit_status" => exit_status,
@@ -88,17 +93,19 @@ defmodule HydraAgent.Tools.ShellCommand do
 
   defp normalize_command(_command), do: {:error, %{"reason" => "command_must_be_non_empty_list"}}
 
-  defp allowed_cwd(nil, context), do: {:ok, context["workspace_root"] || File.cwd!()}
+  defp allowed_cwd(nil, context),
+    do: WorkspacePath.resolve(context["workspace_root"] || File.cwd!(), ".", kind: :directory)
 
   defp allowed_cwd(cwd, context) when is_binary(cwd) do
     root = Path.expand(context["workspace_root"] || File.cwd!())
-    expanded = Path.expand(cwd)
 
-    if expanded == root or String.starts_with?(expanded, root <> "/") do
-      {:ok, expanded}
-    else
-      {:error,
-       %{"reason" => "cwd_outside_workspace_root", "cwd" => cwd, "workspace_root" => root}}
+    case WorkspacePath.resolve(root, cwd, kind: :directory) do
+      {:error, %{"reason" => "path_outside_workspace_root"}} ->
+        {:error,
+         %{"reason" => "cwd_outside_workspace_root", "cwd" => cwd, "workspace_root" => root}}
+
+      result ->
+        result
     end
   end
 
