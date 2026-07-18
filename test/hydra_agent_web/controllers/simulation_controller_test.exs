@@ -281,6 +281,165 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     refute Enum.any?(refreshed.active_context_pack.sources, &(&1["id"] == source["id"]))
   end
 
+  test "the Population inspector is quiet, traceable, bilingual, and honest about prose", %{
+    conn: conn,
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might a service change move through a participant network?",
+        "blueprint_id" => general.id,
+        "population_size" => 50
+      })
+
+    path = "/simulations/#{simulation.id}/population?workspace_id=#{workspace.id}&locale=en"
+    english = conn |> get(path) |> html_response(200)
+
+    assert english =~ "<h1>Population model</h1>"
+    assert english =~ "Population structure is ready"
+    assert english =~ "50"
+    assert english =~ "Agent types"
+    assert english =~ "Archetypes"
+    assert english =~ "Relationship topology"
+    assert english =~ "Representatives"
+    assert english =~ "Structured state"
+    assert english =~ "No protected or sensitive traits were inferred"
+    assert english =~ "Relationship CSV mapping"
+    assert english =~ "Readable cards are optional projections"
+    refute english =~ "style="
+    refute english =~ "synthetic biography"
+
+    russian =
+      conn
+      |> recycle()
+      |> get("/simulations/#{simulation.id}/population?workspace_id=#{workspace.id}&locale=ru")
+      |> html_response(200)
+
+    assert russian =~ "<html lang=\"ru\""
+    assert russian =~ "<h1>Модель популяции</h1>"
+    assert russian =~ "Структурированное состояние"
+
+    [representative | _] = simulation.active_population_model.compile_summary["representatives"]
+
+    response =
+      conn
+      |> recycle()
+      |> post(
+        "/simulations/#{simulation.id}/population/personas/#{representative["agent_id"]}",
+        %{
+          "workspace_id" => to_string(workspace.id),
+          "locale" => "en"
+        }
+      )
+
+    assert redirected_to(response) ==
+             "/simulations/#{simulation.id}/population?locale=en&workspace_id=#{workspace.id}"
+
+    projected =
+      conn
+      |> recycle()
+      |> get(path)
+      |> html_response(200)
+
+    assert projected =~ "not a biography of a real person"
+    assert projected =~ "Readable projection · not authoritative state"
+  end
+
+  test "Population CSV upload preserves valid rows and shows row-level errors", %{
+    conn: conn,
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might supplied participant rows affect a bounded population?",
+        "blueprint_id" => general.id,
+        "population_size" => 50
+      })
+
+    type_id = hd(simulation.active_population_model.agent_types)["id"]
+
+    upload_path =
+      Path.join(System.tmp_dir!(), "population-#{System.unique_integer([:positive])}.csv")
+
+    File.write!(
+      upload_path,
+      "id,type,attribute_imported_signal\nagent-1,#{type_id},0.8\ninvalid id,#{type_id},secret-value\n"
+    )
+
+    on_exit(fn -> File.rm(upload_path) end)
+
+    response =
+      post(conn, "/simulations/#{simulation.id}/population/import", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en",
+        "population_import" => %{
+          "kind" => "agents",
+          "file" => %Plug.Upload{
+            path: upload_path,
+            filename: "population.csv",
+            content_type: "text/csv"
+          }
+        }
+      })
+
+    assert redirected_to(response) ==
+             "/simulations/#{simulation.id}/population?locale=en&workspace_id=#{workspace.id}"
+
+    html =
+      conn
+      |> recycle()
+      |> get(redirected_to(response))
+      |> html_response(200)
+
+    assert html =~ "Latest import"
+    assert html =~ "Rows needing attention"
+    assert html =~ "A required identifier is missing or invalid."
+    refute html =~ "secret-value"
+  end
+
+  test "Population import rejects upload paths outside Plug's temporary boundary", %{
+    conn: conn,
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How should untrusted population upload paths be handled?",
+        "blueprint_id" => general.id,
+        "population_size" => 50
+      })
+
+    upload_path =
+      Path.join(
+        File.cwd!(),
+        "population-outside-upload-root-#{System.unique_integer([:positive])}.csv"
+      )
+
+    File.write!(upload_path, "id,type\nagent-1,participant\n")
+    on_exit(fn -> File.rm(upload_path) end)
+
+    response =
+      post(conn, "/simulations/#{simulation.id}/population/import", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en",
+        "population_import" => %{
+          "kind" => "agents",
+          "file" => %Plug.Upload{
+            path: upload_path,
+            filename: "population.csv",
+            content_type: "text/csv"
+          }
+        }
+      })
+
+    assert redirected_to(response) ==
+             "/simulations/#{simulation.id}/population?locale=en&workspace_id=#{workspace.id}"
+
+    assert Phoenix.Flash.get(response.assigns.flash, :error) =~ "Nothing was imported"
+  end
+
   test "Run, Results, and Compare are honest deep-linkable gates", %{
     conn: conn,
     workspace: workspace,
@@ -427,6 +586,18 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     assert context =~ "Context and assumptions"
     refute context =~ "Exclude source"
     refute context =~ "Add bounded web context"
+
+    population =
+      conn
+      |> recycle()
+      |> init_test_session(user_id: viewer.id, session_version: viewer.session_version)
+      |> get("/simulations/#{simulation.id}/population?workspace_id=#{workspace.id}&locale=en")
+      |> html_response(200)
+
+    assert population =~ "Population model"
+    refute population =~ "Validate and import"
+    refute population =~ ">Remove<"
+    refute population =~ "Create readable card"
 
     denied =
       conn

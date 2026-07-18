@@ -1,0 +1,515 @@
+<div class="simulation-studio simulation-population-page">
+  <header class="simulation-composer-header">
+    <a
+      href={stage_path(@simulation.id, "build", @workspace.id, @locale)}
+      class="simulation-back-link"
+    >
+      <span aria-hidden="true">←</span> {t(@locale, :population_return_build)}
+    </a>
+    <nav class="blueprint-locale-switch" aria-label={t(@locale, :locale_label)}>
+      <a
+        href={stage_path(@simulation.id, "population", @workspace.id, "en")}
+        aria-current={if @locale == "en", do: "page"}
+      >
+        {t(@locale, :english)}
+      </a>
+      <span aria-hidden="true">/</span>
+      <a
+        href={stage_path(@simulation.id, "population", @workspace.id, "ru")}
+        aria-current={if @locale == "ru", do: "page"}
+      >
+        {t(@locale, :russian)}
+      </a>
+    </nav>
+  </header>
+
+  <header class="simulation-context-hero simulation-population-hero">
+    <div>
+      <p class="blueprint-eyebrow">02.2 · {t(@locale, :population_title)}</p>
+      <h1>{t(@locale, :population_title)}</h1>
+      <p>{t(@locale, :population_lede)}</p>
+    </div>
+    <%= if @population_model do %>
+      <dl>
+        <div>
+          <dt>{t(@locale, :population_version)}</dt>
+          <dd>v{@population_model.version}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :population_agents)}</dt>
+          <dd>{format_count(@population_model.population_size, @locale)}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :content_hash)}</dt>
+          <dd><code>{@population_model.content_hash |> short_hash()}…</code></dd>
+        </div>
+      </dl>
+    <% end %>
+  </header>
+
+  <%= if @population_model do %>
+    <section class="simulation-context-status simulation-population-status">
+      <div>
+        <span aria-hidden="true">◇</span>
+        <div>
+          <strong>
+            {t(
+              @locale,
+              if(@population_model.status == "ready",
+                do: :population_ready,
+                else: :population_partial
+              )
+            )}
+          </strong>
+          <p>
+            {format_count(population_generated_count(@population_model), @locale)} {String.downcase(
+              t(@locale, :population_generated)
+            )} · {format_count(population_imported_count(@population_model), @locale)} {String.downcase(
+              t(@locale, :population_imported_count)
+            )}
+          </p>
+        </div>
+      </div>
+      <span class="simulation-population-deterministic">
+        {t(@locale, :deterministic)} · {@population_model.compiler_version}
+      </span>
+    </section>
+
+    <section class="simulation-population-metrics" aria-label={t(@locale, :population_title)}>
+      <div>
+        <span>{t(@locale, :population_types)}</span>
+        <strong>{length(@population_model.agent_types)}</strong>
+      </div>
+      <div>
+        <span>{t(@locale, :population_archetypes)}</span>
+        <strong>{length(@population_model.archetypes)}</strong>
+      </div>
+      <div>
+        <span>{t(@locale, :population_relationships)}</span>
+        <strong>{format_count(population_relationship_count(@population_model), @locale)}</strong>
+      </div>
+      <div>
+        <span>{t(@locale, :population_seed)}</span>
+        <code>{@population_model.seed}</code>
+      </div>
+    </section>
+
+    <section class="simulation-population-section" id="agent-types">
+      <header>
+        <p class="blueprint-eyebrow">01 · {t(@locale, :population_types)}</p>
+        <h2>{t(@locale, :population_types)}</h2>
+        <span>{length(@population_model.agent_types)}</span>
+      </header>
+      <div class="simulation-population-type-list">
+        <article :for={type <- @population_model.agent_types}>
+          <header>
+            <div>
+              <h3>{type["label"]}</h3>
+              <p>{type["description"]}</p>
+            </div>
+            <span>
+              {tx(@locale, :population_agents_count,
+                count: format_count(population_type_count(@population_model, type["id"]), @locale)
+              )}
+            </span>
+          </header>
+          <div class="simulation-population-type-body">
+            <div>
+              <h4>{t(@locale, :population_attributes)}</h4>
+              <ul class="simulation-population-attribute-list">
+                <li :for={attribute <- type["attributes"]}>
+                  <div>
+                    <strong>{population_attribute_label(attribute["key"], @locale)}</strong>
+                    <details
+                      :if={attribute["sensitive"] == true}
+                      class="simulation-sensitive-attribute"
+                    >
+                      <summary>{t(@locale, :population_sensitive)}</summary>
+                      <p>{t(@locale, :population_sensitive_source)}</p>
+                      <dl>
+                        <div>
+                          <dt>{t(@locale, :population_sensitive_necessity)}</dt>
+                          <dd>{attribute["necessity"]}</dd>
+                        </div>
+                        <div>
+                          <dt>{t(@locale, :population_sensitive_lawful_basis)}</dt>
+                          <dd>{attribute["lawful_basis"]}</dd>
+                        </div>
+                      </dl>
+                    </details>
+                  </div>
+                  <form
+                    :if={@can_edit}
+                    action={"/simulations/#{@simulation.id}/population/attributes/#{type["id"]}/#{attribute["key"]}/exclude"}
+                    method="post"
+                  >
+                    <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+                    <input type="hidden" name="workspace_id" value={@workspace.id} />
+                    <input type="hidden" name="locale" value={@locale} />
+                    <button
+                      type="submit"
+                      aria-label={
+                        tx(@locale, :population_remove_attribute_named,
+                          attribute: population_attribute_label(attribute["key"], @locale),
+                          type: type["label"]
+                        )
+                      }
+                    >
+                      {t(@locale, :population_remove_attribute)}
+                    </button>
+                  </form>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h4>{t(@locale, :population_resources)}</h4>
+              <div class="simulation-population-tags">
+                <span :for={resource <- type["resources"]}>
+                  {context_identifier(resource, @locale)}
+                </span>
+              </div>
+              <h4>{t(@locale, :population_actions)}</h4>
+              <div class="simulation-population-tags">
+                <span :for={action <- type["actions"]}>
+                  {context_identifier(action, @locale)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+      <p class="simulation-population-safety-note">
+        <span aria-hidden="true">◇</span> {t(@locale, :population_no_sensitive)}
+      </p>
+    </section>
+
+    <section class="simulation-population-section">
+      <header>
+        <p class="blueprint-eyebrow">02 · {t(@locale, :population_archetypes)}</p>
+        <h2>{t(@locale, :population_archetypes)}</h2>
+        <span>{length(@population_model.archetypes)}</span>
+      </header>
+      <div class="simulation-archetype-grid">
+        <article :for={archetype <- @population_model.archetypes}>
+          <header>
+            <span>{context_identifier(archetype["agent_type"], @locale)}</span>
+            <strong>
+              {format_count(
+                population_archetype_count(@population_model, archetype["id"]),
+                @locale
+              )}
+            </strong>
+          </header>
+          <h3>{context_identifier(archetype["id"], @locale)}</h3>
+          <p>{archetype["summary"]}</p>
+          <dl>
+            <div>
+              <dt>{t(@locale, :population_grounding)}</dt>
+              <dd>
+                <a href={stage_path(@simulation.id, "context", @workspace.id, @locale)}>
+                  {length(archetype["grounding"])} <span aria-hidden="true">→</span>
+                </a>
+              </dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+    </section>
+
+    <section class="simulation-population-section">
+      <header>
+        <p class="blueprint-eyebrow">03 · {t(@locale, :population_topology)}</p>
+        <h2>{t(@locale, :population_topology)}</h2>
+        <span>{format_count(population_relationship_count(@population_model), @locale)}</span>
+      </header>
+      <div class="simulation-topology-list">
+        <article :for={rule <- @population_model.relationship_rules}>
+          <span aria-hidden="true">⌁</span>
+          <div>
+            <h3>{population_topology_label(rule["kind"], @locale)}</h3>
+            <p>{context_identifier(rule["relationship_type"], @locale)}</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="simulation-population-section">
+      <header>
+        <div>
+          <p class="blueprint-eyebrow">04 · {t(@locale, :population_representatives)}</p>
+          <h2>{t(@locale, :population_representatives)}</h2>
+          <p>{t(@locale, :population_representatives_lede)}</p>
+        </div>
+        <span>{length(population_representatives(@population_model))}</span>
+      </header>
+      <div class="simulation-representative-grid">
+        <article :for={representative <- population_representatives(@population_model)}>
+          <% projection = persona_projection_for(@persona_projections, representative["agent_id"]) %>
+          <header>
+            <div>
+              <span>{representative["agent_type_label"]}</span>
+              <h3>{context_identifier(representative["archetype_id"], @locale)}</h3>
+            </div>
+            <small>
+              {t(
+                @locale,
+                if(projection,
+                  do: :population_persona_projection,
+                  else: :population_persona_pending
+                )
+              )}
+            </small>
+          </header>
+          <p :if={projection} class="simulation-persona-prose">{projection.prose}</p>
+          <p :if={!projection}>{representative["archetype_summary"]}</p>
+          <dl>
+            <div :for={{key, value} <- population_representative_attributes(representative)}>
+              <dt>{population_attribute_label(key, @locale)}</dt>
+              <dd>{population_trait_level(value, @locale)}</dd>
+            </div>
+          </dl>
+          <details class="simulation-representative-state">
+            <summary>{t(@locale, :population_structured_state)}</summary>
+            <div class="simulation-representative-state-grid">
+              <section>
+                <h4>{t(@locale, :population_goals)}</h4>
+                <ul>
+                  <li :for={goal <- representative["goals"] || []}>{goal}</li>
+                </ul>
+              </section>
+              <section>
+                <h4>{t(@locale, :population_constraints)}</h4>
+                <ul>
+                  <li :for={constraint <- representative["constraints"] || []}>{constraint}</li>
+                  <li :if={(representative["constraints"] || []) == []}>—</li>
+                </ul>
+              </section>
+              <section>
+                <h4>{t(@locale, :population_current_state)}</h4>
+                <p :for={{key, value} <- Enum.sort(representative["state"] || %{})}>
+                  {population_attribute_label(key, @locale)} · {population_trait_level(
+                    value,
+                    @locale
+                  )}
+                </p>
+              </section>
+              <section>
+                <h4>{t(@locale, :population_resources)}</h4>
+                <p :for={{key, value} <- Enum.sort(representative["resources"] || %{})}>
+                  {context_identifier(key, @locale)} · {population_trait_level(value, @locale)}
+                </p>
+              </section>
+              <section>
+                <h4>{t(@locale, :population_important_relationships)}</h4>
+                <div class="simulation-population-tags">
+                  <span :for={{type, count} <- population_relationship_groups(representative)}>
+                    {context_identifier(type, @locale)} · {count}
+                  </span>
+                  <span :if={population_relationship_groups(representative) == []}>—</span>
+                </div>
+              </section>
+              <section>
+                <h4>{t(@locale, :population_grounding)}</h4>
+                <a href={stage_path(@simulation.id, "context", @workspace.id, @locale)}>
+                  {tx(@locale, :population_grounding_count,
+                    count: length(representative["grounding"] || [])
+                  )} <span aria-hidden="true">→</span>
+                </a>
+              </section>
+            </div>
+          </details>
+          <form
+            :if={@can_edit && !projection}
+            action={"/simulations/#{@simulation.id}/population/personas/#{representative["agent_id"]}"}
+            method="post"
+          >
+            <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+            <input type="hidden" name="workspace_id" value={@workspace.id} />
+            <input type="hidden" name="locale" value={@locale} />
+            <button type="submit">{t(@locale, :population_generate_persona)}</button>
+          </form>
+        </article>
+      </div>
+    </section>
+
+    <% import_summary = population_import_summary(@population_model, @import_preview) %>
+    <section :if={@can_edit || import_summary} class="simulation-population-import">
+      <header>
+        <div>
+          <p class="blueprint-eyebrow">05 · {t(@locale, :population_import)}</p>
+          <h2>{t(@locale, :population_import)}</h2>
+          <p>{t(@locale, :population_import_lede)}</p>
+        </div>
+      </header>
+
+      <div :if={import_summary} class="simulation-import-result">
+        <header>
+          <strong>{t(@locale, :population_import_result)}</strong>
+          <code>{short_hash(import_summary["content_hash"] || "")}</code>
+        </header>
+        <dl>
+          <div>
+            <dt>{t(@locale, :population_import_valid)}</dt>
+            <dd>{import_summary["valid_count"] || 0}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :population_import_errors)}</dt>
+            <dd>{import_summary["error_count"] || 0}</dd>
+          </div>
+        </dl>
+        <p :if={(import_summary["error_count"] || 0) == 0}>
+          {t(@locale, :population_import_no_errors)}
+        </p>
+        <ul :if={(import_summary["errors"] || []) != []}>
+          <li :for={error <- Enum.take(import_summary["errors"], 20)}>
+            <span>
+              {tx(@locale, :population_import_row, row: error["row"] || "—")} · {error["field"]}
+            </span>
+            <p>{population_import_error(@locale, error)}</p>
+          </li>
+        </ul>
+      </div>
+
+      <details
+        :if={@can_edit}
+        class="simulation-import-disclosure"
+        open={not is_nil(@import_preview)}
+      >
+        <summary>{t(@locale, :population_import_submit)}</summary>
+        <form
+          action={"/simulations/#{@simulation.id}/population/import"}
+          method="post"
+          enctype="multipart/form-data"
+        >
+          <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+          <input type="hidden" name="workspace_id" value={@workspace.id} />
+          <input type="hidden" name="locale" value={@locale} />
+          <label>
+            <span>{t(@locale, :population_import_kind)}</span>
+            <select name="population_import[kind]">
+              <option value="agents" selected={@import_form["kind"] != "relationships"}>
+                {t(@locale, :population_import_agents)}
+              </option>
+              <option value="relationships" selected={@import_form["kind"] == "relationships"}>
+                {t(@locale, :population_import_relationships)}
+              </option>
+            </select>
+          </label>
+          <label class="simulation-import-file">
+            <span>{t(@locale, :population_import_file)}</span>
+            <input
+              type="file"
+              name="population_import[file]"
+              accept=".csv,.json,text/csv,application/json"
+              required
+            />
+            <small>{t(@locale, :population_import_file_hint)}</small>
+          </label>
+          <div class="simulation-import-mapping">
+            <p>{t(@locale, :population_agent_mapping)}</p>
+            <label>
+              <span>{t(@locale, :population_id_column)}</span>
+              <input
+                name="population_import[id_column]"
+                value={@import_form["id_column"] || "id"}
+              />
+            </label>
+            <label>
+              <span>{t(@locale, :population_type_column)}</span>
+              <input
+                name="population_import[type_column]"
+                value={@import_form["type_column"] || "type"}
+              />
+            </label>
+            <label>
+              <span>{t(@locale, :population_archetype_column)}</span>
+              <input
+                name="population_import[archetype_column]"
+                value={@import_form["archetype_column"] || "archetype"}
+              />
+            </label>
+            <label>
+              <span>{t(@locale, :population_attribute_columns)}</span>
+              <input
+                name="population_import[attribute_columns]"
+                value={@import_form["attribute_columns"]}
+              />
+              <small>{t(@locale, :population_attribute_columns_hint)}</small>
+            </label>
+            <label>
+              <span>{t(@locale, :population_resource_columns)}</span>
+              <input
+                name="population_import[resource_columns]"
+                value={@import_form["resource_columns"]}
+              />
+            </label>
+            <label>
+              <span>{t(@locale, :population_state_columns)}</span>
+              <input
+                name="population_import[state_columns]"
+                value={@import_form["state_columns"]}
+              />
+            </label>
+          </div>
+          <div class="simulation-import-mapping simulation-relationship-mapping">
+            <p>{t(@locale, :population_relationship_mapping)}</p>
+            <label>
+              <span>{t(@locale, :population_source_column)}</span>
+              <input
+                name="population_import[source_column]"
+                value={@import_form["source_column"] || "source"}
+              />
+            </label>
+            <label>
+              <span>{t(@locale, :population_target_column)}</span>
+              <input
+                name="population_import[target_column]"
+                value={@import_form["target_column"] || "target"}
+              />
+            </label>
+            <label>
+              <span>{t(@locale, :population_relationship_type_column)}</span>
+              <input
+                name="population_import[relationship_type_column]"
+                value={@import_form["relationship_type_column"] || "type"}
+              />
+            </label>
+            <label>
+              <span>{t(@locale, :population_weight_column)}</span>
+              <input
+                name="population_import[weight_column]"
+                value={@import_form["weight_column"] || "weight"}
+              />
+            </label>
+            <label>
+              <span>{t(@locale, :population_directed_column)}</span>
+              <input
+                name="population_import[directed_column]"
+                value={@import_form["directed_column"] || "directed"}
+              />
+            </label>
+          </div>
+          <button type="submit">{t(@locale, :population_import_submit)}</button>
+        </form>
+      </details>
+    </section>
+  <% else %>
+    <section class="simulation-zero-state">
+      <span class="simulation-orbit" aria-hidden="true">◇</span>
+      <h2>{t(@locale, :population_title)}</h2>
+      <p>{t(@locale, :population_lede)}</p>
+      <form
+        :if={@can_edit}
+        action={"/simulations/#{@simulation.id}/population/build"}
+        method="post"
+      >
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <input type="hidden" name="workspace_id" value={@workspace.id} />
+        <input type="hidden" name="locale" value={@locale} />
+        <button class="simulation-primary-link" type="submit">
+          {t(@locale, :population_build_action)}
+        </button>
+      </form>
+    </section>
+  <% end %>
+</div>

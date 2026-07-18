@@ -1,0 +1,27 @@
+{
+  "recorded_at": "2026-07-18",
+  "purpose": "Epic 4 deterministic 10k acceptance smoke; not a public latency claim",
+  "environment": {
+    "architecture": "arm64",
+    "elixir": "1.19.5",
+    "erlang_otp": "28"
+  },
+  "contract": {
+    "population_size": 10000,
+    "agent_type_count": 3,
+    "archetype_count": 6,
+    "relationship_topology": "small_world",
+    "requested_degree": 4,
+    "model_calls": 0,
+    "compiler_version": "hydra-population/v1"
+  },
+  "single_process_measurement": {
+    "builder_and_compile_ms": 1028.1,
+    "repeat_compile_ms": 866.85,
+    "exact_agent_count": 10000,
+    "relationship_count": 20000,
+    "representative_count": 10,
+    "agent_set_hash": "8d865ca84d9924908d6ca8fbed078253087c9a1fa6b8957f5701c754ad19976a"
+  },
+  "interpretation": "The provider-free builder defined and instantiated the exact 10,000-agent population with zero model calls. This is one local acceptance measurement, not a percentile benchmark or hosted-service SLO."
+}

@@ -135,6 +135,15 @@ defmodule HydraAgentWeb.SimulationHTML do
         "trust" => "Доверие",
         "autonomy" => "Автономия",
         "budget" => "Бюджет",
+        "influences" => "Влияет",
+        "connected" => "Связан",
+        "manages" => "Руководит",
+        "trusts" => "Доверяет",
+        "follows" => "Следует",
+        "supplies" => "Снабжает",
+        "competes" => "Конкурирует",
+        "collaborates" => "Сотрудничает",
+        "belongs_to" => "Принадлежит",
         "adopt" => "Принять",
         "delay" => "Отложить",
         "resist" => "Отказаться",
@@ -157,6 +166,157 @@ defmodule HydraAgentWeb.SimulationHTML do
 
   def claim_source(_claim, _sources), do: nil
 
+  def population_type_count(model, type_id) do
+    get_in(model.compile_summary, ["type_counts", type_id]) || 0
+  end
+
+  def population_archetype_count(model, archetype_id) do
+    get_in(model.compile_summary, ["archetype_counts", archetype_id]) || 0
+  end
+
+  def population_generated_count(model),
+    do: model.compile_summary["generated_agent_count"] || 0
+
+  def population_imported_count(model),
+    do: model.compile_summary["imported_agent_count"] || 0
+
+  def population_relationship_count(model),
+    do: model.compile_summary["relationship_count"] || 0
+
+  def population_representatives(model),
+    do: model.compile_summary["representatives"] || []
+
+  def population_representative_attributes(representative) do
+    representative["attributes"]
+    |> Kernel.||(%{})
+    |> Enum.sort_by(fn {key, _value} -> key end)
+    |> Enum.take(4)
+  end
+
+  def population_relationship_groups(representative) do
+    representative
+    |> Map.get("important_relationships", [])
+    |> Enum.map(& &1["type"])
+    |> Enum.reject(&is_nil/1)
+    |> Enum.frequencies()
+    |> Enum.sort_by(fn {type, _count} -> type end)
+  end
+
+  def persona_projection_for(projections, agent_id),
+    do: Enum.find(projections, &(&1.agent_id == agent_id))
+
+  def population_attribute_label(key, "ru") do
+    Map.get(
+      %{
+        "openness" => "Готовность к изменениям",
+        "risk_tolerance" => "Готовность к риску",
+        "influence" => "Влияние",
+        "information_access" => "Доступ к информации",
+        "initial_stance" => "Начальная позиция",
+        "imported_signal" => "Импортированный сигнал"
+      },
+      key,
+      humanize_identifier(key)
+    )
+  end
+
+  def population_attribute_label(key, _locale), do: humanize_identifier(key)
+
+  def population_topology_label("small_world", "ru"), do: "Малый мир"
+  def population_topology_label("hierarchical", "ru"), do: "Иерархическая"
+  def population_topology_label("bipartite", "ru"), do: "Двудольная"
+  def population_topology_label("random", "ru"), do: "Случайная"
+  def population_topology_label("imported", "ru"), do: "Импортированная"
+  def population_topology_label("none", "ru"), do: "Без связей"
+  def population_topology_label(kind, _locale), do: humanize_identifier(kind)
+
+  def format_count(value, "ru") when is_integer(value),
+    do: value |> Integer.to_string() |> grouped_number(" ")
+
+  def format_count(value, _locale) when is_integer(value),
+    do: value |> Integer.to_string() |> grouped_number(",")
+
+  def format_count(_value, _locale), do: "—"
+
+  def population_import_summary(model, preview) do
+    cond do
+      is_map(preview) ->
+        preview
+
+      model && is_map(model.import_summary) && map_size(model.import_summary) > 0 ->
+        model.import_summary
+
+      true ->
+        nil
+    end
+  end
+
+  def population_import_error(locale, error) do
+    key =
+      case error["code"] do
+        "invalid_identifier" ->
+          :population_import_error_invalid_identifier
+
+        "invalid_object" ->
+          :population_import_error_invalid_object
+
+        "sensitive_attribute_requires_model_metadata" ->
+          :population_import_error_sensitive_attribute_requires_model_metadata
+
+        "duplicate_identifier" ->
+          :population_import_error_duplicate_identifier
+
+        "invalid_weight" ->
+          :population_import_error_invalid_weight
+
+        "invalid_boolean" ->
+          :population_import_error_invalid_boolean
+
+        "self_relationship" ->
+          :population_import_error_self_relationship
+
+        _ ->
+          :population_import_error_default
+      end
+
+    t(locale, key)
+  end
+
+  def population_trait_level(value, "ru") when is_number(value) and value < 0.34, do: "Низкий"
+
+  def population_trait_level(value, "ru") when is_number(value) and value < 0.67,
+    do: "Средний"
+
+  def population_trait_level(value, "ru") when is_number(value), do: "Высокий"
+  def population_trait_level(value, _locale) when is_number(value) and value < 0.34, do: "Low"
+
+  def population_trait_level(value, _locale) when is_number(value) and value < 0.67,
+    do: "Moderate"
+
+  def population_trait_level(value, _locale) when is_number(value), do: "High"
+  def population_trait_level(true, "ru"), do: "Да"
+  def population_trait_level(false, "ru"), do: "Нет"
+  def population_trait_level(true, _locale), do: "Yes"
+  def population_trait_level(false, _locale), do: "No"
+
+  def population_trait_level(value, "ru") when is_binary(value) do
+    Map.get(
+      %{
+        "open" => "Открытая",
+        "undecided" => "Неопределённая",
+        "resistant" => "Сопротивляющаяся",
+        "ready" => "Готово",
+        "uncommitted" => "Без решения",
+        "imported" => "Импортировано"
+      },
+      value,
+      humanize_identifier(value)
+    )
+  end
+
+  def population_trait_level(value, _locale) when is_binary(value), do: humanize_identifier(value)
+  def population_trait_level(_value, _locale), do: "—"
+
   defp humanize_identifier(identifier) when is_binary(identifier) do
     identifier
     |> String.replace("_", " ")
@@ -164,6 +324,15 @@ defmodule HydraAgentWeb.SimulationHTML do
   end
 
   defp humanize_identifier(_identifier), do: "—"
+
+  defp grouped_number(value, separator) do
+    value
+    |> String.reverse()
+    |> String.graphemes()
+    |> Enum.chunk_every(3)
+    |> Enum.map_join(separator, &Enum.join/1)
+    |> String.reverse()
+  end
 
   defp english_plural(1, singular), do: singular
   defp english_plural(_count, singular), do: singular <> "s"

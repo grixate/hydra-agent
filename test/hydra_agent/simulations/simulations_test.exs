@@ -13,6 +13,8 @@ defmodule HydraAgent.SimulationsTest do
     BuildStage,
     ContextPack,
     ContextResearchRun,
+    PersonaProjection,
+    PopulationModel,
     Simulation,
     SimulationVersion,
     Workers.ContextResearchWorker
@@ -49,6 +51,11 @@ defmodule HydraAgent.SimulationsTest do
     assert simulation.active_context_pack.sources == []
     assert simulation.active_context_pack.research_metadata["retrieval_status"] == "not_run"
     assert byte_size(simulation.active_context_pack.content_hash) == 64
+    assert simulation.active_population_model.version == 1
+    assert simulation.active_population_model.population_size == 5_000
+    assert simulation.active_population_model.compile_summary["population_size"] == 5_000
+    assert simulation.active_population_model.generation_metadata["model_calls"] == 0
+    assert Repo.aggregate(PersonaProjection, :count) == 0
 
     assert Enum.all?(simulation.active_context_pack.claims, fn claim ->
              claim["grounding_class"] == "model_prior"
@@ -66,7 +73,7 @@ defmodule HydraAgent.SimulationsTest do
              [
                {"understanding_question", "complete"},
                {"finding_context", "partial"},
-               {"designing_population", "pending"},
+               {"designing_population", "complete"},
                {"writing_rules", "pending"},
                {"checking_model", "pending"},
                {"preparing_run", "pending"}
@@ -315,6 +322,51 @@ defmodule HydraAgent.SimulationsTest do
     end
   end
 
+  test "database triggers keep Population Models immutable", %{
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might immutable population state preserve exact replay?",
+        "blueprint_id" => general.id,
+        "population_size" => 50
+      })
+
+    assert_raise Postgrex.Error, ~r/simulation population models are immutable/, fn ->
+      PopulationModel
+      |> where([model], model.id == ^simulation.active_population_model.id)
+      |> Repo.update_all(set: [status: "partial"])
+    end
+  end
+
+  test "database triggers keep Persona projections immutable", %{
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might immutable readable projections preserve provenance?",
+        "blueprint_id" => general.id,
+        "population_size" => 50
+      })
+
+    [representative | _] = simulation.active_population_model.compile_summary["representatives"]
+
+    assert {:ok, %{projection: projection, created: true}} =
+             HydraAgent.Simulations.generate_persona_projection(
+               simulation,
+               representative["agent_id"],
+               nil
+             )
+
+    assert_raise Postgrex.Error, ~r/simulation persona projections are immutable/, fn ->
+      PersonaProjection
+      |> where([candidate], candidate.id == ^projection.id)
+      |> Repo.update_all(set: [prose: "mutated"])
+    end
+  end
+
   test "source exclusion creates a new immutable Pack and resets downstream build stages", %{
     workspace: workspace,
     general: general
@@ -355,7 +407,12 @@ defmodule HydraAgent.SimulationsTest do
     assert simulation
            |> HydraAgent.Simulations.list_build_stages()
            |> Enum.find(&(&1.stage == "designing_population"))
-           |> Map.fetch!(:status) == "pending"
+           |> Map.fetch!(:status) == "complete"
+
+    refreshed_population = result.simulation.active_population_model
+    assert refreshed_population.version == 2
+    assert refreshed_population.context_pack_id == result.context_pack.id
+    assert refreshed_population.compile_summary["population_size"] == 5_000
 
     assert {:error, :context_source_not_found} =
              HydraAgent.Simulations.exclude_context_source(
@@ -369,6 +426,150 @@ defmodule HydraAgent.SimulationsTest do
 
     assert rebuilt.id == result.context_pack.id
     refute Enum.any?(rebuilt.sources, &(&1["id"] == source["id"]))
+  end
+
+  test "row imports, attribute removal, and readable projections create immutable versions", %{
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might a bounded participant group respond to a service change?",
+        "blueprint_id" => general.id,
+        "population_size" => 50
+      })
+
+    type_id = hd(simulation.active_population_model.agent_types)["id"]
+
+    csv = """
+    id,type,attribute_imported_signal
+    supplied-1,#{type_id},0.8
+    supplied-2,#{type_id},0.2
+    invalid id,#{type_id},private-value-that-must-not-appear-in-errors
+    """
+
+    assert {:ok, imported} =
+             HydraAgent.Simulations.import_population(
+               simulation,
+               nil,
+               "agents.csv",
+               csv
+             )
+
+    imported_model = imported.population_model
+    assert imported.created
+    assert imported_model.version == 2
+    assert imported_model.status == "partial"
+    assert length(imported_model.imported_agents) == 2
+    assert imported_model.compile_summary["population_size"] == 50
+    assert imported_model.compile_summary["imported_agent_count"] == 2
+    assert imported.import["error_count"] == 1
+    refute inspect(imported.import["errors"]) =~ "private-value-that-must-not-appear"
+
+    assert {:ok, removed} =
+             HydraAgent.Simulations.exclude_population_attribute(
+               imported.simulation,
+               type_id,
+               "imported_signal",
+               nil
+             )
+
+    assert removed.population_model.version == 3
+
+    refute Enum.any?(
+             Enum.find(removed.population_model.agent_types, &(&1["id"] == type_id))[
+               "attributes"
+             ],
+             &(&1["key"] == "imported_signal")
+           )
+
+    [representative | _] = removed.population_model.compile_summary["representatives"]
+    assert Repo.aggregate(PersonaProjection, :count) == 0
+
+    assert {:ok, %{projection: projection, created: true}} =
+             HydraAgent.Simulations.generate_persona_projection(
+               removed.simulation,
+               representative["agent_id"],
+               nil
+             )
+
+    assert projection.generated_lazily
+    assert projection.generated_by == "deterministic"
+    assert projection.prose =~ "not a biography"
+
+    assert {:ok, %{projection: same_projection, created: false}} =
+             HydraAgent.Simulations.generate_persona_projection(
+               removed.simulation,
+               representative["agent_id"],
+               nil
+             )
+
+    assert same_projection.id == projection.id
+  end
+
+  test "a custom JSON Population Model survives Context Pack rebasing", %{
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might supplied service evidence influence a custom population?",
+        "blueprint_id" => general.id,
+        "population_size" => 50,
+        "inputs" => %{"notes" => "A supplied operating constraint is active."}
+      })
+
+    [source] =
+      Enum.filter(simulation.active_context_pack.sources, &(&1["kind"] == "user_data"))
+
+    custom_contract =
+      simulation.active_population_model
+      |> PopulationModel.contract()
+      |> update_in(["agent_types", Access.at(0), "label"], fn _label -> "Custom cohort" end)
+      |> Map.put("hydra_population_model", 1)
+
+    assert {:ok, imported} =
+             HydraAgent.Simulations.import_population(
+               simulation,
+               nil,
+               "custom-population.json",
+               Jason.encode!(custom_contract)
+             )
+
+    assert imported.population_model.generation_metadata["route"] == "population_model_import"
+    assert hd(imported.population_model.agent_types)["label"] == "Custom cohort"
+
+    assert {:ok, unchanged} =
+             HydraAgent.Simulations.build_population_model(imported.simulation, nil)
+
+    refute unchanged.created
+    assert unchanged.population_model.id == imported.population_model.id
+    assert hd(unchanged.population_model.agent_types)["label"] == "Custom cohort"
+
+    assert {:ok, rebased} =
+             HydraAgent.Simulations.exclude_context_source(
+               imported.simulation,
+               source["id"],
+               nil
+             )
+
+    assert rebased.context_pack.version == 2
+    assert rebased.population_model.version == 3
+    assert rebased.population_model.context_pack_id == rebased.context_pack.id
+    assert rebased.population_model.generation_metadata["route"] == "population_model_import"
+    assert hd(rebased.population_model.agent_types)["label"] == "Custom cohort"
+    assert rebased.population_model.compile_summary["population_size"] == 50
+
+    allowed_grounding =
+      (rebased.context_pack.sources ++
+         rebased.context_pack.claims ++
+         rebased.context_pack.assumptions)
+      |> MapSet.new(& &1["id"])
+
+    assert Enum.all?(rebased.population_model.archetypes, fn archetype ->
+             archetype["grounding"] != [] and
+               Enum.all?(archetype["grounding"], &MapSet.member?(allowed_grounding, &1))
+           end)
   end
 
   test "bounded mock research completes four lanes and activates attributable sources", %{

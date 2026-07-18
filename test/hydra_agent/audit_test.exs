@@ -183,6 +183,26 @@ defmodule HydraAgent.AuditTest do
         "blueprint_id" => general.id
       })
 
+    type_id = hd(included.active_population_model.agent_types)["id"]
+    imported_secret = "private-imported-population-value"
+
+    {:ok, population_import} =
+      HydraAgent.Simulations.import_population(
+        included,
+        nil,
+        "private-population.csv",
+        "id,type,attribute_private_note\nprivate-agent,#{type_id},#{imported_secret}\n"
+      )
+
+    [representative | _] = population_import.population_model.compile_summary["representatives"]
+
+    {:ok, %{projection: projection}} =
+      HydraAgent.Simulations.generate_persona_projection(
+        population_import.simulation,
+        representative["agent_id"],
+        nil
+      )
+
     studio = Audit.export_workspace(workspace.id)["simulation_studio"]
     encoded = Jason.encode!(studio)
 
@@ -191,6 +211,8 @@ defmodule HydraAgent.AuditTest do
     assert Enum.count(studio["blueprints"], & &1["built_in"]) == 2
     assert length(studio["build_stages"]) == 6
     assert length(studio["context_packs"]) == 1
+    assert length(studio["population_models"]) == 2
+    assert length(studio["persona_projections"]) == 1
 
     [version] = studio["simulation_versions"]
     assert version["content_hash"] == included.active_version.content_hash
@@ -216,7 +238,27 @@ defmodule HydraAgent.AuditTest do
 
     refute encoded =~ secret_note
     refute encoded =~ secret_file
+    refute encoded =~ imported_secret
+    refute encoded =~ projection.prose
     refute encoded =~ "\"text\""
+
+    [first_population, active_population] = studio["population_models"]
+    assert first_population["id"] == included.active_population_model.id
+    assert active_population["id"] == population_import.population_model.id
+    assert active_population["imported_agent_count"] == 1
+    assert is_binary(active_population["imported_agents_fingerprint"])
+    assert is_binary(active_population["compile_summary"]["representatives_fingerprint"])
+    refute Map.has_key?(active_population, "imported_agents")
+
+    [audited_projection] = studio["persona_projections"]
+    assert audited_projection["id"] == projection.id
+    assert is_binary(audited_projection["prose_fingerprint"])
+    refute Map.has_key?(audited_projection, "prose")
+
+    [audited_simulation] = studio["simulations"]
+
+    assert audited_simulation["active_population_model_id"] ==
+             population_import.population_model.id
   end
 
   defp assert_section_ids(sim_lab, first, second) do

@@ -3728,3 +3728,755 @@
     text-align: left;
   }
 }
+
+/* Simulation Population Model */
+
+.simulation-population-page {
+  width: min(100%, 1160px);
+}
+
+.simulation-population-hero {
+  padding-bottom: 48px;
+}
+
+.simulation-population-status {
+  background: #f4f6f3;
+}
+
+.simulation-population-deterministic {
+  color: var(--sim-muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.simulation-population-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 38px;
+  border-top: 1px solid var(--sim-line-strong);
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-population-metrics > div {
+  min-width: 0;
+  padding: 19px 20px 20px;
+  border-left: 1px solid var(--sim-line);
+}
+
+.simulation-population-metrics > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.simulation-population-metrics span,
+.simulation-population-type-body h4,
+.simulation-import-result dt,
+.simulation-representative-grid dt,
+.simulation-archetype-grid dt,
+.simulation-import-disclosure label > span,
+.simulation-import-mapping > p {
+  display: block;
+  color: var(--sim-faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.simulation-population-metrics strong,
+.simulation-population-metrics code {
+  display: block;
+  margin-top: 8px;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 520;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.simulation-population-metrics code {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+}
+
+.simulation-population-section,
+.simulation-population-import {
+  margin-top: 84px;
+}
+
+.simulation-population-section > header,
+.simulation-population-import > header {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--sim-line-strong);
+}
+
+.simulation-population-section > header > div,
+.simulation-population-import > header > div {
+  flex: 1;
+}
+
+.simulation-population-section > header h2,
+.simulation-population-import > header h2 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 35px;
+  font-weight: 400;
+  letter-spacing: -0.045em;
+}
+
+.simulation-population-section > header > div h2,
+.simulation-population-import > header h2 {
+  margin-top: 7px;
+}
+
+.simulation-population-section > header > div > p:last-child,
+.simulation-population-import > header p:last-child {
+  max-width: 720px;
+  margin: 8px 0 0;
+  color: var(--sim-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.simulation-population-section > header > span {
+  margin-left: auto;
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.simulation-population-type-list > article {
+  padding: 27px 0 30px;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-population-type-list article > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 36px;
+}
+
+.simulation-population-type-list h3,
+.simulation-archetype-grid h3,
+.simulation-representative-grid h3,
+.simulation-topology-list h3 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 23px;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+}
+
+.simulation-population-type-list header p {
+  max-width: 660px;
+  margin: 6px 0 0;
+  color: var(--sim-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.simulation-population-type-list article > header > span,
+.simulation-archetype-grid header > span,
+.simulation-representative-grid header span,
+.simulation-representative-grid header small {
+  color: var(--sim-faint);
+  font-size: 9px;
+  font-weight: 680;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.simulation-population-type-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.8fr);
+  gap: 70px;
+  margin-top: 24px;
+}
+
+.simulation-population-type-body h4 {
+  margin: 0 0 9px;
+}
+
+.simulation-population-type-body h4:not(:first-child) {
+  margin-top: 23px;
+}
+
+.simulation-population-attribute-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.simulation-population-attribute-list li {
+  display: flex;
+  min-height: 37px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-population-attribute-list strong {
+  font-size: 11px;
+  font-weight: 560;
+}
+
+.simulation-sensitive-attribute {
+  display: inline-block;
+  margin-left: 8px;
+}
+
+.simulation-sensitive-attribute summary {
+  color: #886454;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.simulation-sensitive-attribute > p {
+  max-width: 520px;
+  margin: 10px 0 0;
+  color: var(--sim-muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.simulation-sensitive-attribute dl {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 0;
+}
+
+.simulation-sensitive-attribute dl div {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.simulation-sensitive-attribute dt {
+  color: var(--sim-faint);
+  font-size: 9px;
+}
+
+.simulation-sensitive-attribute dd {
+  margin: 0;
+  color: #505953;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.simulation-population-attribute-list button {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #858d88;
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.simulation-population-attribute-list button:hover,
+.simulation-population-attribute-list button:focus-visible {
+  color: #80564b;
+}
+
+.simulation-population-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.simulation-population-tags span {
+  padding: 5px 8px;
+  border: 1px solid var(--sim-line);
+  border-radius: 999px;
+  color: #4f5852;
+  font-size: 9px;
+}
+
+.simulation-population-safety-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 0;
+  color: var(--sim-muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.simulation-population-safety-note span {
+  color: var(--sim-sage);
+}
+
+.simulation-archetype-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.simulation-archetype-grid article {
+  min-width: 0;
+  padding: 24px 22px 25px;
+  border-bottom: 1px solid var(--sim-line);
+  border-left: 1px solid var(--sim-line);
+}
+
+.simulation-archetype-grid article:nth-child(3n + 1) {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.simulation-archetype-grid header,
+.simulation-representative-grid > article > header,
+.simulation-import-result > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.simulation-archetype-grid header strong {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.simulation-archetype-grid h3 {
+  margin-top: 20px;
+}
+
+.simulation-archetype-grid article > p,
+.simulation-representative-grid article > p {
+  margin: 8px 0 0;
+  color: var(--sim-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.simulation-archetype-grid dl,
+.simulation-representative-grid dl {
+  margin: 22px 0 0;
+}
+
+.simulation-archetype-grid dl div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--sim-line);
+}
+
+.simulation-archetype-grid dd,
+.simulation-representative-grid dd,
+.simulation-import-result dd {
+  margin: 0;
+  font-size: 10px;
+}
+
+.simulation-archetype-grid a {
+  color: var(--sim-sage);
+  text-decoration: none;
+}
+
+.simulation-topology-list article {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 15px;
+  padding: 21px 0;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-topology-list article > span {
+  color: var(--sim-sage);
+}
+
+.simulation-topology-list p {
+  margin: 5px 0 0;
+  color: var(--sim-muted);
+  font-size: 9px;
+}
+
+.simulation-representative-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.simulation-representative-grid > article {
+  min-width: 0;
+  padding: 25px 28px 28px;
+  border-bottom: 1px solid var(--sim-line);
+  border-left: 1px solid var(--sim-line);
+}
+
+.simulation-representative-grid > article:nth-child(odd) {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.simulation-representative-grid h3 {
+  margin-top: 6px;
+}
+
+.simulation-persona-prose {
+  color: #3d4540 !important;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 15px !important;
+  line-height: 1.5 !important;
+}
+
+.simulation-representative-grid dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--sim-line);
+}
+
+.simulation-representative-grid dl div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-representative-grid dl div:nth-child(odd) {
+  padding-right: 16px;
+}
+
+.simulation-representative-grid dl div:nth-child(even) {
+  padding-left: 16px;
+  border-left: 1px solid var(--sim-line);
+}
+
+.simulation-representative-grid form {
+  margin-top: 17px;
+}
+
+.simulation-representative-state {
+  margin-top: 15px;
+  border-top: 1px solid var(--sim-line);
+}
+
+.simulation-representative-state > summary {
+  padding: 11px 0;
+  color: var(--sim-muted);
+  font-size: 9px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.simulation-representative-state-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 21px 26px;
+  padding: 12px 0 5px;
+}
+
+.simulation-representative-state-grid h4 {
+  margin: 0 0 8px;
+  color: var(--sim-faint);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.simulation-representative-state-grid ul {
+  margin: 0;
+  padding-left: 14px;
+  color: #505953;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.simulation-representative-state-grid p {
+  margin: 4px 0 0 !important;
+  font-size: 10px !important;
+}
+
+.simulation-representative-state-grid a {
+  color: var(--sim-sage);
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.simulation-representative-grid button,
+.simulation-import-disclosure > form > button {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--sim-line-strong);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--sim-ink);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.simulation-population-import {
+  margin-bottom: 32px;
+  border-top: 1px solid var(--sim-line-strong);
+}
+
+.simulation-population-import > header {
+  padding: 27px 0 24px;
+  border-bottom-color: var(--sim-line);
+}
+
+.simulation-import-result {
+  padding: 22px 0 25px;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-import-result > header strong {
+  font-size: 10px;
+}
+
+.simulation-import-result > header code {
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.simulation-import-result dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 160px));
+  margin: 18px 0 0;
+}
+
+.simulation-import-result dl div {
+  padding-right: 20px;
+  border-right: 1px solid var(--sim-line);
+}
+
+.simulation-import-result dl div + div {
+  padding-left: 20px;
+}
+
+.simulation-import-result dd {
+  margin-top: 6px;
+  font-size: 15px;
+}
+
+.simulation-import-result > p {
+  margin: 16px 0 0;
+  color: var(--sim-muted);
+  font-size: 9px;
+}
+
+.simulation-import-result ul {
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.simulation-import-result li {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.3fr) minmax(0, 1fr);
+  gap: 22px;
+  padding: 10px 0;
+  border-top: 1px solid var(--sim-line);
+}
+
+.simulation-import-result li span {
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.simulation-import-result li p {
+  margin: 0;
+  color: #555f59;
+  font-size: 9px;
+}
+
+.simulation-import-disclosure {
+  padding: 20px 0 0;
+}
+
+.simulation-import-disclosure > summary {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  color: var(--sim-sage);
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.simulation-import-disclosure > form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.32fr) minmax(0, 0.68fr);
+  gap: 22px 30px;
+  margin-top: 19px;
+  padding: 25px 0 28px;
+  border-top: 1px solid var(--sim-line);
+}
+
+.simulation-import-disclosure label {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.simulation-import-disclosure input,
+.simulation-import-disclosure select {
+  min-width: 0;
+  min-height: 40px;
+  box-sizing: border-box;
+  border: 1px solid var(--sim-line-strong);
+  border-radius: 7px;
+  padding: 0 11px;
+  background: var(--sim-paper);
+  color: var(--sim-ink);
+  font: inherit;
+  font-size: 10px;
+}
+
+.simulation-import-disclosure input[type="file"] {
+  height: auto;
+  padding: 9px 10px;
+}
+
+.simulation-import-disclosure small {
+  color: var(--sim-faint);
+  font-size: 9px;
+}
+
+.simulation-import-mapping {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-column: 1 / -1;
+  gap: 16px;
+  padding-top: 21px;
+  border-top: 1px solid var(--sim-line);
+}
+
+.simulation-import-mapping > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.simulation-relationship-mapping {
+  margin-top: -2px;
+}
+
+.simulation-import-disclosure > form > button {
+  grid-column: 1 / -1;
+  justify-self: start;
+  margin-top: 2px;
+}
+
+.simulation-population-page :is(a, button, summary, input, select):focus-visible {
+  outline: 2px solid var(--sim-sage);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .simulation-archetype-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .simulation-archetype-grid article:nth-child(3n + 1) {
+    padding-left: 22px;
+    border-left: 1px solid var(--sim-line);
+  }
+
+  .simulation-archetype-grid article:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .simulation-import-mapping {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .simulation-population-deterministic {
+    white-space: normal;
+  }
+
+  .simulation-population-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .simulation-population-metrics > div:nth-child(3) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .simulation-population-metrics > div:nth-child(n + 3) {
+    border-top: 1px solid var(--sim-line);
+  }
+
+  .simulation-population-section,
+  .simulation-population-import {
+    margin-top: 68px;
+  }
+
+  .simulation-population-section > header,
+  .simulation-population-import > header,
+  .simulation-population-type-list article > header {
+    flex-wrap: wrap;
+  }
+
+  .simulation-population-section > header h2,
+  .simulation-population-import > header h2 {
+    width: 100%;
+    font-size: 32px;
+  }
+
+  .simulation-population-type-body,
+  .simulation-import-disclosure > form {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-population-type-body {
+    gap: 30px;
+  }
+
+  .simulation-archetype-grid,
+  .simulation-representative-grid,
+  .simulation-import-mapping {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-archetype-grid article,
+  .simulation-archetype-grid article:nth-child(3n + 1),
+  .simulation-archetype-grid article:nth-child(odd),
+  .simulation-representative-grid > article,
+  .simulation-representative-grid > article:nth-child(odd) {
+    padding: 22px 0;
+    border-left: 0;
+  }
+
+  .simulation-representative-grid dl {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-representative-state-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-representative-grid dl div:nth-child(odd),
+  .simulation-representative-grid dl div:nth-child(even) {
+    padding-right: 0;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .simulation-import-disclosure > form {
+    gap: 18px;
+  }
+
+  .simulation-import-result li {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+}

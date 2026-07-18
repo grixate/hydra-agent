@@ -11,10 +11,10 @@ entire epic or release is complete.
 
 ## Current status
 
-- Active epic: **Epic 4 — Population Model and agent compiler**
-- Completed epic: **Epic 3 — Automatic Context Pack**
-- Next vertical slice: deterministic Population Model, compact agent state, and
-  representative selection
+- Active epic: **Epic 5 — Simulation Script DSL, validation, and preview**
+- Completed epic: **Epic 4 — Population Model and agent compiler**
+- Next vertical slice: versioned declarative Script, semantic validation, and a
+  bounded two-round preview
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
@@ -48,9 +48,9 @@ product behavior.
 | Simulation | `HydraAgent.Simulations.Simulation`, `simulations`; legacy `SimLab.Schemas.Study` | Implemented as the general workspace-scoped identity. Legacy studies remain visible through links and are not rewritten. |
 | Simulation Version | `HydraAgent.Simulations.SimulationVersion`, `simulation_versions` | Implemented as an immutable, content-addressed input snapshot linked to the exact Blueprint Version. |
 | Context Pack | `HydraAgent.Simulations.ContextPack`; legacy `sim_lab_context_packs`, sources, evidence items, research runs | Implemented as a general immutable Simulation-Version artifact. The bounded legacy retrieval runner and provider boundary are adapted without conflating legacy Study records. |
-| Population Model | Personas, action patterns, `BehaviorCompiler` | Introduce a general structured contract. Adapt personas/patterns as legacy archetypes/policies and keep deterministic fallback. |
-| Agent Instance | Generated aggregate cohorts and representative traces | Add compact run-owned state, not permanent runtime agent profiles or one process per agent. |
-| Representative Persona | `sim_lab_personas` | Reuse presentation and evidence links through an adapter. Do not treat persona count as population size. |
+| Population Model | `HydraAgent.Simulations.PopulationModel`; legacy personas, action patterns, `BehaviorCompiler` | Implemented as an immutable Context-bound structured contract with a provider-free deterministic builder. Legacy SimLab records remain separate compatibility inputs. |
+| Agent Instance | `HydraAgent.Simulations.PopulationCompiler`; generated aggregate cohorts and representative traces | Implemented as compact deterministic materialization, not permanent runtime profiles or one process per agent. Run-owned persistence waits for the Script/engine boundary. |
+| Representative Persona | `HydraAgent.Simulations.PersonaProjection`; legacy `sim_lab_personas` | Implemented as an immutable lazy projection of representative structured state. Persona count is never population size. |
 | Simulation Script | Scenario events, executable rules, `ScenarioCompiler` | Add a versioned declarative schema/compiler; translate legacy scenarios as a compatibility input. Never execute arbitrary code. |
 | Observation Plan | Snapshot metrics, outcome events, forecast inputs | Add explicit immutable contract while reusing snapshot/outcome calculation code. |
 | Budget Plan | Runtime `budgets`, `usage_records`, SimLab cost fields | Reuse accounting and authorization primitives; add per-Pack/run hard-cap allocation and price snapshot. |
@@ -73,11 +73,11 @@ product behavior.
 | Durable build jobs | Six `simulation_build_stages`; Oban and SimLab workers | Version-keyed Context research runs and an idempotent Oban worker are implemented on the current research queue. |
 | Question interpretation | `HydraAgent.Simulations.ContextBuilder`; legacy `StudyParser` | A bounded deterministic interpreter now produces the Context Pack contract without requiring a provider. Later model assistance must preserve this validated boundary. |
 | Bounded research | research planner, safe query abstraction, configured web provider, direct public-URL fetcher, evidence pipeline | Reused behind durable Context research runs with four-lane Quick planning, partial completion, source attribution, and immutable late-result versions. |
-| Population fallback | `BehaviorCompiler` | Preserve behind new interface as explicit emergency fallback. |
+| Population fallback | `HydraAgent.Simulations.PopulationBuilder`; legacy `BehaviorCompiler` | A zero-provider deterministic general builder is active. Legacy behavior compilation remains isolated. |
 | Deterministic execution | `SimulationRunner`, `Simulator`, persisted input fingerprint | Reuse mechanisms after the general Script compiler defines stable semantics. |
 | Live progress | Phoenix PubSub and SimLab notifications | Add product-stage events without exposing queue or worker names. |
 | Cost and usage | `Usage`, `Budgets`, provider usage ledger | Route every generative stage and Balanced decision through the new Budget Governor. |
-| Audit | runtime audit export and safety events | Extend exports with Blueprints, versions, Packs, decisions, resources, analyses, and reports. |
+| Audit | runtime audit export and safety events | Blueprint, Simulation, Context, Population, and Persona-projection lineage now export with raw instructions, inputs, imported values, identifiers, and prose fingerprinted or omitted. Later epics add decisions, resources, analyses, and reports. |
 
 ### Route migration
 
@@ -85,7 +85,7 @@ product behavior.
 |---|---|---|
 | `/simulations` | General Simulation list plus explicit legacy-study links | Implemented and selected as the Blueprint Studio entry route. Legacy routes preserved. |
 | `/simulations/new` | One-question composer | Implemented with optional notes/data, URLs, files, geography, horizon, mode, and Blueprint. |
-| `/simulations/:id/*` | Durable Build, Context, Run, Results, and Compare stages | Implemented as deep links with a source/claim/assumption inspector, truthful readiness gates, and shared domain logic. |
+| `/simulations/:id/*` | Durable Build, Context, Population, Run, Results, and Compare stages | Implemented as deep links with Context and Population inspectors, truthful readiness gates, and shared domain logic. |
 | `/blueprints/*` | Blueprint library, detail, editor, test, import, export | Implemented with workspace role boundaries and EN/RU interface copy. |
 | `/settings/*` | `/settings`, `/control/settings`, provider/tool pages | Present product-safe subsections; keep authority-sensitive controls under Operations. |
 | `/operations/*` | `/control/*`, `/dashboard`, runtime surfaces | Preserve operator routes; later add safe redirects/aliases. |
@@ -149,6 +149,12 @@ converted by Epic 0.
   bounded lane counts. The follow-up additive constraint migration permits the
   credential-free `direct_sources` retrieval route. No legacy evidence or
   Context Pack row is rewritten.
+- Epic 4: additive immutable `simulation_population_models` and
+  `simulation_persona_projections`, plus an active Population Model reference
+  on `simulations`. Database constraints and triggers enforce exact
+  workspace/Simulation/Version/Context lineage, author scope, active-model
+  integrity, immutable content, and immutable lazy projections. No legacy
+  persona, action-pattern, cohort, or run row is rewritten.
 
 ## Acceptance ledger
 
@@ -251,6 +257,56 @@ cutoffs, prompt-injection quarantine, source exclusion and no-op rebuilds,
 automatic enqueue behavior, immutable database triggers, audit redaction,
 authorization, and both locales. The full release gate is recorded below.
 
+### Epic 4 — Population Model and agent compiler
+
+- [x] Every new Simulation atomically receives Population Model v1 tied to its
+  exact immutable Version and Context Pack.
+- [x] Agent types, archetypes, weights, declared attributes, goals,
+  constraints, state, resources, policies, memory seeds, conditional
+  distributions, grounding, relationship rules, and representative rules are
+  semantically validated.
+- [x] Constant, categorical, uniform, bounded normal, beta, integer-range, and
+  weighted-list distributions compile from deterministic hash-derived samples.
+- [x] Largest-remainder apportionment produces exact type and archetype counts.
+- [x] `none`, `random`, `small_world`, `hierarchical`, `bipartite`, and
+  `imported` relationship topology rules compile deterministically.
+- [x] Generated relationship capacity is rejected before compilation above a
+  500,000-edge bound; imported edges are capped at 100,000.
+- [x] A provider-free builder defines and instantiates 10,000 agents with zero
+  model calls; repeat compilation produces the same hashes and state.
+- [x] Only bounded representatives retain structured cards. Readable prose is
+  generated on demand and persisted as an immutable, explicitly
+  non-authoritative projection.
+- [x] Representative cards expose structured traits, goals, constraints,
+  current state, resources, grouped important relationships, grounding, and
+  lazy-projection status.
+- [x] CSV/JSON agent imports, JSON Population Model imports, and CSV/JSON edge
+  lists support explicit mapping, bounded files/rows/cells, partial valid-row
+  persistence, and safe row-level diagnostics.
+- [x] Source agent IDs are deterministically pseudonymized before persistence;
+  audit exports fingerprint imported state and Persona prose.
+- [x] Sensitive traits fail closed unless a full Population Model declares
+  observed source, necessity, lawful basis, aggregate-only use, and no
+  individual exposure. Individual consequential use is prohibited.
+- [x] Attribute removal and Context change produce new immutable Population
+  versions. Custom JSON contracts survive Context rebasing and revalidate
+  grounding instead of silently reverting to the fallback builder.
+- [x] English and Russian Population inspectors provide exact counts, quiet
+  corrective import feedback, role-gated mutations, and no internal runtime
+  terminology or raw IDs.
+- [x] Real 1280px and 390px browser QA confirms no horizontal overflow, clean
+  console state, legible hierarchy, keyboard focus treatment, collapsed
+  advanced mapping, and successful on-demand projection.
+
+Acceptance evidence: the focused Epic 4 suite covers all distributions and
+topologies, exact replay, capacity rejection, sensitive-use boundaries, CSV
+and JSON behavior, overflow rejection, pseudonymization, partial import,
+attribute removal, immutable triggers, custom-model rebasing, projection
+idempotency, workspace audit privacy, controller journeys, both locales, and
+viewer restrictions. The exact 10k acceptance smoke is recorded in
+`docs/benchmarks/2026-07-18-population-compiler-10k.json`; the full release gate
+is recorded below.
+
 ## Baseline evidence
 
 The previous production-readiness pass recorded 543 tests, 75.04% line
@@ -292,6 +348,16 @@ retrieval prove failure and lineage behavior, but no public performance, cost,
 or provider-compatibility claim is authorized until the real-provider staging
 matrix is executed.
 
+The exact Epic 4 worktree's focused 47-test suite passes with zero failures.
+The provider-free 10k acceptance smoke builds and compiles exactly 10,000
+agents, 20,000 small-world relationships, and 10 representatives with zero
+model calls; a repeat compile produces the same agent-set hash. The current
+worktree passed `mix precommit` on 2026-07-18: compilation with warnings as
+errors, dependency lock hygiene and audit, formatting, Sobelow with no
+high-confidence findings, and 630 ExUnit tests with zero failures (seed 975103,
+24.5 seconds). The upload-boundary regression discovered during the gate is
+included in both the focused and full totals.
+
 The current legacy visual baseline is captured at desktop and 390px mobile in:
 
 - `docs/screenshots/blueprint-baseline-2026-07-18/legacy-simulations-desktop.png`;
@@ -330,6 +396,18 @@ The narrow frame measured exactly 390×844 CSS pixels with a 390 px document
 width on both screens. The mobile pass also led to a smaller workbench title and
 removal of automatic field focus, avoiding an unsolicited on-screen keyboard.
 
+Epic 4 Population browser QA is captured in:
+
+- `docs/screenshots/simulation-studio-epic4-2026-07-18/population-en-desktop.png`;
+- `docs/screenshots/simulation-studio-epic4-2026-07-18/population-en-mobile-390.png`.
+
+The captures and live interaction pass cover the exact Population/Context
+lineage, deterministic status, structured types and representatives, partial
+import feedback, on-demand prose, English/Russian copy, keyboard disclosure
+focus, and collapsed advanced mapping. The desktop document measured 1280 px
+at a 1280 px viewport; the narrow document measured exactly 390 px at a 390 px
+viewport. Neither pass reported horizontal overflow or console warnings.
+
 The exact-worktree aggregate Quick-engine baseline is recorded in
 `docs/benchmarks/2026-07-18-quick-engine-10k.json`. On the recorded arm64
 environment, ten measured 10k-population runs after two warmups produced a
@@ -340,14 +418,12 @@ engine must earn its own 10k result.
 
 ## Known incompatibilities and open decisions
 
-- The `/simulations` shell is implemented, but its Build stages are not yet
-  connected to Epic 3 Context Pack workers; no Pack or runnable state is
-  claimed.
+- Context and Population stages are implemented and durable, but no runnable
+  Simulation Pack is claimed until Script validation and preview land.
 - Normal Blueprint navigation is limited to Simulations, Blueprints, and
   Settings. Operations is role-gated to system administrators and workspace
   owners/administrators.
 - Current SimLab lifecycle and terminology are Decision Replay-oriented.
-- Existing Context Pack grounding terms differ from the new six-class contract.
 - Current scenarios are not a general versioned declarative Script.
 - Current aggregate outcomes do not include a generic Resource Ledger.
 - Balanced and Deep execution contracts are not implemented under the new hard
@@ -355,9 +431,9 @@ engine must earn its own 10k result.
 - Exact replay currently covers deterministic saved inputs but not recorded
   model decisions.
 - Analysis Pack and claim-validated report regeneration are missing.
-- English/Russian copy and locale persistence are established across Blueprint
-  and Simulation Studio shells; future Pack inspectors must extend the same
-  contract.
+- English/Russian copy and locale persistence are established across Blueprint,
+  Simulation, Context, and Population surfaces; future Script and Pack
+  inspectors must extend the same contract.
 - The relationship between neutral runtime `runs` and `sim_lab_runs` must be
   defined before the general Run contract changes.
 

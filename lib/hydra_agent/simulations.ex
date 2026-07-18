@@ -20,6 +20,13 @@ defmodule HydraAgent.Simulations do
     ContextResearchRun,
     InputContract,
     JsonSchema,
+    PersonaProjection,
+    PersonaRenderer,
+    PopulationBuilder,
+    PopulationCompiler,
+    PopulationImporter,
+    PopulationModel,
+    PopulationValidator,
     Simulation,
     SimulationVersion
   }
@@ -40,7 +47,12 @@ defmodule HydraAgent.Simulations do
     |> where([simulation], simulation.workspace_id == ^workspace_id)
     |> where([simulation], simulation.status != "archived")
     |> order_by([simulation], desc: simulation.updated_at)
-    |> preload([:active_version, :active_context_pack, selected_blueprint: :active_version])
+    |> preload([
+      :active_version,
+      :active_context_pack,
+      :active_population_model,
+      selected_blueprint: :active_version
+    ])
     |> Repo.all()
   end
 
@@ -62,6 +74,7 @@ defmodule HydraAgent.Simulations do
       :workspace,
       :active_version,
       :active_context_pack,
+      :active_population_model,
       selected_blueprint: :active_version
     ])
     |> Repo.one()
@@ -115,6 +128,7 @@ defmodule HydraAgent.Simulations do
         :workspace,
         :active_version,
         :active_context_pack,
+        :active_population_model,
         :selected_blueprint
       ])
 
@@ -152,10 +166,11 @@ defmodule HydraAgent.Simulations do
 
   def ready_summary(%Simulation{} = simulation) do
     version = simulation.active_version
+    population_model = simulation.active_population_model
 
     %{
       population_size: version.population_size,
-      agent_types: nil,
+      agent_types: population_model && length(population_model.agent_types),
       rounds: nil,
       actions: nil,
       resources: nil,
@@ -171,6 +186,7 @@ defmodule HydraAgent.Simulations do
       Repo.preload(simulation, [
         :active_version,
         :active_context_pack,
+        :active_population_model,
         selected_blueprint: :active_version
       ])
 
@@ -199,6 +215,7 @@ defmodule HydraAgent.Simulations do
       Repo.preload(simulation, [
         :active_version,
         :active_context_pack,
+        :active_population_model,
         selected_blueprint: :active_version
       ])
 
@@ -219,8 +236,171 @@ defmodule HydraAgent.Simulations do
     end
   end
 
+  def build_population_model(%Simulation{} = simulation, user, opts \\ []) do
+    simulation =
+      Repo.preload(simulation, [
+        :active_version,
+        :active_context_pack,
+        :active_population_model,
+        selected_blueprint: :active_version
+      ])
+
+    if Accounts.workspace_authorized?(user, simulation.workspace_id, "researcher") do
+      with %ContextPack{} = context_pack <- simulation.active_context_pack,
+           {:ok, contract} <-
+             build_population_contract(
+               simulation.active_version,
+               context_pack,
+               simulation.active_population_model,
+               opts
+             ),
+           :ok <-
+             validate_population_contract(simulation.selected_blueprint.active_version, contract),
+           :ok <- PopulationValidator.validate(contract, context_pack) do
+        persist_population_contract(simulation, user, contract)
+      else
+        nil -> {:error, :context_not_found}
+        {:error, _reason} = error -> error
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def import_population(%Simulation{} = simulation, user, filename, content, params \\ %{}) do
+    simulation =
+      Repo.preload(simulation, [
+        :active_version,
+        :active_context_pack,
+        :active_population_model,
+        selected_blueprint: :active_version
+      ])
+
+    if Accounts.workspace_authorized?(user, simulation.workspace_id, "researcher") do
+      with %ContextPack{} = context_pack <- simulation.active_context_pack,
+           {:ok, imported} <- PopulationImporter.import(filename, content, params),
+           {:ok, contract} <- population_import_contract(simulation, context_pack, imported),
+           :ok <-
+             validate_population_contract(simulation.selected_blueprint.active_version, contract),
+           :ok <- PopulationValidator.validate(contract, context_pack),
+           {:ok, persisted} <- persist_population_contract(simulation, user, contract) do
+        {:ok, Map.put(persisted, :import, imported.summary)}
+      else
+        nil -> {:error, :context_not_found}
+        {:error, _reason} = error -> error
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def exclude_population_attribute(
+        %Simulation{} = simulation,
+        type_id,
+        attribute_key,
+        user
+      )
+      when is_binary(type_id) and is_binary(attribute_key) do
+    simulation =
+      Repo.preload(simulation, [
+        :active_version,
+        :active_context_pack,
+        :active_population_model,
+        selected_blueprint: :active_version
+      ])
+
+    if Accounts.workspace_authorized?(user, simulation.workspace_id, "researcher") do
+      with %PopulationModel{} = model <- simulation.active_population_model,
+           %ContextPack{} = context_pack <- simulation.active_context_pack,
+           {:ok, contract} <- population_without_attribute(model, type_id, attribute_key),
+           :ok <-
+             validate_population_contract(simulation.selected_blueprint.active_version, contract),
+           :ok <- PopulationValidator.validate(contract, context_pack),
+           {:ok, persisted} <- persist_population_contract(simulation, user, contract) do
+        {:ok, persisted}
+      else
+        nil -> {:error, :population_not_found}
+        {:error, _reason} = error -> error
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def exclude_population_attribute(_simulation, _type_id, _attribute_key, _user),
+    do: {:error, :population_attribute_not_found}
+
+  def list_persona_projections(%PopulationModel{} = population_model) do
+    PersonaProjection
+    |> where([projection], projection.population_model_id == ^population_model.id)
+    |> order_by([projection], asc: projection.archetype_id, asc: projection.agent_id)
+    |> Repo.all()
+  end
+
+  def generate_persona_projection(%Simulation{} = simulation, agent_id, user)
+      when is_binary(agent_id) do
+    simulation = Repo.preload(simulation, [:active_version, :active_population_model])
+
+    if Accounts.workspace_authorized?(user, simulation.workspace_id, "researcher") do
+      with %PopulationModel{} = population_model <- simulation.active_population_model,
+           representative when not is_nil(representative) <-
+             Enum.find(
+               population_model.compile_summary["representatives"] || [],
+               &(&1["agent_id"] == agent_id)
+             ) do
+        case projection_for_agent(population_model.id, agent_id) do
+          %PersonaProjection{} = projection ->
+            {:ok, %{projection: projection, created: false}}
+
+          nil ->
+            with {:ok, rendered} <-
+                   PersonaRenderer.render(representative, simulation.active_version.locale) do
+              %PersonaProjection{}
+              |> PersonaProjection.changeset(%{
+                workspace_id: simulation.workspace_id,
+                simulation_id: simulation.id,
+                simulation_version_id: simulation.active_version_id,
+                population_model_id: population_model.id,
+                created_by_user_id: user && user.id,
+                agent_id: agent_id,
+                archetype_id: representative["archetype_id"],
+                projection: rendered.projection,
+                prose: rendered.prose,
+                generated_by: rendered.generated_by,
+                generated_lazily: rendered.generated_lazily,
+                content_hash: rendered.content_hash
+              })
+              |> Repo.insert()
+              |> case do
+                {:ok, projection} ->
+                  {:ok, %{projection: projection, created: true}}
+
+                {:error, _changeset} ->
+                  case projection_for_agent(population_model.id, agent_id) do
+                    %PersonaProjection{} = projection ->
+                      {:ok, %{projection: projection, created: false}}
+
+                    nil ->
+                      {:error, :persona_projection_failed}
+                  end
+              end
+            end
+        end
+      else
+        nil -> {:error, :representative_not_found}
+        {:error, _reason} = error -> error
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def generate_persona_projection(_simulation, _agent_id, _user),
+    do: {:error, :representative_not_found}
+
   def queue_context_research(%Simulation{} = simulation, user, provider \\ "web_search") do
-    simulation = Repo.preload(simulation, [:active_version, :active_context_pack])
+    simulation =
+      Repo.preload(simulation, [:active_version, :active_context_pack, :active_population_model])
 
     cond do
       not Accounts.workspace_authorized?(user, simulation.workspace_id, "researcher") ->
@@ -417,21 +597,61 @@ defmodule HydraAgent.Simulations do
                                      } ->
         insert_context_pack(repo, workspace.id, simulation.id, version.id, author_id, 1, contract)
       end)
+      |> Multi.run(:population_contract, fn _repo,
+                                            %{
+                                              version: version,
+                                              context_pack: context_pack
+                                            } ->
+        with {:ok, contract} <- PopulationBuilder.build(version, context_pack),
+             :ok <- validate_population_contract(blueprint.active_version, contract),
+             :ok <- PopulationValidator.validate(contract, context_pack) do
+          {:ok, contract}
+        end
+      end)
+      |> Multi.run(:population_model, fn repo,
+                                         %{
+                                           simulation: simulation,
+                                           version: version,
+                                           context_pack: context_pack,
+                                           population_contract: contract
+                                         } ->
+        insert_population_model(
+          repo,
+          workspace.id,
+          simulation.id,
+          version.id,
+          context_pack.id,
+          author_id,
+          1,
+          contract
+        )
+      end)
       |> Multi.run(:stages, fn repo,
                                %{
                                  simulation: simulation,
                                  version: version,
-                                 context_contract: contract
+                                 context_contract: context_contract,
+                                 population_contract: population_contract
                                } ->
-        insert_initial_stages(repo, workspace.id, simulation.id, version.id, contract)
+        insert_initial_stages(
+          repo,
+          workspace.id,
+          simulation.id,
+          version.id,
+          context_contract,
+          population_contract
+        )
       end)
       |> Multi.run(:activated, fn repo,
                                   %{
                                     simulation: simulation,
                                     version: version,
-                                    context_pack: context_pack
+                                    context_pack: context_pack,
+                                    population_model: population_model
                                   } ->
-        simulation |> Simulation.activate_build_changeset(version, context_pack) |> repo.update()
+        simulation
+        |> Simulation.activate_build_changeset(version, context_pack, population_model)
+        |> repo.update()
       end)
 
     case Repo.transaction(multi) do
@@ -441,6 +661,7 @@ defmodule HydraAgent.Simulations do
             :workspace,
             :active_version,
             :active_context_pack,
+            :active_population_model,
             selected_blueprint: :active_version
           ])
 
@@ -452,9 +673,16 @@ defmodule HydraAgent.Simulations do
     end
   end
 
-  defp insert_initial_stages(repo, workspace_id, simulation_id, version_id, context_contract) do
+  defp insert_initial_stages(
+         repo,
+         workspace_id,
+         simulation_id,
+         version_id,
+         context_contract,
+         population_contract
+       ) do
     Enum.reduce_while(@stage_definitions, {:ok, []}, fn {stage, ordinal}, {:ok, stages} ->
-      stage_attrs = initial_stage_attrs(stage, context_contract)
+      stage_attrs = initial_stage_attrs(stage, context_contract, population_contract)
 
       changeset =
         BuildStage.changeset(%BuildStage{}, %{
@@ -489,12 +717,18 @@ defmodule HydraAgent.Simulations do
         |> Repo.preload([
           :active_version,
           :active_context_pack,
+          :active_population_model,
           selected_blueprint: :active_version
         ])
 
       if locked.active_context_pack &&
            locked.active_context_pack.content_hash == contract["content_hash"] do
-        %{simulation: locked, context_pack: locked.active_context_pack, created: false}
+        %{
+          simulation: locked,
+          context_pack: locked.active_context_pack,
+          population_model: locked.active_population_model,
+          created: false
+        }
       else
         next_version =
           ContextPack
@@ -521,11 +755,47 @@ defmodule HydraAgent.Simulations do
             {:error, changeset} -> Repo.rollback(changeset)
           end
 
-        update_context_stages!(locked, context_pack)
+        population_contract =
+          with {:ok, population_contract} <-
+                 population_contract_for_context(
+                   locked.active_version,
+                   context_pack,
+                   locked.active_population_model
+                 ),
+               :ok <-
+                 validate_population_contract(
+                   locked.selected_blueprint.active_version,
+                   population_contract
+                 ),
+               :ok <- PopulationValidator.validate(population_contract, context_pack) do
+            population_contract
+          else
+            {:error, reason} -> Repo.rollback(reason)
+          end
+
+        population_version = next_population_version(locked.active_version_id)
+
+        population_model =
+          insert_population_model(
+            Repo,
+            locked.workspace_id,
+            locked.id,
+            locked.active_version_id,
+            context_pack.id,
+            author_id,
+            population_version,
+            population_contract
+          )
+          |> case do
+            {:ok, model} -> model
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
+
+        update_context_stages!(locked, context_pack, population_model)
 
         activated =
           locked
-          |> Simulation.activate_context_changeset(context_pack)
+          |> Simulation.activate_context_changeset(context_pack, population_model)
           |> Repo.update!()
 
         %{
@@ -536,13 +806,81 @@ defmodule HydraAgent.Simulations do
                 :workspace,
                 :active_version,
                 :active_context_pack,
+                :active_population_model,
                 selected_blueprint: :active_version
               ],
               force: true
             ),
           context_pack: context_pack,
+          population_model: population_model,
           created: true
         }
+      end
+    end)
+    |> case do
+      {:ok, result} -> {:ok, result}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp persist_population_contract(simulation, user, contract) do
+    author_id = user && user.id
+
+    Repo.transaction(fn ->
+      locked =
+        Simulation
+        |> where([current], current.id == ^simulation.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+        |> Repo.preload([:active_version, :active_context_pack, :active_population_model])
+
+      cond do
+        is_nil(locked.active_context_pack) ->
+          Repo.rollback(:context_not_found)
+
+        locked.active_population_model &&
+          locked.active_population_model.context_pack_id == locked.active_context_pack_id &&
+            locked.active_population_model.content_hash == contract["content_hash"] ->
+          %{
+            simulation: locked,
+            population_model: locked.active_population_model,
+            created: false
+          }
+
+        true ->
+          population_model =
+            insert_population_model(
+              Repo,
+              locked.workspace_id,
+              locked.id,
+              locked.active_version_id,
+              locked.active_context_pack_id,
+              author_id,
+              next_population_version(locked.active_version_id),
+              contract
+            )
+            |> case do
+              {:ok, model} -> model
+              {:error, changeset} -> Repo.rollback(changeset)
+            end
+
+          update_population_stage!(locked, population_model)
+
+          activated =
+            locked
+            |> Simulation.activate_population_changeset(population_model)
+            |> Repo.update!()
+
+          %{
+            simulation:
+              Repo.preload(
+                activated,
+                [:active_version, :active_context_pack, :active_population_model],
+                force: true
+              ),
+            population_model: population_model,
+            created: true
+          }
       end
     end)
     |> case do
@@ -642,23 +980,68 @@ defmodule HydraAgent.Simulations do
     |> repo.insert()
   end
 
-  defp initial_stage_attrs("understanding_question", _contract) do
+  defp insert_population_model(
+         repo,
+         workspace_id,
+         simulation_id,
+         simulation_version_id,
+         context_pack_id,
+         author_id,
+         version,
+         contract
+       ) do
+    %PopulationModel{}
+    |> PopulationModel.changeset(%{
+      workspace_id: workspace_id,
+      simulation_id: simulation_id,
+      simulation_version_id: simulation_version_id,
+      context_pack_id: context_pack_id,
+      created_by_user_id: author_id,
+      version: version,
+      schema_version: contract["schema_version"],
+      compiler_version: contract["compiler_version"],
+      seed: contract["seed"],
+      population_size: contract["population_size"],
+      agent_types: contract["agent_types"],
+      archetypes: contract["archetypes"],
+      conditional_distributions: contract["conditional_distributions"],
+      relationship_rules: contract["relationship_rules"],
+      representative_rules: contract["representative_rules"],
+      imported_agents: contract["imported_agents"],
+      imported_relationships: contract["imported_relationships"],
+      import_summary: contract["import_summary"],
+      compile_summary: contract["compile_summary"],
+      generation_metadata: contract["generation_metadata"],
+      status: contract["status"],
+      content_hash: contract["content_hash"]
+    })
+    |> repo.insert()
+  end
+
+  defp initial_stage_attrs("understanding_question", _context_contract, _population_contract) do
     now = DateTime.utc_now()
     %{status: "complete", summary: nil, warnings: [], started_at: now, completed_at: now}
   end
 
-  defp initial_stage_attrs("finding_context", contract) do
+  defp initial_stage_attrs("finding_context", contract, _population_contract) do
     now = DateTime.utc_now()
     status = if contract["status"] == "ready", do: "complete", else: "partial"
     warnings = contract["gaps"] |> Enum.map(& &1["kind"]) |> Enum.uniq() |> Enum.sort()
     %{status: status, summary: nil, warnings: warnings, started_at: now, completed_at: now}
   end
 
-  defp initial_stage_attrs(_stage, _contract) do
+  defp initial_stage_attrs("designing_population", _context_contract, contract) do
+    now = DateTime.utc_now()
+    status = if contract["status"] == "ready", do: "complete", else: "partial"
+    warnings = import_warning_codes(contract["import_summary"])
+    %{status: status, summary: nil, warnings: warnings, started_at: now, completed_at: now}
+  end
+
+  defp initial_stage_attrs(_stage, _context_contract, _population_contract) do
     %{status: "pending", summary: nil, warnings: [], started_at: nil, completed_at: nil}
   end
 
-  defp update_context_stages!(simulation, context_pack) do
+  defp update_context_stages!(simulation, context_pack, population_model) do
     now = DateTime.utc_now()
 
     BuildStage
@@ -678,12 +1061,35 @@ defmodule HydraAgent.Simulations do
     })
     |> Repo.update!()
 
+    update_population_stage!(simulation, population_model)
+  end
+
+  defp update_population_stage!(simulation, population_model) do
+    now = DateTime.utc_now()
+
     BuildStage
     |> where(
       [stage],
       stage.simulation_id == ^simulation.id and
         stage.simulation_version_id == ^simulation.active_version_id and
-        stage.ordinal > 2
+        stage.stage == "designing_population"
+    )
+    |> Repo.one!()
+    |> BuildStage.changeset(%{
+      status: if(population_model.status == "ready", do: "complete", else: "partial"),
+      summary: nil,
+      warnings: import_warning_codes(population_model.import_summary),
+      started_at: now,
+      completed_at: now
+    })
+    |> Repo.update!()
+
+    BuildStage
+    |> where(
+      [stage],
+      stage.simulation_id == ^simulation.id and
+        stage.simulation_version_id == ^simulation.active_version_id and
+        stage.ordinal > 3
     )
     |> Repo.update_all(
       set: [status: "pending", summary: nil, warnings: [], started_at: nil, completed_at: nil]
@@ -705,6 +1111,339 @@ defmodule HydraAgent.Simulations do
         end
     end
   end
+
+  defp validate_population_contract(blueprint_version, contract) do
+    schema_path = get_in(blueprint_version.manifest, ["modules", "agents", "output_schema"])
+    schema = schema_path && blueprint_version.schemas[schema_path]
+
+    cond do
+      is_nil(schema) ->
+        {:error, :population_schema_missing}
+
+      true ->
+        case JsonSchema.validate(schema, PopulationModel.schema_payload(contract)) do
+          :ok -> :ok
+          {:error, errors} -> {:error, {:invalid_population_model, errors}}
+        end
+    end
+  end
+
+  defp population_import_contract(simulation, context_pack, %{kind: :agents} = imported) do
+    if imported.agents == [] do
+      {:error, {:population_import_invalid_rows, imported.summary}}
+    else
+      existing = simulation.active_population_model
+      agents = merge_imported(existing && existing.imported_agents, imported.agents, "id")
+
+      if length(agents) > simulation.active_version.population_size do
+        {:error, :population_import_exceeds_population}
+      else
+        agent_ids = MapSet.new(agents, & &1["id"])
+
+        relationships =
+          existing
+          |> then(&(&1 && &1.imported_relationships))
+          |> List.wrap()
+          |> Enum.filter(fn relationship ->
+            MapSet.member?(agent_ids, relationship["source"]) and
+              MapSet.member?(agent_ids, relationship["target"])
+          end)
+
+        profiles =
+          population_type_profiles(existing)
+          |> Map.merge(imported.type_profiles, fn _type_id, previous, incoming ->
+            merge_type_profile(previous, incoming)
+          end)
+
+        PopulationBuilder.build(simulation.active_version, context_pack,
+          imported_agents: agents,
+          imported_relationships: relationships,
+          type_profiles: profiles,
+          import_summary: Map.put(imported.summary, "total_imported_agent_count", length(agents))
+        )
+      end
+    end
+  end
+
+  defp population_import_contract(simulation, context_pack, %{kind: :relationships} = imported) do
+    existing = simulation.active_population_model
+    agents = (existing && existing.imported_agents) || []
+
+    cond do
+      imported.relationships == [] ->
+        {:error, {:population_import_invalid_rows, imported.summary}}
+
+      agents == [] ->
+        {:error, :population_relationships_require_imported_agents}
+
+      true ->
+        relationships =
+          merge_imported(
+            existing && existing.imported_relationships,
+            imported.relationships,
+            "id"
+          )
+
+        PopulationBuilder.build(simulation.active_version, context_pack,
+          imported_agents: agents,
+          imported_relationships: relationships,
+          type_profiles: population_type_profiles(existing),
+          import_summary:
+            imported.summary
+            |> Map.put("total_imported_agent_count", length(agents))
+            |> Map.put("total_imported_relationship_count", length(relationships))
+        )
+    end
+  end
+
+  defp population_import_contract(
+         _simulation,
+         _context_pack,
+         %{kind: :population_model, population_model: nil} = imported
+       ) do
+    {:error, {:population_import_invalid_rows, imported.summary}}
+  end
+
+  defp population_import_contract(
+         simulation,
+         context_pack,
+         %{kind: :population_model, population_model: source} = imported
+       ) do
+    if source["population_size"] != simulation.active_version.population_size do
+      {:error, :population_import_size_mismatch}
+    else
+      metadata =
+        (source["generation_metadata"] || %{})
+        |> Map.put("route", "population_model_import")
+        |> Map.put("model_calls", 0)
+        |> Map.put("intended_use", "aggregate_simulation")
+        |> Map.put("source_context_hash", context_pack.content_hash)
+        |> Map.put("source_context_version", context_pack.version)
+        |> Map.put("protocol_version", "hydra-population/v1")
+
+      contract =
+        source
+        |> Map.delete("content_hash")
+        |> Map.put("compiler_version", PopulationModel.compiler_version())
+        |> Map.put("import_summary", imported.summary)
+        |> Map.put("compile_summary", %{})
+        |> Map.put("generation_metadata", metadata)
+
+      with :ok <- PopulationValidator.validate(contract, context_pack),
+           {:ok, compiled} <- PopulationCompiler.compile(contract) do
+        final = Map.put(contract, "compile_summary", compiled.summary)
+        {:ok, Map.put(final, "content_hash", ContentHash.digest(final))}
+      end
+    end
+  end
+
+  defp population_without_attribute(model, type_id, attribute_key) do
+    type = Enum.find(model.agent_types, &(&1["id"] == type_id))
+
+    cond do
+      is_nil(type) ->
+        {:error, :population_attribute_not_found}
+
+      not Enum.any?(type["attributes"], &(&1["key"] == attribute_key)) ->
+        {:error, :population_attribute_not_found}
+
+      length(type["attributes"]) == 1 ->
+        {:error, :population_last_attribute}
+
+      true ->
+        agent_types =
+          Enum.map(model.agent_types, fn candidate ->
+            if candidate["id"] == type_id do
+              Map.update!(candidate, "attributes", fn attributes ->
+                Enum.reject(attributes, &(&1["key"] == attribute_key))
+              end)
+            else
+              candidate
+            end
+          end)
+
+        archetypes =
+          Enum.map(model.archetypes, fn archetype ->
+            if archetype["agent_type"] == type_id do
+              update_in(archetype["distributions"], &Map.delete(&1, attribute_key))
+            else
+              archetype
+            end
+          end)
+
+        conditions =
+          model.conditional_distributions
+          |> Enum.reject(&(get_in(&1, ["when", "attribute"]) == attribute_key))
+          |> Enum.map(fn condition ->
+            update_in(condition["set"], &Map.delete(&1, attribute_key))
+          end)
+          |> Enum.reject(&(map_size(&1["set"]) == 0))
+
+        imported_agents =
+          Enum.map(model.imported_agents, fn agent ->
+            if agent["type"] == type_id,
+              do: update_in(agent["attributes"], &Map.delete(&1, attribute_key)),
+              else: agent
+          end)
+
+        excluded =
+          model.generation_metadata
+          |> Map.get("excluded_attributes", [])
+          |> List.wrap()
+          |> Kernel.++([%{"agent_type" => type_id, "attribute" => attribute_key}])
+          |> Enum.uniq()
+
+        contract =
+          model
+          |> PopulationModel.contract()
+          |> Map.delete("content_hash")
+          |> Map.put("agent_types", agent_types)
+          |> Map.put("archetypes", archetypes)
+          |> Map.put("conditional_distributions", conditions)
+          |> Map.put("imported_agents", imported_agents)
+          |> Map.put("compile_summary", %{})
+          |> update_in(["generation_metadata"], &Map.put(&1, "excluded_attributes", excluded))
+
+        with {:ok, compiled} <- PopulationCompiler.compile(contract) do
+          final = Map.put(contract, "compile_summary", compiled.summary)
+          {:ok, Map.put(final, "content_hash", ContentHash.digest(final))}
+        end
+    end
+  end
+
+  defp preserve_population_imports(opts, %PopulationModel{} = model) do
+    opts
+    |> Keyword.put_new(:imported_agents, model.imported_agents)
+    |> Keyword.put_new(:imported_relationships, model.imported_relationships)
+    |> Keyword.put_new(:type_profiles, population_type_profiles(model))
+    |> Keyword.put_new(:import_summary, model.import_summary)
+  end
+
+  defp preserve_population_imports(opts, _model), do: opts
+
+  defp population_contract_for_context(version, context_pack, %PopulationModel{} = model) do
+    build_population_contract(version, context_pack, model, [])
+  end
+
+  defp population_contract_for_context(version, context_pack, _model) do
+    build_population_contract(version, context_pack, nil, [])
+  end
+
+  defp build_population_contract(
+         _version,
+         context_pack,
+         %PopulationModel{generation_metadata: %{"route" => "population_model_import"}} = model,
+         _opts
+       ) do
+    rebase_imported_population_model(model, context_pack)
+  end
+
+  defp build_population_contract(version, context_pack, %PopulationModel{} = model, opts) do
+    PopulationBuilder.build(version, context_pack, preserve_population_imports(opts, model))
+  end
+
+  defp build_population_contract(version, context_pack, _model, opts) do
+    PopulationBuilder.build(version, context_pack, opts)
+  end
+
+  defp rebase_imported_population_model(model, context_pack) do
+    allowed_grounding =
+      (context_pack.sources ++ context_pack.claims ++ context_pack.assumptions)
+      |> Enum.map(& &1["id"])
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    fallback_grounding = Enum.take(allowed_grounding, 4)
+
+    rebase_grounding = fn item ->
+      retained = Enum.filter(item["grounding"] || [], &(&1 in allowed_grounding))
+      Map.put(item, "grounding", if(retained == [], do: fallback_grounding, else: retained))
+    end
+
+    metadata =
+      model.generation_metadata
+      |> Map.put("source_context_hash", context_pack.content_hash)
+      |> Map.put("source_context_version", context_pack.version)
+
+    metadata =
+      if model.context_pack_id == context_pack.id,
+        do: metadata,
+        else: Map.put(metadata, "rebased_from_population_model_id", model.id)
+
+    contract =
+      model
+      |> PopulationModel.contract()
+      |> Map.delete("content_hash")
+      |> Map.put("agent_types", Enum.map(model.agent_types, rebase_grounding))
+      |> Map.put("archetypes", Enum.map(model.archetypes, rebase_grounding))
+      |> Map.put("generation_metadata", metadata)
+      |> Map.put("compile_summary", %{})
+
+    with :ok <- PopulationValidator.validate(contract, context_pack),
+         {:ok, compiled} <- PopulationCompiler.compile(contract) do
+      final = Map.put(contract, "compile_summary", compiled.summary)
+      {:ok, Map.put(final, "content_hash", ContentHash.digest(final))}
+    end
+  end
+
+  defp population_type_profiles(%PopulationModel{} = model) do
+    imported_type_ids = model.imported_agents |> Enum.map(& &1["type"]) |> MapSet.new()
+
+    model.agent_types
+    |> Enum.filter(&MapSet.member?(imported_type_ids, &1["id"]))
+    |> Map.new(fn type ->
+      {type["id"],
+       %{
+         "id" => type["id"],
+         "attributes" => type["attributes"],
+         "resources" => type["resources"]
+       }}
+    end)
+  end
+
+  defp population_type_profiles(_model), do: %{}
+
+  defp merge_type_profile(previous, incoming) do
+    %{
+      "id" => incoming["id"] || previous["id"],
+      "attributes" => merge_imported(previous["attributes"], incoming["attributes"], "key"),
+      "resources" =>
+        Enum.sort(Enum.uniq((previous["resources"] || []) ++ (incoming["resources"] || [])))
+    }
+  end
+
+  defp merge_imported(previous, incoming, key) do
+    ((previous || []) ++ (incoming || []))
+    |> Enum.reverse()
+    |> Enum.uniq_by(& &1[key])
+    |> Enum.reverse()
+  end
+
+  defp next_population_version(simulation_version_id) do
+    PopulationModel
+    |> where([model], model.simulation_version_id == ^simulation_version_id)
+    |> select([model], max(model.version))
+    |> Repo.one()
+    |> case do
+      nil -> 1
+      version -> version + 1
+    end
+  end
+
+  defp projection_for_agent(population_model_id, agent_id) do
+    PersonaProjection
+    |> where(
+      [projection],
+      projection.population_model_id == ^population_model_id and projection.agent_id == ^agent_id
+    )
+    |> Repo.one()
+  end
+
+  defp import_warning_codes(summary) when is_map(summary) do
+    if summary["error_count"] in [nil, 0], do: [], else: ["population_import_rows_rejected"]
+  end
+
+  defp import_warning_codes(_summary), do: []
 
   defp active_excluded_source_ids(%ContextPack{} = pack) do
     pack.research_metadata

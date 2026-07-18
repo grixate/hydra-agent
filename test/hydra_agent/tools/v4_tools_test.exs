@@ -123,11 +123,20 @@ defmodule HydraAgent.Tools.V4ToolsTest do
   end
 
   test "project skill runner executes project-local skill entrypoints" do
+    suffix = Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+
     root =
       Path.join(
         System.tmp_dir!(),
-        "hydra-project-skill-run-#{System.unique_integer([:positive])}"
+        "hydra-project-skill-run-#{suffix}"
       )
+
+    outside = root <> "-outside.sh"
+
+    on_exit(fn ->
+      File.rm_rf(root)
+      File.rm(outside)
+    end)
 
     skill_dir = Path.join([root, ".hydra", "skills", "hello-skill", "scripts"])
     File.mkdir_p!(skill_dir)
@@ -155,7 +164,6 @@ defmodule HydraAgent.Tools.V4ToolsTest do
                %{"workspace_root" => root}
              )
 
-    outside = root <> "-outside.sh"
     File.write!(outside, "echo escaped\n")
     File.ln_s!(outside, Path.join(skill_dir, "escape.sh"))
 
@@ -169,8 +177,6 @@ defmodule HydraAgent.Tools.V4ToolsTest do
                },
                %{"workspace_root" => root}
              )
-
-    File.rm!(outside)
   end
 
   test "multi-model consensus records partial provider results" do

@@ -29,6 +29,12 @@ defmodule HydraAgent.Accounts.User do
     has_many :created_simulation_context_packs, HydraAgent.Simulations.ContextPack,
       foreign_key: :created_by_user_id
 
+    has_many :created_simulation_population_models, HydraAgent.Simulations.PopulationModel,
+      foreign_key: :created_by_user_id
+
+    has_many :created_simulation_persona_projections, HydraAgent.Simulations.PersonaProjection,
+      foreign_key: :created_by_user_id
+
     timestamps(type: :utc_datetime_usec)
   end
 

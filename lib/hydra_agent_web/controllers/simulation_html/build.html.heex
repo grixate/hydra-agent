@@ -162,6 +162,60 @@
     <% end %>
   </section>
 
+  <section class="simulation-context-brief simulation-population-brief">
+    <header>
+      <div>
+        <p class="blueprint-eyebrow">02.2 · {t(@locale, :population_title)}</p>
+        <h2>{t(@locale, :population_title)}</h2>
+        <p>{t(@locale, :population_lede)}</p>
+      </div>
+      <a href={stage_path(@simulation.id, "population", @workspace.id, @locale)}>
+        {t(@locale, :population_title)} <span aria-hidden="true">→</span>
+      </a>
+    </header>
+
+    <%= if @population_model do %>
+      <dl>
+        <div>
+          <dt>{t(@locale, :population_version)}</dt>
+          <dd>v{@population_model.version}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :population_agents)}</dt>
+          <dd>{format_count(@population_model.population_size, @locale)}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :population_types)}</dt>
+          <dd>{length(@population_model.agent_types)}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :population_archetypes)}</dt>
+          <dd>{length(@population_model.archetypes)}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :population_relationships)}</dt>
+          <dd>{format_count(population_relationship_count(@population_model), @locale)}</dd>
+        </div>
+      </dl>
+    <% else %>
+      <form
+        :if={@can_edit}
+        action={"/simulations/#{@simulation.id}/population/build"}
+        method="post"
+      >
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <input type="hidden" name="workspace_id" value={@workspace.id} />
+        <input type="hidden" name="locale" value={@locale} />
+        <button type="submit">
+          {t(
+            @locale,
+            if(@population_model, do: :population_rebuild_action, else: :population_build_action)
+          )}
+        </button>
+      </form>
+    <% end %>
+  </section>
+
   <% modules = [
     {"research", :context, :context_summary, "01"},
     {"agents", :agents, :agents_summary, "02"},

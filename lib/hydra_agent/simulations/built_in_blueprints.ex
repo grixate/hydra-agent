@@ -214,7 +214,7 @@ defmodule HydraAgent.Simulations.BuiltInBlueprints do
               "items" =>
                 object_schema(nil, ~w(id count goals initial_state), %{
                   "id" => %{"type" => "string"},
-                  "count" => %{"type" => "integer", "minimum" => 1},
+                  "count" => %{"type" => "integer", "minimum" => 0},
                   "goals" => %{"type" => "array", "items" => %{"type" => "string"}},
                   "initial_state" => %{"type" => "object", "properties" => %{}}
                 })

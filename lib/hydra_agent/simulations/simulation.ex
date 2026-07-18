@@ -19,11 +19,14 @@ defmodule HydraAgent.Simulations.Simulation do
     belongs_to :legacy_study, HydraAgent.SimLab.Schemas.Study
     belongs_to :active_version, HydraAgent.Simulations.SimulationVersion
     belongs_to :active_context_pack, HydraAgent.Simulations.ContextPack
+    belongs_to :active_population_model, HydraAgent.Simulations.PopulationModel
 
     has_many :versions, HydraAgent.Simulations.SimulationVersion
     has_many :build_stages, HydraAgent.Simulations.BuildStage
     has_many :context_packs, HydraAgent.Simulations.ContextPack
     has_many :context_research_runs, HydraAgent.Simulations.ContextResearchRun
+    has_many :population_models, HydraAgent.Simulations.PopulationModel
+    has_many :persona_projections, HydraAgent.Simulations.PersonaProjection
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -72,22 +75,36 @@ defmodule HydraAgent.Simulations.Simulation do
     |> foreign_key_constraint(:active_version_id)
   end
 
-  def activate_context_changeset(simulation, context_pack) do
+  def activate_context_changeset(simulation, context_pack, population_model) do
     simulation
-    |> change(active_context_pack_id: context_pack.id, status: "building")
+    |> change(
+      active_context_pack_id: context_pack.id,
+      active_population_model_id: population_model.id,
+      status: "building"
+    )
     |> foreign_key_constraint(:active_context_pack_id)
+    |> foreign_key_constraint(:active_population_model_id)
     |> check_constraint(:status, name: :simulations_status_check)
   end
 
-  def activate_build_changeset(simulation, version, context_pack) do
+  def activate_population_changeset(simulation, population_model) do
+    simulation
+    |> change(active_population_model_id: population_model.id, status: "building")
+    |> foreign_key_constraint(:active_population_model_id)
+    |> check_constraint(:status, name: :simulations_status_check)
+  end
+
+  def activate_build_changeset(simulation, version, context_pack, population_model) do
     simulation
     |> change(
       active_version_id: version.id,
       active_context_pack_id: context_pack.id,
+      active_population_model_id: population_model.id,
       status: "building"
     )
     |> foreign_key_constraint(:active_version_id)
     |> foreign_key_constraint(:active_context_pack_id)
+    |> foreign_key_constraint(:active_population_model_id)
     |> check_constraint(:status, name: :simulations_status_check)
   end
 

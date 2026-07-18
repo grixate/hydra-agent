@@ -70,6 +70,7 @@ defmodule HydraAgentWeb.SimulationController do
 
   def build(conn, params), do: render_stage(conn, params, :build)
   def context(conn, params), do: render_context(conn, params)
+  def population(conn, params), do: render_population(conn, params)
   def run(conn, params), do: render_stage(conn, params, :run)
   def results(conn, params), do: render_stage(conn, params, :results)
   def compare(conn, params), do: render_stage(conn, params, :compare)
@@ -119,6 +120,93 @@ defmodule HydraAgentWeb.SimulationController do
       |> redirect(to: stage_path(simulation.id, :context, workspace.id, conn.assigns.locale))
     else
       _ -> not_found(conn)
+    end
+  end
+
+  def build_population(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         {:ok, _result} <-
+           Simulations.build_population_model(simulation, conn.assigns[:current_user]) do
+      conn
+      |> put_flash(:info, t(conn, :population_built))
+      |> redirect(to: stage_path(simulation.id, :population, workspace.id, conn.assigns.locale))
+    else
+      _ -> not_found(conn)
+    end
+  end
+
+  def import_population(conn, params) do
+    form = params["population_import"] || %{}
+
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         %Plug.Upload{} = upload <- form["file"],
+         {:ok, content} <- read_population_upload(upload),
+         {:ok, _result} <-
+           Simulations.import_population(
+             simulation,
+             conn.assigns[:current_user],
+             upload.filename,
+             content,
+             Map.delete(form, "file")
+           ) do
+      conn
+      |> put_flash(:info, t(conn, :population_imported))
+      |> redirect(to: stage_path(simulation.id, :population, workspace.id, conn.assigns.locale))
+    else
+      {:error, {:population_import_invalid_rows, summary}} ->
+        render_population(conn, params,
+          status: :unprocessable_entity,
+          import_preview: summary,
+          import_form: Map.delete(form, "file")
+        )
+
+      _ ->
+        conn
+        |> put_flash(:error, t(conn, :population_import_failed))
+        |> redirect(
+          to: stage_path(params["id"], :population, params["workspace_id"], conn.assigns.locale)
+        )
+    end
+  end
+
+  def generate_persona(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         {:ok, _result} <-
+           Simulations.generate_persona_projection(
+             simulation,
+             params["agent_id"],
+             conn.assigns[:current_user]
+           ) do
+      conn
+      |> put_flash(:info, t(conn, :persona_generated))
+      |> redirect(to: stage_path(simulation.id, :population, workspace.id, conn.assigns.locale))
+    else
+      _ -> not_found(conn)
+    end
+  end
+
+  def exclude_population_attribute(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         {:ok, _result} <-
+           Simulations.exclude_population_attribute(
+             simulation,
+             params["type_id"],
+             params["attribute_key"],
+             conn.assigns[:current_user]
+           ) do
+      conn
+      |> put_flash(:info, t(conn, :population_attribute_removed))
+      |> redirect(to: stage_path(simulation.id, :population, workspace.id, conn.assigns.locale))
+    else
+      {:error, :population_last_attribute} ->
+        conn
+        |> put_flash(:error, t(conn, :population_last_attribute))
+        |> redirect(
+          to: stage_path(params["id"], :population, params["workspace_id"], conn.assigns.locale)
+        )
+
+      _ ->
+        not_found(conn)
     end
   end
 
@@ -174,6 +262,7 @@ defmodule HydraAgentWeb.SimulationController do
         stage: stage,
         can_edit: authorized?(conn, workspace.id, "researcher"),
         context_pack: simulation.active_context_pack,
+        population_model: simulation.active_population_model,
         context_research_run: Simulations.latest_context_research_run(simulation),
         context_research_configured:
           HydraAgent.SimLab.Research.Providers.web_search_configured?(),
@@ -201,6 +290,36 @@ defmodule HydraAgentWeb.SimulationController do
     end
   end
 
+  defp render_population(conn, params, opts \\ []) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "viewer") do
+      conn =
+        case Keyword.get(opts, :status) do
+          nil -> conn
+          status -> put_status(conn, status)
+        end
+
+      population_model = simulation.active_population_model
+
+      render(conn, :population,
+        page_title: t(conn, :population_title),
+        workspace: workspace,
+        simulation: simulation,
+        population_model: population_model,
+        persona_projections:
+          if(population_model,
+            do: Simulations.list_persona_projections(population_model),
+            else: []
+          ),
+        can_edit: authorized?(conn, workspace.id, "researcher"),
+        import_preview: Keyword.get(opts, :import_preview),
+        import_form: Keyword.get(opts, :import_form, %{}),
+        import_limits: HydraAgent.Simulations.PopulationImporter.limits()
+      )
+    else
+      _ -> not_found(conn)
+    end
+  end
+
   defp stage_template(:build), do: :build
   defp stage_template(_stage), do: :stage
 
@@ -213,6 +332,32 @@ defmodule HydraAgentWeb.SimulationController do
       _ -> nil
     end
   end
+
+  # Plug creates the temporary path inside the system upload directory. Reject
+  # links and paths outside that boundary before reading the bounded payload.
+  # sobelow_skip ["Traversal.FileModule"]
+  defp read_population_upload(%Plug.Upload{} = upload) do
+    with {:ok, path} <- validated_upload_path(upload.path),
+         {:ok, stat} <- File.lstat(path),
+         true <- stat.type == :regular,
+         true <- stat.size <= HydraAgent.Simulations.PopulationImporter.limits().max_bytes,
+         {:ok, content} <- File.read(path) do
+      {:ok, content}
+    else
+      _ -> {:error, :population_import_invalid_file}
+    end
+  end
+
+  defp validated_upload_path(path) when is_binary(path) do
+    path = Path.expand(path)
+    upload_root = Path.expand(System.tmp_dir!())
+
+    if path != upload_root and String.starts_with?(path, upload_root <> "/"),
+      do: {:ok, path},
+      else: {:error, :outside_upload_directory}
+  end
+
+  defp validated_upload_path(_path), do: {:error, :invalid_upload_path}
 
   defp select_workspace(conn, requested_id, workspaces, minimum_role) do
     fallback_id = Accounts.default_research_workspace_id(conn.assigns[:current_user])

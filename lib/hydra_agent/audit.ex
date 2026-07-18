@@ -24,6 +24,8 @@ defmodule HydraAgent.Audit do
   alias HydraAgent.Simulations.BuildStage, as: SimulationBuildStage
   alias HydraAgent.Simulations.ContextPack, as: SimulationContextPack
   alias HydraAgent.Simulations.ContextResearchRun, as: SimulationContextResearchRun
+  alias HydraAgent.Simulations.PersonaProjection, as: SimulationPersonaProjection
+  alias HydraAgent.Simulations.PopulationModel, as: SimulationPopulationModel
   alias HydraAgent.Simulations.Simulation, as: StudioSimulation
   alias HydraAgent.Simulations.SimulationVersion, as: StudioSimulationVersion
 
@@ -108,6 +110,16 @@ defmodule HydraAgent.Audit do
         map_records(
           simulation_context_research_runs(workspace_id),
           &simulation_context_research_run_json/1
+        ),
+      "population_models" =>
+        map_records(
+          simulation_population_models(workspace_id),
+          &simulation_population_model_json/1
+        ),
+      "persona_projections" =>
+        map_records(
+          simulation_persona_projections(workspace_id),
+          &simulation_persona_projection_json/1
         )
     }
   end
@@ -169,6 +181,20 @@ defmodule HydraAgent.Audit do
     SimulationContextResearchRun
     |> where([run], run.workspace_id == ^workspace_id)
     |> order_by([run], asc: run.simulation_version_id, asc: run.id)
+    |> Repo.all()
+  end
+
+  defp simulation_population_models(workspace_id) do
+    SimulationPopulationModel
+    |> where([model], model.workspace_id == ^workspace_id)
+    |> order_by([model], asc: model.simulation_version_id, asc: model.version)
+    |> Repo.all()
+  end
+
+  defp simulation_persona_projections(workspace_id) do
+    SimulationPersonaProjection
+    |> where([projection], projection.workspace_id == ^workspace_id)
+    |> order_by([projection], asc: projection.population_model_id, asc: projection.id)
     |> Repo.all()
   end
 
@@ -544,6 +570,7 @@ defmodule HydraAgent.Audit do
       "legacy_study_id" => simulation.legacy_study_id,
       "active_version_id" => simulation.active_version_id,
       "active_context_pack_id" => simulation.active_context_pack_id,
+      "active_population_model_id" => simulation.active_population_model_id,
       "title" => simulation.title,
       "question" => simulation.question,
       "locale" => simulation.locale,
@@ -728,6 +755,138 @@ defmodule HydraAgent.Audit do
       "completed_at" => run.completed_at,
       "inserted_at" => run.inserted_at,
       "updated_at" => run.updated_at
+    }
+  end
+
+  defp simulation_population_model_json(model) do
+    %{
+      "id" => model.id,
+      "workspace_id" => model.workspace_id,
+      "simulation_id" => model.simulation_id,
+      "simulation_version_id" => model.simulation_version_id,
+      "context_pack_id" => model.context_pack_id,
+      "created_by_user_id" => model.created_by_user_id,
+      "version" => model.version,
+      "schema_version" => model.schema_version,
+      "compiler_version" => model.compiler_version,
+      "seed" => model.seed,
+      "population_size" => model.population_size,
+      "agent_types" => Enum.map(model.agent_types, &audit_population_type/1),
+      "archetypes" => Enum.map(model.archetypes, &audit_population_archetype/1),
+      "conditional_distributions_fingerprint" => fingerprint(model.conditional_distributions),
+      "relationship_rules" => model.relationship_rules,
+      "representative_rules" => model.representative_rules,
+      "imported_agent_count" => length(model.imported_agents),
+      "imported_agents_fingerprint" => fingerprint(model.imported_agents),
+      "imported_relationship_count" => length(model.imported_relationships),
+      "imported_relationships_fingerprint" => fingerprint(model.imported_relationships),
+      "import_summary" => audit_population_import_summary(model.import_summary),
+      "compile_summary" => audit_population_compile_summary(model.compile_summary),
+      "generation_metadata" =>
+        Map.take(model.generation_metadata || %{}, [
+          "route",
+          "model_calls",
+          "intended_use",
+          "source_context_hash",
+          "source_context_version",
+          "sensitive_attributes_inferred",
+          "protocol_version",
+          "rebased_from_population_model_id"
+        ]),
+      "status" => model.status,
+      "content_hash" => model.content_hash,
+      "inserted_at" => model.inserted_at
+    }
+  end
+
+  defp audit_population_type(type) do
+    %{
+      "id" => type["id"],
+      "label_fingerprint" => fingerprint(type["label"]),
+      "description_fingerprint" => fingerprint(type["description"]),
+      "weight" => type["weight"],
+      "attributes" =>
+        Enum.map(type["attributes"] || [], fn attribute ->
+          Map.take(attribute, [
+            "key",
+            "type",
+            "min",
+            "max",
+            "sensitive",
+            "source",
+            "aggregate_only",
+            "individual_exposure"
+          ])
+          |> Map.put("necessity_fingerprint", fingerprint(attribute["necessity"]))
+          |> Map.put("lawful_basis_fingerprint", fingerprint(attribute["lawful_basis"]))
+        end),
+      "resources" => type["resources"],
+      "actions" => type["actions"],
+      "grounding" => type["grounding"]
+    }
+  end
+
+  defp audit_population_archetype(archetype) do
+    %{
+      "id" => archetype["id"],
+      "agent_type" => archetype["agent_type"],
+      "weight" => archetype["weight"],
+      "summary_fingerprint" => fingerprint(archetype["summary"]),
+      "distributions_fingerprint" => fingerprint(archetype["distributions"]),
+      "goals_fingerprint" => fingerprint(archetype["goals"]),
+      "constraints_fingerprint" => fingerprint(archetype["constraints"]),
+      "initial_state_fingerprint" => fingerprint(archetype["initial_state"]),
+      "initial_resources_fingerprint" => fingerprint(archetype["initial_resources"]),
+      "policy_id" => archetype["policy_id"],
+      "memory_seeds_fingerprint" => fingerprint(archetype["memory_seeds"]),
+      "grounding" => archetype["grounding"]
+    }
+  end
+
+  defp audit_population_import_summary(summary) when is_map(summary) do
+    summary
+    |> Map.take([
+      "format",
+      "kind",
+      "valid_count",
+      "error_count",
+      "content_hash",
+      "total_imported_agent_count",
+      "total_imported_relationship_count"
+    ])
+    |> Map.put("filename_fingerprint", fingerprint(summary["filename"]))
+    |> Map.put("errors_fingerprint", fingerprint(summary["errors"] || []))
+  end
+
+  defp audit_population_import_summary(_summary), do: %{}
+
+  defp audit_population_compile_summary(summary) when is_map(summary) do
+    summary
+    |> Map.drop(["representatives"])
+    |> Map.put(
+      "representatives_fingerprint",
+      fingerprint(summary["representatives"] || [])
+    )
+  end
+
+  defp audit_population_compile_summary(_summary), do: %{}
+
+  defp simulation_persona_projection_json(projection) do
+    %{
+      "id" => projection.id,
+      "workspace_id" => projection.workspace_id,
+      "simulation_id" => projection.simulation_id,
+      "simulation_version_id" => projection.simulation_version_id,
+      "population_model_id" => projection.population_model_id,
+      "created_by_user_id" => projection.created_by_user_id,
+      "agent_id_fingerprint" => fingerprint(projection.agent_id),
+      "archetype_id" => projection.archetype_id,
+      "projection_fingerprint" => fingerprint(projection.projection),
+      "prose_fingerprint" => fingerprint(projection.prose),
+      "generated_by" => projection.generated_by,
+      "generated_lazily" => projection.generated_lazily,
+      "content_hash" => projection.content_hash,
+      "inserted_at" => projection.inserted_at
     }
   end
 
