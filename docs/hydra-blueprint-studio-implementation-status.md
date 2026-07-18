@@ -11,10 +11,10 @@ entire epic or release is complete.
 
 ## Current status
 
-- Active epic: **Epic 5 — Simulation Script DSL, validation, and preview**
-- Completed epic: **Epic 4 — Population Model and agent compiler**
-- Next vertical slice: versioned declarative Script, semantic validation, and a
-  bounded two-round preview
+- Active epic: **Epic 6 — Quick engine and world economy**
+- Completed epic: **Epic 5 — Simulation Script DSL, validation, and preview**
+- Next vertical slice: deterministic per-run supervision, ordered events,
+  Resource Ledger, snapshots, recovery, cancellation, and terminal fences
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
@@ -51,12 +51,12 @@ product behavior.
 | Population Model | `HydraAgent.Simulations.PopulationModel`; legacy personas, action patterns, `BehaviorCompiler` | Implemented as an immutable Context-bound structured contract with a provider-free deterministic builder. Legacy SimLab records remain separate compatibility inputs. |
 | Agent Instance | `HydraAgent.Simulations.PopulationCompiler`; generated aggregate cohorts and representative traces | Implemented as compact deterministic materialization, not permanent runtime profiles or one process per agent. Run-owned persistence waits for the Script/engine boundary. |
 | Representative Persona | `HydraAgent.Simulations.PersonaProjection`; legacy `sim_lab_personas` | Implemented as an immutable lazy projection of representative structured state. Persona count is never population size. |
-| Simulation Script | Scenario events, executable rules, `ScenarioCompiler` | Add a versioned declarative schema/compiler; translate legacy scenarios as a compatibility input. Never execute arbitrary code. |
-| Observation Plan | Snapshot metrics, outcome events, forecast inputs | Add explicit immutable contract while reusing snapshot/outcome calculation code. |
+| Simulation Script | `HydraAgent.Simulations.SimulationScript`; legacy scenario events, executable rules, `ScenarioCompiler` | Implemented as a versioned typed declarative contract with semantic validation, exact upstream lineage, and no arbitrary execution. Legacy scenarios remain compatibility inputs. |
+| Observation Plan | Script observations; legacy snapshot metrics, outcome events, forecast inputs | Implemented inside Script V1 as explicit typed metrics and trace selection. A separately versioned Pack reference remains for the portable-Pack epic. |
 | Budget Plan | Runtime `budgets`, `usage_records`, SimLab cost fields | Reuse accounting and authorization primitives; add per-Pack/run hard-cap allocation and price snapshot. |
 | Model Route Plan | Provider configs, credential pools, agent model routes | Reuse provider-neutral adapters and credential references; add Build/Simulation/Report role plan. |
 | Simulation Pack | No equivalent; SimLab run `input_snapshot` is closest | Add immutable compiled reference object only after component versions exist. |
-| Preview Run | Existing deterministic runner can execute small runs | Add explicit bounded preview state and validation outcome. |
+| Preview Run | `HydraAgent.Simulations.ScriptPreview`; existing deterministic runner assets | Implemented as a separate immutable, exact-lineage two-round result with at most 12 representatives, zero model calls, safe errors, and a deterministic result hash. |
 | Run | `sim_lab_runs` plus neutral runtime `runs` | Do not add a third run model. Define an execution adapter/link before schema changes. |
 | Run Decision | Pattern decisions summarized; outcome events exist | Add only when Balanced cognition lands; preserve deterministic IDs and provenance. |
 | Run Event | Runtime `run_events`, `sim_lab_outcome_events` | Reuse and normalize into a simulation event stream; avoid duplicate append-only logs. |
@@ -85,7 +85,7 @@ product behavior.
 |---|---|---|
 | `/simulations` | General Simulation list plus explicit legacy-study links | Implemented and selected as the Blueprint Studio entry route. Legacy routes preserved. |
 | `/simulations/new` | One-question composer | Implemented with optional notes/data, URLs, files, geography, horizon, mode, and Blueprint. |
-| `/simulations/:id/*` | Durable Build, Context, Population, Run, Results, and Compare stages | Implemented as deep links with Context and Population inspectors, truthful readiness gates, and shared domain logic. |
+| `/simulations/:id/*` | Durable Build, Context, Population, Script, Run, Results, and Compare stages | Implemented as deep links with Context, Population, and Script inspectors, truthful readiness gates, deterministic YAML/JSON export, and shared domain logic. |
 | `/blueprints/*` | Blueprint library, detail, editor, test, import, export | Implemented with workspace role boundaries and EN/RU interface copy. |
 | `/settings/*` | `/settings`, `/control/settings`, provider/tool pages | Present product-safe subsections; keep authority-sensitive controls under Operations. |
 | `/operations/*` | `/control/*`, `/dashboard`, runtime surfaces | Preserve operator routes; later add safe redirects/aliases. |
@@ -155,6 +155,16 @@ converted by Epic 0.
   workspace/Simulation/Version/Context lineage, author scope, active-model
   integrity, immutable content, and immutable lazy projections. No legacy
   persona, action-pattern, cohort, or run row is rewritten.
+- Epic 5: additive immutable `simulation_scripts` and
+  `simulation_script_previews`, plus an active Script reference on
+  `simulations`. Database constraints and triggers enforce exact
+  workspace/Simulation/Version/Context/Population lineage, author scope,
+  immutable content and preview evidence, and active-Script integrity. No
+  legacy scenario, run, event, or snapshot row is rewritten. A follow-up
+  additive constraint migration tightens the preview population to the engine's
+  exact 12-representative bound. A second hardening migration requires matching
+  passed/ready or failed/blocked Preview evidence before a Script can become
+  active.
 
 ## Acceptance ledger
 
@@ -307,6 +317,50 @@ viewer restrictions. The exact 10k acceptance smoke is recorded in
 `docs/benchmarks/2026-07-18-population-compiler-10k.json`; the full release gate
 is recorded below.
 
+### Epic 5 — Simulation Script DSL, validation, and preview
+
+- [x] Every new Simulation atomically receives Script v1 tied to its exact
+  immutable Version, Context Pack, and Population Model.
+- [x] Metadata, round clock, world state, agent types, relationships, resources,
+  events, actions, perception, policies, transitions, observations, and stopping
+  conditions are required and bounded.
+- [x] Conditions and numeric expressions use typed, depth- and node-bounded
+  abstract syntax trees; arbitrary code, dynamic evaluation, tools, and external
+  side effects are absent.
+- [x] Semantic validation catches missing references, undeclared state paths,
+  impossible resource balances, unreachable actions, unbounded targets,
+  oversized contracts, event cycles, and hybrid cognition without a budget.
+- [x] Generation has a provider-free deterministic fallback. A future generated
+  proposal receives at most one repair attempt and must pass the same validator.
+- [x] A valid Script completes a deterministic two-round preview with at most 12
+  representatives, the exact Population seed, zero model calls, and no external
+  effects.
+- [x] A failed preview persists a safe corrective explanation, marks the Script
+  blocked, and cannot silently fall through to later execution.
+- [x] Context and Population changes atomically create exact-lineage Script and
+  preview versions; identical explicit rebuilds are content-addressed and
+  idempotent.
+- [x] Scripts and previews are immutable and workspace scoped; cross-Simulation
+  and stale-lineage database writes fail closed.
+- [x] Deterministic readable YAML and canonical JSON exports preserve the exact
+  Script contract.
+- [x] Workspace audit includes safe lineage, counts, validation, generation and
+  preview evidence while fingerprinting the full Script and excluding raw state.
+- [x] English and Russian Script inspectors lead with preview outcome and explain
+  clock, choices, resources, timeline, policies, measurements, and portability
+  without runtime or DSL jargon.
+- [x] Ordinary viewers can inspect and export but cannot rebuild; Run remains
+  disabled until the complete immutable Simulation Pack exists.
+- [x] Real 1280px and 390px browser QA confirms exact readiness values, no
+  horizontal overflow, clean console state, localized derived labels, and a
+  quiet responsive hierarchy.
+
+Acceptance evidence: focused Script/domain and controller suites cover schema
+and semantic validation, deterministic preview/replay, bounded repair, safe
+failure, immutable triggers, exact lineage, idempotent rebuild, exports, audit
+privacy, authorization, both locales, and the truthful Run checkpoint. Full
+release-gate totals are recorded below.
+
 ## Baseline evidence
 
 The previous production-readiness pass recorded 543 tests, 75.04% line
@@ -358,6 +412,15 @@ high-confidence findings, and 630 ExUnit tests with zero failures (seed 975103,
 24.5 seconds). The upload-boundary regression discovered during the gate is
 included in both the focused and full totals.
 
+The exact Epic 5 worktree's focused 54-test suite passes with zero failures.
+It covers the Script validator and interpreter, Simulation lineage and
+immutability, built-in package schema/example, audit privacy, controller
+journeys, exports, both locales, and viewer restrictions. The current worktree
+passed `mix precommit` on 2026-07-18: compilation with warnings as errors,
+dependency lock hygiene and audit, formatting, Sobelow with no high-confidence
+findings, and 641 ExUnit tests with zero failures (seed 591892, 20.9 seconds).
+`mix assets.build` also passes.
+
 The current legacy visual baseline is captured at desktop and 390px mobile in:
 
 - `docs/screenshots/blueprint-baseline-2026-07-18/legacy-simulations-desktop.png`;
@@ -408,6 +471,21 @@ focus, and collapsed advanced mapping. The desktop document measured 1280 px
 at a 1280 px viewport; the narrow document measured exactly 390 px at a 390 px
 viewport. Neither pass reported horizontal overflow or console warnings.
 
+Epic 5 Script browser QA is captured in:
+
+- `docs/screenshots/simulation-studio-epic5-2026-07-18/script-en-desktop.png`;
+- `docs/screenshots/simulation-studio-epic5-2026-07-18/script-en-mobile-390.png`;
+- `docs/screenshots/simulation-studio-epic5-2026-07-18/script-ru-desktop.png`.
+
+The live pass created a real provider-free Simulation, inspected the active
+Script, verified the two-round/ten-representative result, checked exact Run-
+checkpoint values, and archived the QA record afterward. The desktop document
+measured 1,280 px at a 1,280 px viewport; the narrow document measured exactly
+390 px at a 390 px viewport. The pass found and corrected English derived clock,
+unit, policy, and metric labels in the Russian view. Final English/Russian DOM,
+console, focusable controls, and both widths reported no overflow or browser
+warnings.
+
 The exact-worktree aggregate Quick-engine baseline is recorded in
 `docs/benchmarks/2026-07-18-quick-engine-10k.json`. On the recorded arm64
 environment, ten measured 10k-population runs after two warmups produced a
@@ -418,13 +496,15 @@ engine must earn its own 10k result.
 
 ## Known incompatibilities and open decisions
 
-- Context and Population stages are implemented and durable, but no runnable
-  Simulation Pack is claimed until Script validation and preview land.
+- Context, Population, and Script stages are implemented and durable, but no
+  runnable Simulation Pack is claimed until the Quick engine, Resource Ledger,
+  Budget Plan, Model Route Plan, and immutable Pack boundary land.
 - Normal Blueprint navigation is limited to Simulations, Blueprints, and
   Settings. Operations is role-gated to system administrators and workspace
   owners/administrators.
 - Current SimLab lifecycle and terminology are Decision Replay-oriented.
-- Current scenarios are not a general versioned declarative Script.
+- Legacy scenarios remain Decision Replay compatibility inputs; the general
+  versioned declarative Script is not yet connected to the full Quick run loop.
 - Current aggregate outcomes do not include a generic Resource Ledger.
 - Balanced and Deep execution contracts are not implemented under the new hard
   Budget Plan.
@@ -432,8 +512,8 @@ engine must earn its own 10k result.
   model decisions.
 - Analysis Pack and claim-validated report regeneration are missing.
 - English/Russian copy and locale persistence are established across Blueprint,
-  Simulation, Context, and Population surfaces; future Script and Pack
-  inspectors must extend the same contract.
+  Simulation, Context, Population, and Script surfaces; future Pack, Run,
+  Analysis, and Observatory inspectors must extend the same contract.
 - The relationship between neutral runtime `runs` and `sim_lab_runs` must be
   defined before the general Run contract changes.
 

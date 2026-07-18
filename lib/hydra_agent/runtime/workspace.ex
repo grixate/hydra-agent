@@ -23,6 +23,8 @@ defmodule HydraAgent.Runtime.Workspace do
     has_many :simulation_context_research_runs, HydraAgent.Simulations.ContextResearchRun
     has_many :simulation_population_models, HydraAgent.Simulations.PopulationModel
     has_many :simulation_persona_projections, HydraAgent.Simulations.PersonaProjection
+    has_many :simulation_scripts, HydraAgent.Simulations.SimulationScript
+    has_many :simulation_script_previews, HydraAgent.Simulations.ScriptPreview
     has_many :workspace_memberships, HydraAgent.Accounts.WorkspaceMembership
     has_many :users, through: [:workspace_memberships, :user]
 

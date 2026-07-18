@@ -134,7 +134,7 @@ defmodule HydraAgent.Simulations.BuiltInBlueprints do
       "hydra_blueprint" => 1,
       "id" => id,
       "name" => name,
-      "version" => "1.0.0",
+      "version" => "1.1.0",
       "description" => description,
       "modules" => %{
         "research" => %{
@@ -224,24 +224,36 @@ defmodule HydraAgent.Simulations.BuiltInBlueprints do
       "schemas/simulation-script.schema.json" =>
         object_schema(
           "simulation-script",
-          ~w(hydra_simulation_script clock actions observations),
+          ~w(hydra_simulation_script metadata clock world agent_types relationships resources events actions perception policies transitions observations stopping_conditions),
           %{
             "hydra_simulation_script" => %{"type" => "integer", "enum" => [1]},
+            "metadata" => %{"type" => "object"},
             "clock" =>
               object_schema(nil, ~w(kind count label), %{
                 "kind" => %{"type" => "string", "enum" => ["rounds"]},
-                "count" => %{"type" => "integer", "minimum" => 1},
+                "count" => %{"type" => "integer", "minimum" => 1, "maximum" => 200},
                 "label" => %{"type" => "string"}
               }),
+            "world" => %{"type" => "object"},
+            "agent_types" => %{"type" => "array", "minItems" => 1, "maxItems" => 16},
+            "relationships" => %{"type" => "array", "maxItems" => 32},
+            "resources" => %{"type" => "array", "maxItems" => 32},
+            "events" => %{"type" => "array", "maxItems" => 256},
             "actions" => %{
               "type" => "array",
+              "minItems" => 1,
+              "maxItems" => 64,
               "items" =>
                 object_schema(nil, ~w(id actors), %{
                   "id" => %{"type" => "string"},
                   "actors" => %{"type" => "array", "items" => %{"type" => "string"}}
                 })
             },
-            "observations" => %{"type" => "object", "properties" => %{}}
+            "perception" => %{"type" => "object"},
+            "policies" => %{"type" => "array", "minItems" => 1, "maxItems" => 64},
+            "transitions" => %{"type" => "array", "maxItems" => 128},
+            "observations" => %{"type" => "object", "properties" => %{}},
+            "stopping_conditions" => %{"type" => "array", "minItems" => 1, "maxItems" => 8}
           }
         ),
       "schemas/observation-plan.schema.json" =>
@@ -316,7 +328,82 @@ defmodule HydraAgent.Simulations.BuiltInBlueprints do
           },
           pretty: true
         ),
-      "examples/sample-script.yaml" => "clock:\n  kind: rounds\n  count: 2\n  label: round\n",
+      "examples/sample-script.yaml" => """
+      hydra_simulation_script: 1
+      metadata:
+        id: portable-example
+        title: Portable example
+        locale: en
+      clock:
+        kind: rounds
+        count: 2
+        label: round
+      world:
+        state:
+          change_introduced: false
+          current_round: 0
+      agent_types:
+        - id: participant
+          policy: participant_policy
+          perception: participant_default
+      relationships: []
+      resources: []
+      events:
+        - id: simulation_begins
+          at_round: 1
+          phase: before_actions
+          audience:
+            all: true
+          effects:
+            - op: set_world
+              path: change_introduced
+              value: true
+      actions:
+        - id: observe
+          actors:
+            - participant
+          preconditions:
+            fact: world.change_introduced
+            op: eq
+            value: true
+          costs: []
+          effects:
+            - op: set_agent
+              path: state.last_action
+              value: observe
+          emits: []
+      perception:
+        participant_default:
+          world:
+            - change_introduced
+            - current_round
+          self:
+            - state
+          relationships:
+            types: []
+            limit: 0
+          recent_events:
+            types:
+              - simulation_begins
+            rounds: 2
+            limit: 10
+      policies:
+        - id: participant_policy
+          kind: fixed
+          action: observe
+      transitions: []
+      observations:
+        metrics:
+          - id: observe_count
+            kind: action_count
+            action: observe
+        traces:
+          representatives_per_archetype: 1
+          high_influence: 0
+          outliers: 0
+      stopping_conditions:
+        - kind: final_round
+      """,
       "examples/sample-report.json" =>
         Jason.encode!(
           %{

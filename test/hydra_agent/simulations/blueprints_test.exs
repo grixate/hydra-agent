@@ -21,7 +21,7 @@ defmodule HydraAgent.Simulations.BlueprintsTest do
 
     visible = Blueprints.list_blueprints(workspace.id)
     assert Enum.count(visible, & &1.built_in) == 2
-    assert Enum.all?(visible, &(&1.active_version.version == "1.0.0"))
+    assert Enum.all?(visible, &(&1.active_version.version == "1.1.0"))
     assert Enum.all?(visible, &(is_nil(&1.workspace_id) and is_nil(&1.owner_user_id)))
 
     assert {:error, changeset} =

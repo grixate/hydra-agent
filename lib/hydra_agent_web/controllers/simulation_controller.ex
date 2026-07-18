@@ -71,6 +71,7 @@ defmodule HydraAgentWeb.SimulationController do
   def build(conn, params), do: render_stage(conn, params, :build)
   def context(conn, params), do: render_context(conn, params)
   def population(conn, params), do: render_population(conn, params)
+  def script(conn, params), do: render_script(conn, params)
   def run(conn, params), do: render_stage(conn, params, :run)
   def results(conn, params), do: render_stage(conn, params, :results)
   def compare(conn, params), do: render_stage(conn, params, :compare)
@@ -210,6 +211,30 @@ defmodule HydraAgentWeb.SimulationController do
     end
   end
 
+  def build_script(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         {:ok, _result} <-
+           Simulations.build_simulation_script(simulation, conn.assigns[:current_user]) do
+      conn
+      |> put_flash(:info, t(conn, :script_built))
+      |> redirect(to: stage_path(simulation.id, :script, workspace.id, conn.assigns.locale))
+    else
+      _ -> not_found(conn)
+    end
+  end
+
+  def export_script(conn, params) do
+    with {_workspace, simulation} <- fetch_simulation(conn, params, "viewer"),
+         {:ok, export} <- Simulations.export_simulation_script(simulation, params["format"]) do
+      send_download(conn, {:binary, export.binary},
+        filename: export.filename,
+        content_type: export.content_type
+      )
+    else
+      _ -> not_found(conn)
+    end
+  end
+
   def duplicate(conn, params) do
     with {_workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
          {:ok, copy} <- Simulations.duplicate_simulation(simulation, conn.assigns[:current_user]) do
@@ -263,6 +288,8 @@ defmodule HydraAgentWeb.SimulationController do
         can_edit: authorized?(conn, workspace.id, "researcher"),
         context_pack: simulation.active_context_pack,
         population_model: simulation.active_population_model,
+        simulation_script: simulation.active_script,
+        script_preview: simulation.active_script && simulation.active_script.preview,
         context_research_run: Simulations.latest_context_research_run(simulation),
         context_research_configured:
           HydraAgent.SimLab.Research.Providers.web_search_configured?(),
@@ -314,6 +341,21 @@ defmodule HydraAgentWeb.SimulationController do
         import_preview: Keyword.get(opts, :import_preview),
         import_form: Keyword.get(opts, :import_form, %{}),
         import_limits: HydraAgent.Simulations.PopulationImporter.limits()
+      )
+    else
+      _ -> not_found(conn)
+    end
+  end
+
+  defp render_script(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "viewer") do
+      render(conn, :script,
+        page_title: t(conn, :script_title),
+        workspace: workspace,
+        simulation: simulation,
+        simulation_script: simulation.active_script,
+        script_preview: simulation.active_script && simulation.active_script.preview,
+        can_edit: authorized?(conn, workspace.id, "researcher")
       )
     else
       _ -> not_found(conn)

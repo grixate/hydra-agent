@@ -75,6 +75,11 @@ The portable package contract and import boundary are documented in
 The durable Simulation Studio shell, input boundary, and honest lifecycle gates
 are documented in
 [docs/simulation-studio-shell.md](docs/simulation-studio-shell.md).
+The deterministic population compiler and declarative Script/preview boundary
+are documented in [docs/population-model.md](docs/population-model.md) and
+[docs/simulation-script.md](docs/simulation-script.md). The Script architecture
+decision is recorded in
+[docs/adr/0002-declarative-script-preview-boundary.md](docs/adr/0002-declarative-script-preview-boundary.md).
 
 Production browser access is authenticated. Set
 `HYDRA_BOOTSTRAP_ADMIN_EMAIL` and a password of at least 12 characters in

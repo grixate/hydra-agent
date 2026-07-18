@@ -98,9 +98,29 @@ defmodule HydraAgent.Simulations.BlueprintTester do
       },
       script: %{
         "hydra_simulation_script" => 1,
+        "metadata" => %{"id" => "miniature_test", "title" => "Miniature test", "locale" => "en"},
         "clock" => %{"kind" => "rounds", "count" => 2, "label" => "round"},
+        "world" => %{"state" => %{"change_introduced" => true}},
+        "agent_types" => [
+          %{
+            "id" => "participant",
+            "policy" => "participant_policy",
+            "perception" => "participant_default"
+          }
+        ],
+        "relationships" => [],
+        "resources" => [],
+        "events" => [],
         "actions" => [%{"id" => "adapt", "actors" => ["participant"]}],
-        "observations" => %{"metrics" => ["adapted_count"]}
+        "perception" => %{"participant_default" => %{}},
+        "policies" => [
+          %{"id" => "participant_policy", "kind" => "fixed", "action" => "adapt"}
+        ],
+        "transitions" => [],
+        "observations" => %{
+          "metrics" => [%{"id" => "adapted_count", "kind" => "action_count", "action" => "adapt"}]
+        },
+        "stopping_conditions" => [%{"kind" => "final_round"}]
       },
       report: %{
         "hydra_report" => 1,

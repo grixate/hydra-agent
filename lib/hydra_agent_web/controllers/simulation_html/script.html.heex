@@ -1,0 +1,328 @@
+<div class="simulation-studio simulation-workbench simulation-artifact-page simulation-script-page">
+  <header class="simulation-workbench-header">
+    <div class="simulation-workbench-topline">
+      <a
+        href={stage_path(@simulation.id, "build", @workspace.id, @locale)}
+        class="simulation-back-link"
+      >
+        <span aria-hidden="true">←</span> {t(@locale, :script_return_build)}
+      </a>
+      <nav class="blueprint-locale-switch" aria-label={t(@locale, :locale_label)}>
+        <a
+          href={stage_path(@simulation.id, "script", @workspace.id, "en")}
+          aria-current={if @locale == "en", do: "page"}
+        >
+          {t(@locale, :english)}
+        </a>
+        <span aria-hidden="true">/</span>
+        <a
+          href={stage_path(@simulation.id, "script", @workspace.id, "ru")}
+          aria-current={if @locale == "ru", do: "page"}
+        >
+          {t(@locale, :russian)}
+        </a>
+      </nav>
+    </div>
+
+    <div class="simulation-artifact-hero">
+      <div>
+        <p class="blueprint-eyebrow">02.3 · {t(@locale, :script_title)}</p>
+        <h1>{t(@locale, :script_title)}</h1>
+        <p>{t(@locale, :script_lede)}</p>
+      </div>
+      <div :if={@simulation_script} class="simulation-artifact-state">
+        <span class={"is-#{@simulation_script.status}"} aria-hidden="true"></span>
+        <div>
+          <strong>
+            {t(
+              @locale,
+              if(@simulation_script.status == "ready", do: :script_ready, else: :script_blocked)
+            )}
+          </strong>
+          <small>
+            v{@simulation_script.version} · {short_hash(@simulation_script.content_hash)}…
+          </small>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <%= if @simulation_script do %>
+    <% script = @simulation_script.script %>
+    <section class="script-contract-strip" aria-label={t(@locale, :script_summary)}>
+      <div>
+        <span>{t(@locale, :rounds)}</span>
+        <strong>{get_in(script, ["clock", "count"])}</strong>
+        <small>
+          {script_clock_label(
+            get_in(script, ["clock", "count"]),
+            get_in(script, ["clock", "label"]),
+            @locale
+          )}
+        </small>
+      </div>
+      <div>
+        <span>{t(@locale, :actions)}</span>
+        <strong>{length(script["actions"] || [])}</strong>
+        <small>{t(@locale, :script_declarative)}</small>
+      </div>
+      <div>
+        <span>{t(@locale, :resources)}</span>
+        <strong>{length(script["resources"] || [])}</strong>
+        <small>{t(@locale, :script_bounded)}</small>
+      </div>
+      <div>
+        <span>{t(@locale, :events)}</span>
+        <strong>{length(script["events"] || [])}</strong>
+        <small>{t(@locale, :script_scheduled)}</small>
+      </div>
+      <div>
+        <span>{t(@locale, :script_model_calls)}</span>
+        <strong>{(@script_preview && @script_preview.summary["model_calls"]) || 0}</strong>
+        <small>{t(@locale, :script_preview_only)}</small>
+      </div>
+    </section>
+
+    <section class={"script-preview-card is-#{(@script_preview && @script_preview.status) || "missing"}"}>
+      <header>
+        <div>
+          <p class="blueprint-eyebrow">{t(@locale, :script_preview)}</p>
+          <h2>{t(@locale, script_preview_status_key(@script_preview))}</h2>
+          <p>{t(@locale, :script_preview_lede)}</p>
+        </div>
+        <span class="script-preview-seal" aria-hidden="true">
+          {if @script_preview && @script_preview.status == "passed", do: "✓", else: "!"}
+        </span>
+      </header>
+
+      <dl :if={@script_preview && @script_preview.status == "passed"}>
+        <div>
+          <dt>{t(@locale, :script_preview_agents)}</dt>
+          <dd>{@script_preview.agent_count}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :script_preview_rounds)}</dt>
+          <dd>{@script_preview.rounds_completed}/{@script_preview.rounds_requested}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :script_preview_actions)}</dt>
+          <dd>{@script_preview.summary["action_counts"] |> Map.values() |> Enum.sum()}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :script_preview_changes)}</dt>
+          <dd>{@script_preview.summary["state_change_count"]}</dd>
+        </div>
+      </dl>
+
+      <div
+        :if={@script_preview && @script_preview.status == "failed"}
+        class="script-preview-errors"
+      >
+        <article :for={error <- @script_preview.errors}>
+          <strong>{t(@locale, :script_preview_blocker)}</strong>
+          <p>{script_preview_error(@locale, error)}</p>
+        </article>
+      </div>
+
+      <footer>
+        <span>{t(@locale, :script_safe_ast)}</span>
+        <span>{t(@locale, :script_no_side_effects)}</span>
+        <span>{t(@locale, :script_exact_seed)}</span>
+      </footer>
+    </section>
+
+    <section class="script-section script-world-section">
+      <header>
+        <div>
+          <p class="blueprint-eyebrow">01 · {t(@locale, :script_world)}</p>
+          <h2>{t(@locale, :script_clock_world)}</h2>
+          <p>{t(@locale, :script_clock_world_lede)}</p>
+        </div>
+      </header>
+      <div class="script-world-grid">
+        <article>
+          <span>{t(@locale, :script_clock)}</span>
+          <strong>
+            {get_in(script, ["clock", "count"])} {script_clock_label(
+              get_in(script, ["clock", "count"]),
+              get_in(script, ["clock", "label"]),
+              @locale
+            )}
+          </strong>
+          <small>{t(@locale, :script_round_based)}</small>
+        </article>
+        <article :for={{key, value} <- script_world_values(script)}>
+          <span>{context_identifier(key, @locale)}</span>
+          <strong>{script_value(value, @locale)}</strong>
+          <small>{t(@locale, :script_shared_state)}</small>
+        </article>
+      </div>
+    </section>
+
+    <section class="script-section">
+      <header>
+        <div>
+          <p class="blueprint-eyebrow">02 · {t(@locale, :actions)}</p>
+          <h2>{t(@locale, :script_choices)}</h2>
+          <p>{t(@locale, :script_choices_lede)}</p>
+        </div>
+        <span>{length(script["actions"] || [])}</span>
+      </header>
+      <div class="script-action-grid">
+        <article :for={action <- script["actions"] || []}>
+          <header>
+            <strong>{context_identifier(action["id"], @locale)}</strong>
+            <span>{tx(@locale, :script_actor_count, count: length(action["actors"] || []))}</span>
+          </header>
+          <div class="script-chip-row">
+            <span :for={actor <- action["actors"] || []}>
+              {context_identifier(actor, @locale)}
+            </span>
+          </div>
+          <dl>
+            <div>
+              <dt>{t(@locale, :script_precondition)}</dt>
+              <dd>{script_condition_summary(action["preconditions"], @locale)}</dd>
+            </div>
+            <div>
+              <dt>{t(@locale, :script_effects)}</dt>
+              <dd>{length(action["effects"] || [])}</dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+    </section>
+
+    <div class="script-dual-grid">
+      <section class="script-section">
+        <header>
+          <div>
+            <p class="blueprint-eyebrow">03 · {t(@locale, :resources)}</p>
+            <h2>{t(@locale, :script_resources_title)}</h2>
+          </div>
+        </header>
+        <div class="script-compact-list">
+          <article :for={resource <- script["resources"] || []}>
+            <strong>{context_identifier(resource["id"], @locale)}</strong>
+            <span>{context_identifier(resource["unit"], @locale)}</span>
+            <small>{script_resource_bounds(resource, @locale)}</small>
+          </article>
+          <p :if={(script["resources"] || []) == []} class="script-empty-note">
+            {t(@locale, :script_no_resources)}
+          </p>
+        </div>
+      </section>
+
+      <section class="script-section">
+        <header>
+          <div>
+            <p class="blueprint-eyebrow">04 · {t(@locale, :events)}</p>
+            <h2>{t(@locale, :script_timeline)}</h2>
+          </div>
+        </header>
+        <ol class="script-timeline">
+          <li :for={event <- script["events"] || []}>
+            <span>{event["at_round"]}</span>
+            <div>
+              <strong>{context_identifier(event["id"], @locale)}</strong>
+              <small>{t(@locale, script_phase_key(event["phase"]))}</small>
+            </div>
+          </li>
+        </ol>
+      </section>
+    </div>
+
+    <section class="script-section">
+      <header>
+        <div>
+          <p class="blueprint-eyebrow">05 · {t(@locale, :script_decisions)}</p>
+          <h2>{t(@locale, :script_policies)}</h2>
+          <p>{t(@locale, :script_policies_lede)}</p>
+        </div>
+      </header>
+      <div class="script-policy-list">
+        <article :for={policy <- script["policies"] || []}>
+          <div>
+            <strong>{context_identifier(policy["id"], @locale)}</strong>
+            <span>{t(@locale, script_policy_key(policy["kind"]))}</span>
+          </div>
+          <p>{script_policy_summary(policy, @locale)}</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="script-section script-observation-section">
+      <header>
+        <div>
+          <p class="blueprint-eyebrow">06 · {t(@locale, :script_observations)}</p>
+          <h2>{t(@locale, :script_recorded_outputs)}</h2>
+          <p>{t(@locale, :script_observations_lede)}</p>
+        </div>
+      </header>
+      <div class="script-metric-grid">
+        <article :for={metric <- get_in(script, ["observations", "metrics"]) || []}>
+          <span>{t(@locale, script_metric_key(metric["kind"]))}</span>
+          <strong>{context_identifier(metric["id"], @locale)}</strong>
+        </article>
+      </div>
+    </section>
+
+    <section class="script-export-panel">
+      <div>
+        <p class="blueprint-eyebrow">{t(@locale, :script_portable)}</p>
+        <h2>{t(@locale, :script_export_title)}</h2>
+        <p>{t(@locale, :script_export_lede)}</p>
+      </div>
+      <div class="script-export-actions">
+        <a href={script_export_path(@simulation.id, "yaml", @workspace.id, @locale)}>
+          {t(@locale, :script_export_yaml)}
+        </a>
+        <a href={script_export_path(@simulation.id, "json", @workspace.id, @locale)}>
+          {t(@locale, :script_export_json)}
+        </a>
+      </div>
+      <details>
+        <summary>{t(@locale, :script_contract_details)}</summary>
+        <dl>
+          <div>
+            <dt>{t(@locale, :script_schema)}</dt>
+            <dd>v{@simulation_script.schema_version}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :population_version)}</dt>
+            <dd>v{@simulation.active_population_model.version}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :content_hash)}</dt>
+            <dd><code>{@simulation_script.content_hash}</code></dd>
+          </div>
+        </dl>
+      </details>
+    </section>
+
+    <form
+      :if={@can_edit}
+      class="script-rebuild-form"
+      action={"/simulations/#{@simulation.id}/script/build"}
+      method="post"
+    >
+      <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+      <input type="hidden" name="workspace_id" value={@workspace.id} />
+      <input type="hidden" name="locale" value={@locale} />
+      <button type="submit">{t(@locale, :script_rebuild_action)}</button>
+      <small>{t(@locale, :script_rebuild_hint)}</small>
+    </form>
+  <% else %>
+    <section class="script-empty-state">
+      <span aria-hidden="true">◇</span>
+      <h2>{t(@locale, :script_not_built)}</h2>
+      <p>{t(@locale, :script_not_built_lede)}</p>
+      <form :if={@can_edit} action={"/simulations/#{@simulation.id}/script/build"} method="post">
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <input type="hidden" name="workspace_id" value={@workspace.id} />
+        <input type="hidden" name="locale" value={@locale} />
+        <button type="submit">{t(@locale, :script_build_action)}</button>
+      </form>
+    </section>
+  <% end %>
+</div>

@@ -25,6 +25,7 @@ defmodule HydraAgent.Simulations.ContextPack do
     belongs_to :created_by_user, HydraAgent.Accounts.User
 
     has_many :population_models, HydraAgent.Simulations.PopulationModel
+    has_many :scripts, HydraAgent.Simulations.SimulationScript
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end

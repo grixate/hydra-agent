@@ -30,6 +30,8 @@ defmodule HydraAgent.Simulations.SimulationVersion do
     has_many :context_research_runs, HydraAgent.Simulations.ContextResearchRun
     has_many :population_models, HydraAgent.Simulations.PopulationModel
     has_many :persona_projections, HydraAgent.Simulations.PersonaProjection
+    has_many :scripts, HydraAgent.Simulations.SimulationScript
+    has_many :script_previews, HydraAgent.Simulations.ScriptPreview
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end

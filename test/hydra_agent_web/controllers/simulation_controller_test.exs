@@ -5,7 +5,7 @@ defmodule HydraAgentWeb.SimulationControllerTest do
 
   alias HydraAgent.Repo
   alias HydraAgent.SimLab.Schemas.Study
-  alias HydraAgent.Simulations.{Blueprints, Simulation, SimulationVersion}
+  alias HydraAgent.Simulations.{Blueprints, Simulation, SimulationScript, SimulationVersion}
 
   setup do
     workspace = workspace_fixture(%{name: "Simulation Studio", slug: "simulation-controller"})
@@ -440,6 +440,103 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     assert Phoenix.Flash.get(response.assigns.flash, :error) =~ "Nothing was imported"
   end
 
+  test "the Script inspector explains the exact validated contract in English and Russian", %{
+    conn: conn,
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might teams respond to a staged operating model change?",
+        "blueprint_id" => general.id,
+        "horizon" => "8 weeks",
+        "population_size" => 50
+      })
+
+    path = "/simulations/#{simulation.id}/script?workspace_id=#{workspace.id}&locale=en"
+    english = conn |> get(path) |> html_response(200)
+
+    assert english =~ "<h1>Simulation Script</h1>"
+    assert english =~ "Preview passed"
+    assert english =~ "8"
+    assert english =~ "Typed operations only"
+    assert english =~ "No external side effects"
+    assert english =~ "Available choices"
+    assert english =~ "Decision policies"
+    assert english =~ "Recorded outputs"
+    assert english =~ "Download YAML"
+    assert english =~ "Download JSON"
+    assert english =~ "Technical lineage"
+    refute english =~ "style="
+    refute english =~ "Elixir"
+
+    russian =
+      conn
+      |> recycle()
+      |> get("/simulations/#{simulation.id}/script?workspace_id=#{workspace.id}&locale=ru")
+      |> html_response(200)
+
+    assert russian =~ "<html lang=\"ru\""
+    assert russian =~ "<h1>Сценарий симуляции</h1>"
+    assert russian =~ "Мини-прогон пройден"
+    assert russian =~ "Только типизированные операции"
+    assert russian =~ "Политики решений"
+    assert russian =~ "раундов"
+    assert russian =~ "Политика: участник"
+    assert russian =~ "Принять · количество"
+    refute russian =~ "participant_response_policy"
+    refute russian =~ ">points<"
+    refute russian =~ ">hours<"
+
+    count = Repo.aggregate(SimulationScript, :count)
+
+    rebuilt =
+      conn
+      |> recycle()
+      |> post("/simulations/#{simulation.id}/script/build", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en"
+      })
+
+    assert redirected_to(rebuilt) ==
+             "/simulations/#{simulation.id}/script?locale=en&workspace_id=#{workspace.id}"
+
+    assert Repo.aggregate(SimulationScript, :count) == count
+  end
+
+  test "Script exports are deterministic, complete, and correctly typed", %{
+    conn: conn,
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might a bounded service policy affect participant choices?",
+        "blueprint_id" => general.id,
+        "population_size" => 50
+      })
+
+    base = "/simulations/#{simulation.id}/script/export"
+    query = "?workspace_id=#{workspace.id}&locale=en"
+
+    json = conn |> get(base <> "/json" <> query) |> response(200)
+    decoded = Jason.decode!(json)
+    assert decoded["hydra_simulation_script"] == 1
+    assert is_list(decoded["actions"])
+    assert is_list(decoded["stopping_conditions"])
+
+    json_conn = conn |> recycle() |> get(base <> "/json" <> query)
+    assert get_resp_header(json_conn, "content-type") == ["application/json"]
+    assert hd(get_resp_header(json_conn, "content-disposition")) =~ "simulation-script-v1.json"
+
+    yaml_conn = conn |> recycle() |> get(base <> "/yaml" <> query)
+    yaml = response(yaml_conn, 200)
+    assert get_resp_header(yaml_conn, "content-type") == ["application/yaml"]
+    assert hd(get_resp_header(yaml_conn, "content-disposition")) =~ "simulation-script-v1.yaml"
+    assert yaml =~ "hydra_simulation_script: 1"
+    assert yaml =~ "stopping_conditions:"
+  end
+
   test "Run, Results, and Compare are honest deep-linkable gates", %{
     conn: conn,
     workspace: workspace,
@@ -598,6 +695,38 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     refute population =~ "Validate and import"
     refute population =~ ">Remove<"
     refute population =~ "Create readable card"
+
+    script =
+      conn
+      |> recycle()
+      |> init_test_session(user_id: viewer.id, session_version: viewer.session_version)
+      |> get("/simulations/#{simulation.id}/script?workspace_id=#{workspace.id}&locale=en")
+      |> html_response(200)
+
+    assert script =~ "Simulation Script"
+    assert script =~ "Download YAML"
+    refute script =~ "Rebuild from current population"
+
+    export =
+      conn
+      |> recycle()
+      |> init_test_session(user_id: viewer.id, session_version: viewer.session_version)
+      |> get(
+        "/simulations/#{simulation.id}/script/export/json?workspace_id=#{workspace.id}&locale=en"
+      )
+
+    assert export.status == 200
+
+    denied_script_build =
+      conn
+      |> recycle()
+      |> init_test_session(user_id: viewer.id, session_version: viewer.session_version)
+      |> post("/simulations/#{simulation.id}/script/build", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en"
+      })
+
+    assert denied_script_build.status == 404
 
     denied =
       conn

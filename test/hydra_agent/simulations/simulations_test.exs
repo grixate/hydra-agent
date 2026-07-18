@@ -15,7 +15,9 @@ defmodule HydraAgent.SimulationsTest do
     ContextResearchRun,
     PersonaProjection,
     PopulationModel,
+    ScriptPreview,
     Simulation,
+    SimulationScript,
     SimulationVersion,
     Workers.ContextResearchWorker
   }
@@ -55,6 +57,13 @@ defmodule HydraAgent.SimulationsTest do
     assert simulation.active_population_model.population_size == 5_000
     assert simulation.active_population_model.compile_summary["population_size"] == 5_000
     assert simulation.active_population_model.generation_metadata["model_calls"] == 0
+    assert simulation.active_script.version == 1
+    assert simulation.active_script.status == "ready"
+    assert simulation.active_script.generation_metadata["model_calls"] == 0
+    assert simulation.active_script.preview.status == "passed"
+    assert simulation.active_script.preview.rounds_completed == 2
+    assert Repo.aggregate(ScriptPreview, :count) == 1
+    assert Repo.aggregate(SimulationScript, :count) == 1
     assert Repo.aggregate(PersonaProjection, :count) == 0
 
     assert Enum.all?(simulation.active_context_pack.claims, fn claim ->
@@ -74,8 +83,8 @@ defmodule HydraAgent.SimulationsTest do
                {"understanding_question", "complete"},
                {"finding_context", "partial"},
                {"designing_population", "complete"},
-               {"writing_rules", "pending"},
-               {"checking_model", "pending"},
+               {"writing_rules", "complete"},
+               {"checking_model", "complete"},
                {"preparing_run", "pending"}
              ]
   end
@@ -367,6 +376,110 @@ defmodule HydraAgent.SimulationsTest do
     end
   end
 
+  test "database triggers keep Scripts and miniature previews immutable", %{
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might immutable rules preserve a repeatable miniature run?",
+        "blueprint_id" => general.id,
+        "population_size" => 50
+      })
+
+    assert_raise Postgrex.Error, ~r/simulation scripts are immutable/, fn ->
+      SimulationScript
+      |> where([script], script.id == ^simulation.active_script.id)
+      |> Repo.update_all(set: [status: "blocked"])
+    end
+
+    assert_raise Postgrex.Error, ~r/simulation script previews are immutable/, fn ->
+      ScriptPreview
+      |> where([preview], preview.id == ^simulation.active_script.preview.id)
+      |> Repo.update_all(set: [status: "failed"])
+    end
+  end
+
+  test "an active Script requires matching durable preview evidence", %{
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How should activation fail when preview evidence is missing?",
+        "blueprint_id" => general.id,
+        "population_size" => 50
+      })
+
+    source = simulation.active_script
+
+    unpreviewed =
+      %SimulationScript{}
+      |> SimulationScript.changeset(%{
+        workspace_id: source.workspace_id,
+        simulation_id: source.simulation_id,
+        simulation_version_id: source.simulation_version_id,
+        context_pack_id: source.context_pack_id,
+        population_model_id: source.population_model_id,
+        version: 2,
+        schema_version: source.schema_version,
+        compiler_version: source.compiler_version,
+        script: source.script,
+        validation_report: source.validation_report,
+        generation_metadata: source.generation_metadata,
+        status: "ready",
+        content_hash: String.duplicate("e", 64)
+      })
+      |> Repo.insert!()
+
+    assert_raise Postgrex.Error, ~r/active script requires matching preview evidence/, fn ->
+      Simulation
+      |> where([candidate], candidate.id == ^simulation.id)
+      |> Repo.update_all(set: [active_script_id: unpreviewed.id])
+    end
+  end
+
+  test "Script scope integrity rejects a Population Model from another Simulation", %{
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, first} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might the first Script remain attached to its own Simulation?",
+        "blueprint_id" => general.id,
+        "population_size" => 20
+      })
+
+    {:ok, second} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might the second Script remain attached to its own Simulation?",
+        "blueprint_id" => general.id,
+        "population_size" => 20
+      })
+
+    source = second.active_script
+
+    assert_raise Postgrex.Error, ~r/script scope does not match its population model/, fn ->
+      %SimulationScript{}
+      |> SimulationScript.changeset(%{
+        workspace_id: first.workspace_id,
+        simulation_id: first.id,
+        simulation_version_id: first.active_version_id,
+        context_pack_id: first.active_context_pack_id,
+        population_model_id: second.active_population_model_id,
+        version: 2,
+        schema_version: source.schema_version,
+        compiler_version: source.compiler_version,
+        script: source.script,
+        validation_report: source.validation_report,
+        generation_metadata: source.generation_metadata,
+        status: source.status,
+        content_hash: String.duplicate("f", 64)
+      })
+      |> Repo.insert!()
+    end
+  end
+
   test "source exclusion creates a new immutable Pack and resets downstream build stages", %{
     workspace: workspace,
     general: general
@@ -413,6 +526,11 @@ defmodule HydraAgent.SimulationsTest do
     assert refreshed_population.version == 2
     assert refreshed_population.context_pack_id == result.context_pack.id
     assert refreshed_population.compile_summary["population_size"] == 5_000
+    assert result.script.version == 2
+    assert result.script.context_pack_id == result.context_pack.id
+    assert result.script.population_model_id == refreshed_population.id
+    assert result.preview.status == "passed"
+    assert result.simulation.active_script.id == result.script.id
 
     assert {:error, :context_source_not_found} =
              HydraAgent.Simulations.exclude_context_source(
@@ -465,6 +583,9 @@ defmodule HydraAgent.SimulationsTest do
     assert imported_model.compile_summary["imported_agent_count"] == 2
     assert imported.import["error_count"] == 1
     refute inspect(imported.import["errors"]) =~ "private-value-that-must-not-appear"
+    assert imported.script.version == 2
+    assert imported.script.population_model_id == imported_model.id
+    assert imported.preview.status == "passed"
 
     assert {:ok, removed} =
              HydraAgent.Simulations.exclude_population_attribute(
@@ -475,6 +596,9 @@ defmodule HydraAgent.SimulationsTest do
              )
 
     assert removed.population_model.version == 3
+    assert removed.script.version == 3
+    assert removed.script.population_model_id == removed.population_model.id
+    assert removed.preview.status == "passed"
 
     refute Enum.any?(
              Enum.find(removed.population_model.agent_types, &(&1["id"] == type_id))[
@@ -505,6 +629,26 @@ defmodule HydraAgent.SimulationsTest do
              )
 
     assert same_projection.id == projection.id
+  end
+
+  test "manual Script rebuild is content-addressed and idempotent", %{
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might stable rules make Script rebuilding predictable?",
+        "blueprint_id" => general.id,
+        "population_size" => 50
+      })
+
+    assert {:ok, %{created: false, script: script, preview: preview}} =
+             HydraAgent.Simulations.build_simulation_script(simulation, nil)
+
+    assert script.id == simulation.active_script.id
+    assert preview.id == simulation.active_script.preview.id
+    assert Repo.aggregate(SimulationScript, :count) == 1
+    assert Repo.aggregate(ScriptPreview, :count) == 1
   end
 
   test "a custom JSON Population Model survives Context Pack rebasing", %{

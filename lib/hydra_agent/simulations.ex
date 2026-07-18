@@ -27,7 +27,13 @@ defmodule HydraAgent.Simulations do
     PopulationImporter,
     PopulationModel,
     PopulationValidator,
+    ScriptBuilder,
+    ScriptExporter,
+    ScriptPreview,
+    ScriptPreviewEngine,
+    ScriptValidator,
     Simulation,
+    SimulationScript,
     SimulationVersion
   }
 
@@ -51,6 +57,7 @@ defmodule HydraAgent.Simulations do
       :active_version,
       :active_context_pack,
       :active_population_model,
+      active_script: :preview,
       selected_blueprint: :active_version
     ])
     |> Repo.all()
@@ -75,6 +82,7 @@ defmodule HydraAgent.Simulations do
       :active_version,
       :active_context_pack,
       :active_population_model,
+      active_script: :preview,
       selected_blueprint: :active_version
     ])
     |> Repo.one()
@@ -129,7 +137,8 @@ defmodule HydraAgent.Simulations do
         :active_version,
         :active_context_pack,
         :active_population_model,
-        :selected_blueprint
+        :selected_blueprint,
+        active_script: :preview
       ])
 
     attrs = %{
@@ -167,17 +176,22 @@ defmodule HydraAgent.Simulations do
   def ready_summary(%Simulation{} = simulation) do
     version = simulation.active_version
     population_model = simulation.active_population_model
+    script = simulation.active_script && simulation.active_script.script
 
     %{
       population_size: version.population_size,
       agent_types: population_model && length(population_model.agent_types),
-      rounds: nil,
-      actions: nil,
-      resources: nil,
-      scheduled_events: nil,
+      rounds: script && get_in(script, ["clock", "count"]),
+      actions: script && length(script["actions"] || []),
+      resources: script && length(script["resources"] || []),
+      scheduled_events: script && length(script["events"] || []),
       execution_mode: version.execution_mode,
       maximum_provider_cost: nil,
-      maximum_model_decisions: if(version.execution_mode == "quick", do: 0, else: nil)
+      maximum_model_decisions: if(version.execution_mode == "quick", do: 0, else: nil),
+      script_status: simulation.active_script && simulation.active_script.status,
+      preview_status:
+        simulation.active_script && simulation.active_script.preview &&
+          simulation.active_script.preview.status
     }
   end
 
@@ -187,6 +201,7 @@ defmodule HydraAgent.Simulations do
         :active_version,
         :active_context_pack,
         :active_population_model,
+        active_script: :preview,
         selected_blueprint: :active_version
       ])
 
@@ -216,6 +231,7 @@ defmodule HydraAgent.Simulations do
         :active_version,
         :active_context_pack,
         :active_population_model,
+        active_script: :preview,
         selected_blueprint: :active_version
       ])
 
@@ -242,6 +258,7 @@ defmodule HydraAgent.Simulations do
         :active_version,
         :active_context_pack,
         :active_population_model,
+        active_script: :preview,
         selected_blueprint: :active_version
       ])
 
@@ -273,6 +290,7 @@ defmodule HydraAgent.Simulations do
         :active_version,
         :active_context_pack,
         :active_population_model,
+        active_script: :preview,
         selected_blueprint: :active_version
       ])
 
@@ -306,6 +324,7 @@ defmodule HydraAgent.Simulations do
         :active_version,
         :active_context_pack,
         :active_population_model,
+        active_script: :preview,
         selected_blueprint: :active_version
       ])
 
@@ -329,6 +348,59 @@ defmodule HydraAgent.Simulations do
 
   def exclude_population_attribute(_simulation, _type_id, _attribute_key, _user),
     do: {:error, :population_attribute_not_found}
+
+  def build_simulation_script(%Simulation{} = simulation, user) do
+    simulation =
+      Repo.preload(simulation, [
+        :active_version,
+        :active_context_pack,
+        :active_population_model,
+        active_script: :preview,
+        selected_blueprint: :active_version
+      ])
+
+    if Accounts.workspace_authorized?(user, simulation.workspace_id, "researcher") do
+      with %ContextPack{} = context_pack <- simulation.active_context_pack,
+           %PopulationModel{} = population_model <- simulation.active_population_model,
+           {:ok, artifacts} <-
+             build_script_artifacts(
+               simulation.active_version,
+               context_pack,
+               population_model,
+               simulation.selected_blueprint.active_version
+             ) do
+        persist_script_artifacts(simulation, user, artifacts)
+      else
+        nil -> {:error, :population_not_found}
+        {:error, _reason} = error -> error
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def export_simulation_script(%Simulation{active_script: %SimulationScript{} = record}, format)
+      when format in ~w(json yaml) do
+    case format do
+      "json" ->
+        {:ok,
+         %{
+           filename: "simulation-script-v#{record.version}.json",
+           content_type: "application/json",
+           binary: ScriptExporter.json(record.script)
+         }}
+
+      "yaml" ->
+        {:ok,
+         %{
+           filename: "simulation-script-v#{record.version}.yaml",
+           content_type: "application/yaml",
+           binary: ScriptExporter.yaml(record.script)
+         }}
+    end
+  end
+
+  def export_simulation_script(_simulation, _format), do: {:error, :script_not_found}
 
   def list_persona_projections(%PopulationModel{} = population_model) do
     PersonaProjection
@@ -400,7 +472,12 @@ defmodule HydraAgent.Simulations do
 
   def queue_context_research(%Simulation{} = simulation, user, provider \\ "web_search") do
     simulation =
-      Repo.preload(simulation, [:active_version, :active_context_pack, :active_population_model])
+      Repo.preload(simulation, [
+        :active_version,
+        :active_context_pack,
+        :active_population_model,
+        active_script: :preview
+      ])
 
     cond do
       not Accounts.workspace_authorized?(user, simulation.workspace_id, "researcher") ->
@@ -626,12 +703,64 @@ defmodule HydraAgent.Simulations do
           contract
         )
       end)
+      |> Multi.run(:script_artifacts, fn _repo,
+                                         %{
+                                           version: version,
+                                           context_pack: context_pack,
+                                           population_model: population_model
+                                         } ->
+        build_script_artifacts(
+          version,
+          context_pack,
+          population_model,
+          blueprint.active_version
+        )
+      end)
+      |> Multi.run(:script, fn repo,
+                               %{
+                                 simulation: simulation,
+                                 version: version,
+                                 context_pack: context_pack,
+                                 population_model: population_model,
+                                 script_artifacts: artifacts
+                               } ->
+        insert_script(
+          repo,
+          workspace.id,
+          simulation.id,
+          version.id,
+          context_pack.id,
+          population_model.id,
+          author_id,
+          1,
+          artifacts.contract
+        )
+      end)
+      |> Multi.run(:script_preview, fn repo,
+                                       %{
+                                         simulation: simulation,
+                                         version: version,
+                                         population_model: population_model,
+                                         script: script,
+                                         script_artifacts: artifacts
+                                       } ->
+        insert_script_preview(
+          repo,
+          workspace.id,
+          simulation.id,
+          version.id,
+          population_model.id,
+          script.id,
+          artifacts.preview
+        )
+      end)
       |> Multi.run(:stages, fn repo,
                                %{
                                  simulation: simulation,
                                  version: version,
                                  context_contract: context_contract,
-                                 population_contract: population_contract
+                                 population_contract: population_contract,
+                                 script_artifacts: script_artifacts
                                } ->
         insert_initial_stages(
           repo,
@@ -639,7 +768,8 @@ defmodule HydraAgent.Simulations do
           simulation.id,
           version.id,
           context_contract,
-          population_contract
+          population_contract,
+          script_artifacts
         )
       end)
       |> Multi.run(:activated, fn repo,
@@ -647,10 +777,11 @@ defmodule HydraAgent.Simulations do
                                     simulation: simulation,
                                     version: version,
                                     context_pack: context_pack,
-                                    population_model: population_model
+                                    population_model: population_model,
+                                    script: script
                                   } ->
         simulation
-        |> Simulation.activate_build_changeset(version, context_pack, population_model)
+        |> Simulation.activate_build_changeset(version, context_pack, population_model, script)
         |> repo.update()
       end)
 
@@ -662,6 +793,7 @@ defmodule HydraAgent.Simulations do
             :active_version,
             :active_context_pack,
             :active_population_model,
+            active_script: :preview,
             selected_blueprint: :active_version
           ])
 
@@ -679,10 +811,12 @@ defmodule HydraAgent.Simulations do
          simulation_id,
          version_id,
          context_contract,
-         population_contract
+         population_contract,
+         script_artifacts
        ) do
     Enum.reduce_while(@stage_definitions, {:ok, []}, fn {stage, ordinal}, {:ok, stages} ->
-      stage_attrs = initial_stage_attrs(stage, context_contract, population_contract)
+      stage_attrs =
+        initial_stage_attrs(stage, context_contract, population_contract, script_artifacts)
 
       changeset =
         BuildStage.changeset(%BuildStage{}, %{
@@ -718,6 +852,7 @@ defmodule HydraAgent.Simulations do
           :active_version,
           :active_context_pack,
           :active_population_model,
+          active_script: :preview,
           selected_blueprint: :active_version
         ])
 
@@ -727,6 +862,7 @@ defmodule HydraAgent.Simulations do
           simulation: locked,
           context_pack: locked.active_context_pack,
           population_model: locked.active_population_model,
+          script: locked.active_script,
           created: false
         }
       else
@@ -791,11 +927,55 @@ defmodule HydraAgent.Simulations do
             {:error, changeset} -> Repo.rollback(changeset)
           end
 
-        update_context_stages!(locked, context_pack, population_model)
+        artifacts =
+          build_script_artifacts(
+            locked.active_version,
+            context_pack,
+            population_model,
+            locked.selected_blueprint.active_version
+          )
+          |> case do
+            {:ok, artifacts} -> artifacts
+            {:error, reason} -> Repo.rollback(reason)
+          end
+
+        script =
+          insert_script(
+            Repo,
+            locked.workspace_id,
+            locked.id,
+            locked.active_version_id,
+            context_pack.id,
+            population_model.id,
+            author_id,
+            next_script_version(locked.active_version_id),
+            artifacts.contract
+          )
+          |> case do
+            {:ok, script} -> script
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
+
+        preview =
+          insert_script_preview(
+            Repo,
+            locked.workspace_id,
+            locked.id,
+            locked.active_version_id,
+            population_model.id,
+            script.id,
+            artifacts.preview
+          )
+          |> case do
+            {:ok, preview} -> preview
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
+
+        update_context_stages!(locked, context_pack, population_model, script, preview)
 
         activated =
           locked
-          |> Simulation.activate_context_changeset(context_pack, population_model)
+          |> Simulation.activate_context_changeset(context_pack, population_model, script)
           |> Repo.update!()
 
         %{
@@ -807,12 +987,15 @@ defmodule HydraAgent.Simulations do
                 :active_version,
                 :active_context_pack,
                 :active_population_model,
+                active_script: :preview,
                 selected_blueprint: :active_version
               ],
               force: true
             ),
           context_pack: context_pack,
           population_model: population_model,
+          script: script,
+          preview: preview,
           created: true
         }
       end
@@ -832,7 +1015,13 @@ defmodule HydraAgent.Simulations do
         |> where([current], current.id == ^simulation.id)
         |> lock("FOR UPDATE")
         |> Repo.one!()
-        |> Repo.preload([:active_version, :active_context_pack, :active_population_model])
+        |> Repo.preload([
+          :active_version,
+          :active_context_pack,
+          :active_population_model,
+          active_script: :preview,
+          selected_blueprint: :active_version
+        ])
 
       cond do
         is_nil(locked.active_context_pack) ->
@@ -844,6 +1033,7 @@ defmodule HydraAgent.Simulations do
           %{
             simulation: locked,
             population_model: locked.active_population_model,
+            script: locked.active_script,
             created: false
           }
 
@@ -864,21 +1054,72 @@ defmodule HydraAgent.Simulations do
               {:error, changeset} -> Repo.rollback(changeset)
             end
 
-          update_population_stage!(locked, population_model)
+          artifacts =
+            build_script_artifacts(
+              locked.active_version,
+              locked.active_context_pack,
+              population_model,
+              locked.selected_blueprint.active_version
+            )
+            |> case do
+              {:ok, artifacts} -> artifacts
+              {:error, reason} -> Repo.rollback(reason)
+            end
+
+          script =
+            insert_script(
+              Repo,
+              locked.workspace_id,
+              locked.id,
+              locked.active_version_id,
+              locked.active_context_pack_id,
+              population_model.id,
+              author_id,
+              next_script_version(locked.active_version_id),
+              artifacts.contract
+            )
+            |> case do
+              {:ok, script} -> script
+              {:error, changeset} -> Repo.rollback(changeset)
+            end
+
+          preview =
+            insert_script_preview(
+              Repo,
+              locked.workspace_id,
+              locked.id,
+              locked.active_version_id,
+              population_model.id,
+              script.id,
+              artifacts.preview
+            )
+            |> case do
+              {:ok, preview} -> preview
+              {:error, changeset} -> Repo.rollback(changeset)
+            end
+
+          update_population_stage!(locked, population_model, script, preview)
 
           activated =
             locked
-            |> Simulation.activate_population_changeset(population_model)
+            |> Simulation.activate_population_changeset(population_model, script)
             |> Repo.update!()
 
           %{
             simulation:
               Repo.preload(
                 activated,
-                [:active_version, :active_context_pack, :active_population_model],
+                [
+                  :active_version,
+                  :active_context_pack,
+                  :active_population_model,
+                  active_script: :preview
+                ],
                 force: true
               ),
             population_model: population_model,
+            script: script,
+            preview: preview,
             created: true
           }
       end
@@ -886,6 +1127,141 @@ defmodule HydraAgent.Simulations do
     |> case do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp persist_script_artifacts(simulation, user, artifacts) do
+    author_id = user && user.id
+
+    Repo.transaction(fn ->
+      locked =
+        Simulation
+        |> where([current], current.id == ^simulation.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+        |> Repo.preload([
+          :active_version,
+          :active_context_pack,
+          :active_population_model,
+          active_script: :preview
+        ])
+
+      source_population_hash =
+        get_in(artifacts.contract, ["generation_metadata", "source_population_hash"])
+
+      cond do
+        is_nil(locked.active_population_model) ->
+          Repo.rollback(:population_not_found)
+
+        source_population_hash != locked.active_population_model.content_hash ->
+          Repo.rollback(:stale_population_model)
+
+        locked.active_script &&
+          locked.active_script.population_model_id == locked.active_population_model_id &&
+            locked.active_script.content_hash == artifacts.contract["content_hash"] ->
+          %{
+            simulation: locked,
+            script: locked.active_script,
+            preview: locked.active_script.preview,
+            created: false
+          }
+
+        true ->
+          script =
+            insert_script(
+              Repo,
+              locked.workspace_id,
+              locked.id,
+              locked.active_version_id,
+              locked.active_context_pack_id,
+              locked.active_population_model_id,
+              author_id,
+              next_script_version(locked.active_version_id),
+              artifacts.contract
+            )
+            |> case do
+              {:ok, script} -> script
+              {:error, changeset} -> Repo.rollback(changeset)
+            end
+
+          preview =
+            insert_script_preview(
+              Repo,
+              locked.workspace_id,
+              locked.id,
+              locked.active_version_id,
+              locked.active_population_model_id,
+              script.id,
+              artifacts.preview
+            )
+            |> case do
+              {:ok, preview} -> preview
+              {:error, changeset} -> Repo.rollback(changeset)
+            end
+
+          update_script_stages!(locked, script, preview)
+
+          activated =
+            locked
+            |> Simulation.activate_script_changeset(script)
+            |> Repo.update!()
+
+          %{
+            simulation:
+              Repo.preload(
+                activated,
+                [
+                  :active_version,
+                  :active_context_pack,
+                  :active_population_model,
+                  active_script: :preview
+                ],
+                force: true
+              ),
+            script: script,
+            preview: preview,
+            created: true
+          }
+      end
+    end)
+    |> case do
+      {:ok, result} -> {:ok, result}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp build_script_artifacts(version, context_pack, population_model, blueprint_version) do
+    with {:ok, contract} <- ScriptBuilder.build(version, context_pack, population_model),
+         :ok <- validate_script_contract(blueprint_version, contract),
+         {:ok, _validation_report} <-
+           ScriptValidator.validate(
+             contract["script"],
+             population_model,
+             model_budget?: version.execution_mode in ~w(balanced deep)
+           ) do
+      preview =
+        case ScriptPreviewEngine.run(contract["script"], population_model,
+               model_budget?: version.execution_mode in ~w(balanced deep)
+             ) do
+          {:ok, preview} -> preview
+          {:error, preview} -> preview
+        end
+
+      status = if preview.status == "passed", do: "ready", else: "blocked"
+
+      validation_report =
+        contract["validation_report"]
+        |> Map.put("preview_status", preview.status)
+        |> Map.put("preview_error_count", length(preview.errors))
+
+      finalized =
+        contract
+        |> Map.delete("content_hash")
+        |> Map.put("status", status)
+        |> Map.put("validation_report", validation_report)
+
+      finalized = Map.put(finalized, "content_hash", ContentHash.digest(finalized))
+      {:ok, %{contract: finalized, preview: preview}}
     end
   end
 
@@ -1018,30 +1394,123 @@ defmodule HydraAgent.Simulations do
     |> repo.insert()
   end
 
-  defp initial_stage_attrs("understanding_question", _context_contract, _population_contract) do
+  defp insert_script(
+         repo,
+         workspace_id,
+         simulation_id,
+         simulation_version_id,
+         context_pack_id,
+         population_model_id,
+         author_id,
+         version,
+         contract
+       ) do
+    %SimulationScript{}
+    |> SimulationScript.changeset(%{
+      workspace_id: workspace_id,
+      simulation_id: simulation_id,
+      simulation_version_id: simulation_version_id,
+      context_pack_id: context_pack_id,
+      population_model_id: population_model_id,
+      created_by_user_id: author_id,
+      version: version,
+      schema_version: contract["schema_version"],
+      compiler_version: contract["compiler_version"],
+      script: contract["script"],
+      validation_report: contract["validation_report"],
+      generation_metadata: contract["generation_metadata"],
+      status: contract["status"],
+      content_hash: contract["content_hash"]
+    })
+    |> repo.insert()
+  end
+
+  defp insert_script_preview(
+         repo,
+         workspace_id,
+         simulation_id,
+         simulation_version_id,
+         population_model_id,
+         script_id,
+         preview
+       ) do
+    %ScriptPreview{}
+    |> ScriptPreview.changeset(%{
+      workspace_id: workspace_id,
+      simulation_id: simulation_id,
+      simulation_version_id: simulation_version_id,
+      population_model_id: population_model_id,
+      simulation_script_id: script_id,
+      status: preview.status,
+      rounds_requested: preview.rounds_requested,
+      rounds_completed: preview.rounds_completed,
+      agent_count: preview.agent_count,
+      seed: preview.seed,
+      summary: preview.summary,
+      errors: preview.errors,
+      result_hash: preview.result_hash
+    })
+    |> repo.insert()
+  end
+
+  defp initial_stage_attrs(
+         "understanding_question",
+         _context_contract,
+         _population_contract,
+         _script_artifacts
+       ) do
     now = DateTime.utc_now()
     %{status: "complete", summary: nil, warnings: [], started_at: now, completed_at: now}
   end
 
-  defp initial_stage_attrs("finding_context", contract, _population_contract) do
+  defp initial_stage_attrs("finding_context", contract, _population_contract, _script_artifacts) do
     now = DateTime.utc_now()
     status = if contract["status"] == "ready", do: "complete", else: "partial"
     warnings = contract["gaps"] |> Enum.map(& &1["kind"]) |> Enum.uniq() |> Enum.sort()
     %{status: status, summary: nil, warnings: warnings, started_at: now, completed_at: now}
   end
 
-  defp initial_stage_attrs("designing_population", _context_contract, contract) do
+  defp initial_stage_attrs(
+         "designing_population",
+         _context_contract,
+         contract,
+         _script_artifacts
+       ) do
     now = DateTime.utc_now()
     status = if contract["status"] == "ready", do: "complete", else: "partial"
     warnings = import_warning_codes(contract["import_summary"])
     %{status: status, summary: nil, warnings: warnings, started_at: now, completed_at: now}
   end
 
-  defp initial_stage_attrs(_stage, _context_contract, _population_contract) do
+  defp initial_stage_attrs("writing_rules", _context, _population, artifacts) do
+    now = DateTime.utc_now()
+
+    %{
+      status: if(artifacts.contract["status"] == "invalid", do: "failed", else: "complete"),
+      summary: nil,
+      warnings: [],
+      started_at: now,
+      completed_at: now
+    }
+  end
+
+  defp initial_stage_attrs("checking_model", _context, _population, artifacts) do
+    now = DateTime.utc_now()
+
+    %{
+      status: if(artifacts.preview.status == "passed", do: "complete", else: "failed"),
+      summary: nil,
+      warnings: preview_warning_codes(artifacts.preview),
+      started_at: now,
+      completed_at: now
+    }
+  end
+
+  defp initial_stage_attrs(_stage, _context_contract, _population_contract, _script_artifacts) do
     %{status: "pending", summary: nil, warnings: [], started_at: nil, completed_at: nil}
   end
 
-  defp update_context_stages!(simulation, context_pack, population_model) do
+  defp update_context_stages!(simulation, context_pack, population_model, script, preview) do
     now = DateTime.utc_now()
 
     BuildStage
@@ -1061,10 +1530,10 @@ defmodule HydraAgent.Simulations do
     })
     |> Repo.update!()
 
-    update_population_stage!(simulation, population_model)
+    update_population_stage!(simulation, population_model, script, preview)
   end
 
-  defp update_population_stage!(simulation, population_model) do
+  defp update_population_stage!(simulation, population_model, script, preview) do
     now = DateTime.utc_now()
 
     BuildStage
@@ -1084,16 +1553,61 @@ defmodule HydraAgent.Simulations do
     })
     |> Repo.update!()
 
+    if script && preview do
+      update_script_stages!(simulation, script, preview)
+    else
+      BuildStage
+      |> where(
+        [stage],
+        stage.simulation_id == ^simulation.id and
+          stage.simulation_version_id == ^simulation.active_version_id and
+          stage.ordinal > 3
+      )
+      |> Repo.update_all(
+        set: [status: "pending", summary: nil, warnings: [], started_at: nil, completed_at: nil]
+      )
+    end
+  end
+
+  defp update_script_stages!(simulation, script, preview) do
+    now = DateTime.utc_now()
+
+    update_build_stage!(simulation, "writing_rules", %{
+      status: if(script.status == "invalid", do: "failed", else: "complete"),
+      summary: nil,
+      warnings: [],
+      started_at: now,
+      completed_at: now
+    })
+
+    update_build_stage!(simulation, "checking_model", %{
+      status: if(preview.status == "passed", do: "complete", else: "failed"),
+      summary: nil,
+      warnings: preview_warning_codes(preview),
+      started_at: now,
+      completed_at: now
+    })
+
+    update_build_stage!(simulation, "preparing_run", %{
+      status: "pending",
+      summary: nil,
+      warnings: [],
+      started_at: nil,
+      completed_at: nil
+    })
+  end
+
+  defp update_build_stage!(simulation, stage_name, attrs) do
     BuildStage
     |> where(
       [stage],
       stage.simulation_id == ^simulation.id and
         stage.simulation_version_id == ^simulation.active_version_id and
-        stage.ordinal > 3
+        stage.stage == ^stage_name
     )
-    |> Repo.update_all(
-      set: [status: "pending", summary: nil, warnings: [], started_at: nil, completed_at: nil]
-    )
+    |> Repo.one!()
+    |> BuildStage.changeset(attrs)
+    |> Repo.update!()
   end
 
   defp validate_context_contract(blueprint_version, contract) do
@@ -1124,6 +1638,22 @@ defmodule HydraAgent.Simulations do
         case JsonSchema.validate(schema, PopulationModel.schema_payload(contract)) do
           :ok -> :ok
           {:error, errors} -> {:error, {:invalid_population_model, errors}}
+        end
+    end
+  end
+
+  defp validate_script_contract(blueprint_version, contract) do
+    schema_path = get_in(blueprint_version.manifest, ["modules", "simulation", "output_schema"])
+    schema = schema_path && blueprint_version.schemas[schema_path]
+
+    cond do
+      is_nil(schema) ->
+        {:error, :script_schema_missing}
+
+      true ->
+        case JsonSchema.validate(schema, SimulationScript.schema_payload(contract)) do
+          :ok -> :ok
+          {:error, errors} -> {:error, {:invalid_simulation_script, errors}}
         end
     end
   end
@@ -1430,6 +1960,17 @@ defmodule HydraAgent.Simulations do
     end
   end
 
+  defp next_script_version(simulation_version_id) do
+    SimulationScript
+    |> where([script], script.simulation_version_id == ^simulation_version_id)
+    |> select([script], max(script.version))
+    |> Repo.one()
+    |> case do
+      nil -> 1
+      version -> version + 1
+    end
+  end
+
   defp projection_for_agent(population_model_id, agent_id) do
     PersonaProjection
     |> where(
@@ -1444,6 +1985,15 @@ defmodule HydraAgent.Simulations do
   end
 
   defp import_warning_codes(_summary), do: []
+
+  defp preview_warning_codes(%{errors: errors}) when is_list(errors) do
+    errors
+    |> Enum.map(&(&1["code"] || "preview_failed"))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp preview_warning_codes(_preview), do: []
 
   defp active_excluded_source_ids(%ContextPack{} = pack) do
     pack.research_metadata

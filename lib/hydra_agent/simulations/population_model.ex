@@ -31,6 +31,8 @@ defmodule HydraAgent.Simulations.PopulationModel do
     belongs_to :created_by_user, HydraAgent.Accounts.User
 
     has_many :persona_projections, HydraAgent.Simulations.PersonaProjection
+    has_many :scripts, HydraAgent.Simulations.SimulationScript
+    has_many :script_previews, HydraAgent.Simulations.ScriptPreview
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end

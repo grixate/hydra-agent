@@ -26,7 +26,9 @@ defmodule HydraAgent.Audit do
   alias HydraAgent.Simulations.ContextResearchRun, as: SimulationContextResearchRun
   alias HydraAgent.Simulations.PersonaProjection, as: SimulationPersonaProjection
   alias HydraAgent.Simulations.PopulationModel, as: SimulationPopulationModel
+  alias HydraAgent.Simulations.ScriptPreview, as: SimulationScriptPreview
   alias HydraAgent.Simulations.Simulation, as: StudioSimulation
+  alias HydraAgent.Simulations.SimulationScript, as: StudioSimulationScript
   alias HydraAgent.Simulations.SimulationVersion, as: StudioSimulationVersion
 
   alias HydraAgent.SimLab.Schemas.{
@@ -120,6 +122,13 @@ defmodule HydraAgent.Audit do
         map_records(
           simulation_persona_projections(workspace_id),
           &simulation_persona_projection_json/1
+        ),
+      "simulation_scripts" =>
+        map_records(simulation_scripts(workspace_id), &simulation_script_json/1),
+      "script_previews" =>
+        map_records(
+          simulation_script_previews(workspace_id),
+          &simulation_script_preview_json/1
         )
     }
   end
@@ -195,6 +204,20 @@ defmodule HydraAgent.Audit do
     SimulationPersonaProjection
     |> where([projection], projection.workspace_id == ^workspace_id)
     |> order_by([projection], asc: projection.population_model_id, asc: projection.id)
+    |> Repo.all()
+  end
+
+  defp simulation_scripts(workspace_id) do
+    StudioSimulationScript
+    |> where([script], script.workspace_id == ^workspace_id)
+    |> order_by([script], asc: script.simulation_version_id, asc: script.version)
+    |> Repo.all()
+  end
+
+  defp simulation_script_previews(workspace_id) do
+    SimulationScriptPreview
+    |> where([preview], preview.workspace_id == ^workspace_id)
+    |> order_by([preview], asc: preview.simulation_script_id)
     |> Repo.all()
   end
 
@@ -571,6 +594,7 @@ defmodule HydraAgent.Audit do
       "active_version_id" => simulation.active_version_id,
       "active_context_pack_id" => simulation.active_context_pack_id,
       "active_population_model_id" => simulation.active_population_model_id,
+      "active_script_id" => simulation.active_script_id,
       "title" => simulation.title,
       "question" => simulation.question,
       "locale" => simulation.locale,
@@ -887,6 +911,79 @@ defmodule HydraAgent.Audit do
       "generated_lazily" => projection.generated_lazily,
       "content_hash" => projection.content_hash,
       "inserted_at" => projection.inserted_at
+    }
+  end
+
+  defp simulation_script_json(script) do
+    source = script.script || %{}
+
+    %{
+      "id" => script.id,
+      "workspace_id" => script.workspace_id,
+      "simulation_id" => script.simulation_id,
+      "simulation_version_id" => script.simulation_version_id,
+      "context_pack_id" => script.context_pack_id,
+      "population_model_id" => script.population_model_id,
+      "created_by_user_id" => script.created_by_user_id,
+      "version" => script.version,
+      "schema_version" => script.schema_version,
+      "compiler_version" => script.compiler_version,
+      "script_fingerprint" => fingerprint(source),
+      "metadata" => %{
+        "id_fingerprint" => fingerprint(get_in(source, ["metadata", "id"])),
+        "title_fingerprint" => fingerprint(get_in(source, ["metadata", "title"])),
+        "locale" => get_in(source, ["metadata", "locale"])
+      },
+      "clock" => source["clock"],
+      "section_counts" => %{
+        "agent_types" => length(source["agent_types"] || []),
+        "relationships" => length(source["relationships"] || []),
+        "resources" => length(source["resources"] || []),
+        "events" => length(source["events"] || []),
+        "actions" => length(source["actions"] || []),
+        "policies" => length(source["policies"] || []),
+        "transitions" => length(source["transitions"] || []),
+        "metrics" => length(get_in(source, ["observations", "metrics"]) || [])
+      },
+      "identifier_fingerprints" => %{
+        "resources" => fingerprint(Enum.map(source["resources"] || [], & &1["id"])),
+        "events" => fingerprint(Enum.map(source["events"] || [], & &1["id"])),
+        "actions" => fingerprint(Enum.map(source["actions"] || [], & &1["id"])),
+        "policies" => fingerprint(Enum.map(source["policies"] || [], & &1["id"]))
+      },
+      "validation_report" => script.validation_report,
+      "generation_metadata" => script.generation_metadata,
+      "status" => script.status,
+      "content_hash" => script.content_hash,
+      "inserted_at" => script.inserted_at
+    }
+  end
+
+  defp simulation_script_preview_json(preview) do
+    summary =
+      preview.summary
+      |> Map.take(
+        ~w(rounds_completed agent_count model_calls event_count state_change_count final_agent_state_hash)
+      )
+      |> Map.put("action_counts_fingerprint", fingerprint(preview.summary["action_counts"]))
+      |> Map.put("observations_fingerprint", fingerprint(preview.summary["observations"]))
+
+    %{
+      "id" => preview.id,
+      "workspace_id" => preview.workspace_id,
+      "simulation_id" => preview.simulation_id,
+      "simulation_version_id" => preview.simulation_version_id,
+      "population_model_id" => preview.population_model_id,
+      "simulation_script_id" => preview.simulation_script_id,
+      "status" => preview.status,
+      "rounds_requested" => preview.rounds_requested,
+      "rounds_completed" => preview.rounds_completed,
+      "agent_count" => preview.agent_count,
+      "seed" => preview.seed,
+      "summary" => summary,
+      "errors" => preview.errors,
+      "result_hash" => preview.result_hash,
+      "inserted_at" => preview.inserted_at
     }
   end
 

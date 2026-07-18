@@ -75,23 +75,35 @@
           </div>
           <div>
             <dt>{t(@locale, :agent_types)}</dt>
-            <dd>{t(@locale, :not_built)}</dd>
+            <dd>{@ready_summary.agent_types || t(@locale, :not_built)}</dd>
           </div>
           <div>
             <dt>{t(@locale, :rounds)}</dt>
-            <dd>{t(@locale, :not_built)}</dd>
+            <dd>{@ready_summary.rounds || t(@locale, :not_built)}</dd>
           </div>
           <div>
             <dt>{t(@locale, :actions)}</dt>
-            <dd>{t(@locale, :not_built)}</dd>
+            <dd>{@ready_summary.actions || t(@locale, :not_built)}</dd>
           </div>
           <div>
             <dt>{t(@locale, :resources)}</dt>
-            <dd>{t(@locale, :not_built)}</dd>
+            <dd>
+              {if is_nil(@ready_summary.resources),
+                do: t(@locale, :not_built),
+                else: @ready_summary.resources}
+            </dd>
           </div>
           <div>
             <dt>{t(@locale, :events)}</dt>
-            <dd>{t(@locale, :not_built)}</dd>
+            <dd>
+              {if is_nil(@ready_summary.scheduled_events),
+                do: t(@locale, :not_built),
+                else: @ready_summary.scheduled_events}
+            </dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :script_preview)}</dt>
+            <dd>{t(@locale, script_preview_status_key(@script_preview))}</dd>
           </div>
           <div>
             <dt>{t(@locale, :mode)}</dt>
@@ -113,6 +125,9 @@
         <footer>
           <a href={stage_path(@simulation.id, "build", @workspace.id, @locale)}>
             {t(@locale, :edit_build)}
+          </a>
+          <a href={stage_path(@simulation.id, "script", @workspace.id, @locale)}>
+            {t(@locale, :script_inspect)}
           </a>
           <button type="button" disabled>{t(@locale, :run_simulation)}</button>
         </footer>

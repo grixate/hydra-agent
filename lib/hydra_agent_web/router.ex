@@ -197,6 +197,10 @@ defmodule HydraAgentWeb.Router do
          SimulationController,
          :exclude_population_attribute
 
+    get "/simulations/:id/script", SimulationController, :script
+    post "/simulations/:id/script/build", SimulationController, :build_script
+    get "/simulations/:id/script/export/:format", SimulationController, :export_script
+
     get "/simulations/:id/run", SimulationController, :run
     get "/simulations/:id/results", SimulationController, :results
     get "/simulations/:id/compare", SimulationController, :compare

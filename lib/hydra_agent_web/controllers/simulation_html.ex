@@ -41,6 +41,11 @@ defmodule HydraAgentWeb.SimulationHTML do
       URI.encode_query(%{"workspace_id" => workspace_id, "locale" => locale})
   end
 
+  def script_export_path(simulation_id, format, workspace_id, locale) do
+    "/simulations/#{simulation_id}/script/export/#{format}?" <>
+      URI.encode_query(%{"workspace_id" => workspace_id, "locale" => locale})
+  end
+
   def blueprint_path(blueprint, workspace_id, locale) do
     action = if blueprint.built_in, do: "", else: "/edit"
 
@@ -148,10 +153,16 @@ defmodule HydraAgentWeb.SimulationHTML do
         "delay" => "Отложить",
         "resist" => "Отказаться",
         "influence_others" => "Повлиять на других",
-        "comply_reluctantly" => "Подчиниться без согласия"
+        "comply_reluctantly" => "Подчиниться без согласия",
+        "change_introduced" => "Изменение объявлено",
+        "information_clarity" => "Ясность информации",
+        "current_round" => "Текущий раунд",
+        "simulation_begins" => "Начало симуляции",
+        "action_selected" => "Действие выбрано",
+        "primary_action_rate" => "Доля основного действия"
       },
       identifier,
-      humanize_identifier(identifier)
+      localize_compound_identifier(identifier)
     )
   end
 
@@ -316,6 +327,171 @@ defmodule HydraAgentWeb.SimulationHTML do
 
   def population_trait_level(value, _locale) when is_binary(value), do: humanize_identifier(value)
   def population_trait_level(_value, _locale), do: "—"
+
+  def script_preview_status_key(%{status: "passed"}), do: :script_preview_passed
+  def script_preview_status_key(%{status: "failed"}), do: :script_preview_failed
+  def script_preview_status_key(_preview), do: :script_preview_missing
+
+  def script_preview_error(locale, %{"code" => code}) do
+    key =
+      case code do
+        "insufficient_resource" -> :script_error_insufficient_resource
+        "no_reachable_action" -> :script_error_no_reachable_action
+        "missing_action" -> :script_error_missing_action
+        "missing_policy" -> :script_error_missing_policy
+        "no_preview_agents" -> :script_error_no_preview_agents
+        "invalid_script" -> :script_error_invalid_script
+        _other -> :script_error_default
+      end
+
+    t(locale, key)
+  end
+
+  def script_preview_error(locale, _error), do: t(locale, :script_error_default)
+
+  def script_world_values(script) when is_map(script) do
+    script
+    |> get_in(["world", "state"])
+    |> Kernel.||(%{})
+    |> Enum.sort_by(fn {key, _value} -> key end)
+    |> Enum.take(6)
+  end
+
+  def script_world_values(_script), do: []
+
+  def script_value(true, "ru"), do: "Да"
+  def script_value(false, "ru"), do: "Нет"
+  def script_value(true, _locale), do: "Yes"
+  def script_value(false, _locale), do: "No"
+
+  def script_value(value, _locale) when is_float(value),
+    do: :erlang.float_to_binary(value, decimals: 2)
+
+  def script_value(value, _locale) when is_integer(value), do: Integer.to_string(value)
+  def script_value(value, locale) when is_binary(value), do: context_identifier(value, locale)
+  def script_value(_value, _locale), do: "—"
+
+  def script_clock_label(1, "week", "ru"), do: "неделя"
+  def script_clock_label(count, "week", "ru") when count in 2..4, do: "недели"
+  def script_clock_label(_count, "week", "ru"), do: "недель"
+  def script_clock_label(1, _label, "ru"), do: "раунд"
+  def script_clock_label(count, _label, "ru") when count in 2..4, do: "раунда"
+  def script_clock_label(_count, _label, "ru"), do: "раундов"
+  def script_clock_label(1, label, _locale), do: context_identifier(label, "en")
+
+  def script_clock_label(_count, label, _locale),
+    do: context_identifier(label, "en") <> "s"
+
+  def script_condition_summary(nil, locale), do: t(locale, :script_condition_always)
+  def script_condition_summary(true, locale), do: t(locale, :script_condition_always)
+
+  def script_condition_summary(%{"fact" => fact, "op" => op, "value" => value}, locale) do
+    tx(locale, :script_condition_fact,
+      fact: condition_fact_label(fact, locale),
+      operator: condition_operator(op, locale),
+      value: script_value(value, locale)
+    )
+  end
+
+  def script_condition_summary(%{"all" => conditions}, locale) when is_list(conditions),
+    do: tx(locale, :script_condition_all, count: length(conditions))
+
+  def script_condition_summary(%{"any" => conditions}, locale) when is_list(conditions),
+    do: tx(locale, :script_condition_any, count: length(conditions))
+
+  def script_condition_summary(_condition, locale), do: t(locale, :script_condition_typed)
+
+  def script_resource_bounds(%{"constraints" => constraints}, locale) when is_map(constraints) do
+    tx(locale, :script_resource_range,
+      minimum: script_value(constraints["min"], locale),
+      maximum: script_value(constraints["max"], locale)
+    )
+  end
+
+  def script_resource_bounds(_resource, locale), do: t(locale, :script_resource_bounded)
+
+  def script_phase_key("after_actions"), do: :script_phase_after
+  def script_phase_key(_phase), do: :script_phase_before
+
+  def script_policy_key("fixed"), do: :script_policy_fixed
+  def script_policy_key("rule_set"), do: :script_policy_rules
+  def script_policy_key("hybrid"), do: :script_policy_hybrid
+  def script_policy_key(_kind), do: :script_policy_weighted
+
+  def script_policy_summary(%{"kind" => "fixed", "action" => action}, locale),
+    do: tx(locale, :script_policy_fixed_summary, action: context_identifier(action, locale))
+
+  def script_policy_summary(%{"kind" => "weighted", "candidates" => candidates}, locale)
+      when is_map(candidates) do
+    count = map_size(candidates)
+
+    if locale == "ru" do
+      "Ранжирует #{count} #{russian_plural(count, "заданный вариант", "заданных варианта", "заданных вариантов")} по типизированным оценкам."
+    else
+      tx(locale, :script_policy_weighted_summary, count: count)
+    end
+  end
+
+  def script_policy_summary(%{"kind" => "rule_set", "rules" => rules}, locale)
+      when is_list(rules),
+      do: tx(locale, :script_policy_rules_summary, count: length(rules))
+
+  def script_policy_summary(%{"kind" => "hybrid"}, locale),
+    do: t(locale, :script_policy_hybrid_summary)
+
+  def script_policy_summary(_policy, locale), do: t(locale, :script_policy_typed_summary)
+
+  def script_metric_key("agent_fraction"), do: :script_metric_fraction
+  def script_metric_key("agent_mean"), do: :script_metric_mean
+  def script_metric_key("action_count"), do: :script_metric_action
+  def script_metric_key("resource_sum"), do: :script_metric_resource
+  def script_metric_key("relationship_count"), do: :script_metric_relationship
+  def script_metric_key(_kind), do: :script_metric_world
+
+  defp condition_fact_label("world." <> fact, locale), do: context_identifier(fact, locale)
+  defp condition_fact_label("agent." <> fact, locale), do: context_identifier(fact, locale)
+  defp condition_fact_label(fact, locale), do: context_identifier(fact, locale)
+
+  defp condition_operator("eq", "ru"), do: "равно"
+  defp condition_operator("neq", "ru"), do: "не равно"
+  defp condition_operator("gt", "ru"), do: "больше"
+  defp condition_operator("gte", "ru"), do: "не меньше"
+  defp condition_operator("lt", "ru"), do: "меньше"
+  defp condition_operator("lte", "ru"), do: "не больше"
+  defp condition_operator("in", "ru"), do: "входит в"
+  defp condition_operator("neq", _locale), do: "is not"
+  defp condition_operator("gt", _locale), do: "is above"
+  defp condition_operator("gte", _locale), do: "is at least"
+  defp condition_operator("lt", _locale), do: "is below"
+  defp condition_operator("lte", _locale), do: "is at most"
+  defp condition_operator("in", _locale), do: "is one of"
+  defp condition_operator(_operator, _locale), do: "is"
+
+  defp localize_compound_identifier("round"), do: "Раунд"
+  defp localize_compound_identifier("week"), do: "Неделя"
+  defp localize_compound_identifier("points"), do: "Баллы"
+  defp localize_compound_identifier("hours"), do: "Часы"
+
+  defp localize_compound_identifier(identifier) when is_binary(identifier) do
+    cond do
+      String.ends_with?(identifier, "_response_policy") ->
+        type = String.replace_suffix(identifier, "_response_policy", "")
+        "Политика: #{context_identifier(type, "ru") |> String.downcase()}"
+
+      String.ends_with?(identifier, "_count") ->
+        action = String.replace_suffix(identifier, "_count", "")
+        "#{context_identifier(action, "ru")} · количество"
+
+      String.ends_with?(identifier, "_total") ->
+        resource = String.replace_suffix(identifier, "_total", "")
+        "#{context_identifier(resource, "ru")} · всего"
+
+      true ->
+        humanize_identifier(identifier)
+    end
+  end
+
+  defp localize_compound_identifier(identifier), do: humanize_identifier(identifier)
 
   defp humanize_identifier(identifier) when is_binary(identifier) do
     identifier

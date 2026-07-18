@@ -213,6 +213,8 @@ defmodule HydraAgent.AuditTest do
     assert length(studio["context_packs"]) == 1
     assert length(studio["population_models"]) == 2
     assert length(studio["persona_projections"]) == 1
+    assert length(studio["simulation_scripts"]) == 2
+    assert length(studio["script_previews"]) == 2
 
     [version] = studio["simulation_versions"]
     assert version["content_hash"] == included.active_version.content_hash
@@ -255,10 +257,32 @@ defmodule HydraAgent.AuditTest do
     assert is_binary(audited_projection["prose_fingerprint"])
     refute Map.has_key?(audited_projection, "prose")
 
+    [_first_script, active_script] = studio["simulation_scripts"]
+    assert active_script["id"] == population_import.script.id
+    assert active_script["population_model_id"] == population_import.population_model.id
+    assert active_script["status"] == "ready"
+    assert is_binary(active_script["script_fingerprint"])
+    assert is_binary(active_script["metadata"]["id_fingerprint"])
+    assert is_binary(active_script["identifier_fingerprints"]["actions"])
+    refute Map.has_key?(active_script, "script")
+    refute Map.has_key?(active_script, "identifiers")
+
+    [_first_preview, active_preview] = studio["script_previews"]
+    assert active_preview["simulation_script_id"] == population_import.script.id
+    assert active_preview["status"] == "passed"
+    assert active_preview["summary"]["model_calls"] == 0
+    assert is_binary(active_preview["summary"]["observations_fingerprint"])
+    assert is_binary(active_preview["summary"]["action_counts_fingerprint"])
+    refute Map.has_key?(active_preview["summary"], "action_counts")
+    refute Map.has_key?(active_preview["summary"], "observations")
+    refute Map.has_key?(active_preview["summary"], "world_state")
+
     [audited_simulation] = studio["simulations"]
 
     assert audited_simulation["active_population_model_id"] ==
              population_import.population_model.id
+
+    assert audited_simulation["active_script_id"] == population_import.script.id
   end
 
   defp assert_section_ids(sim_lab, first, second) do
