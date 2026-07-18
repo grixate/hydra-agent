@@ -56,6 +56,7 @@ defmodule HydraAgent.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:req, "~> 0.5"},
+      {:yaml_elixir, "~> 2.12"},
       {:crontab, "~> 1.2"},
       {:oban, "~> 2.18"},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},

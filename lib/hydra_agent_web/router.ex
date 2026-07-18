@@ -172,6 +172,14 @@ defmodule HydraAgentWeb.Router do
          :apply_calibration_proposal
 
     get "/lab/studies", SimLabController, :workspace_entry
+    get "/blueprints", BlueprintController, :index
+    post "/blueprints/import", BlueprintController, :import
+    get "/blueprints/:id", BlueprintController, :show
+    get "/blueprints/:id/edit", BlueprintController, :edit
+    patch "/blueprints/:id", BlueprintController, :update
+    post "/blueprints/:id/duplicate", BlueprintController, :duplicate
+    post "/blueprints/:id/test", BlueprintController, :test
+    get "/blueprints/:id/export", BlueprintController, :export
     get "/account/security", SessionController, :security
     put "/account/security", SessionController, :update_password
 

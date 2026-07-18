@@ -46,6 +46,39 @@ defmodule HydraAgentWeb.UserAuthTest do
     assert get_session(conn, :live_socket_id) == UserAuth.live_socket_id(user)
   end
 
+  test "the Blueprint Studio flag changes the post-login surface without changing workspace data",
+       %{
+         conn: conn
+       } do
+    workspace = workspace_fixture(%{name: "Blueprint", slug: "blueprint-entry"})
+    user = user_fixture(%{email: "blueprint-entry@example.test"})
+    membership_fixture(user, workspace, "researcher")
+    previous = Application.get_env(:hydra_agent, :product_features)
+
+    Application.put_env(:hydra_agent, :product_features,
+      surface: :blueprint_studio,
+      balanced_mode: true,
+      deep_mode: false,
+      blueprint_import: true,
+      legacy_simlab: true
+    )
+
+    on_exit(fn -> Application.put_env(:hydra_agent, :product_features, previous) end)
+
+    login =
+      post(conn, "/login", %{
+        "session" => %{
+          "email" => user.email,
+          "password" => "correct horse battery staple"
+        }
+      })
+
+    assert redirected_to(login) == "/blueprints?workspace_id=#{workspace.id}"
+
+    assert HydraAgent.Repo.get!(HydraAgent.Runtime.Workspace, workspace.id).slug ==
+             "blueprint-entry"
+  end
+
   test "invalid credentials do not reveal whether an account exists", %{conn: conn} do
     user_fixture(%{email: "known@example.test"})
 

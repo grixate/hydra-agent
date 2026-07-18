@@ -1,0 +1,181 @@
+<div class="blueprint-studio blueprint-detail">
+  <div class="blueprint-detail-nav">
+    <a href={index_path(@workspace.id, @locale)}>
+      <span aria-hidden="true">←</span> {t(@locale, :back_library)}
+    </a>
+    <nav class="blueprint-locale-switch" aria-label={t(@locale, :locale_label)}>
+      <a
+        href={show_path(@blueprint.id, @workspace.id, "en")}
+        aria-current={if @locale == "en", do: "page"}
+      >
+        EN
+      </a>
+      <span aria-hidden="true">/</span>
+      <a
+        href={show_path(@blueprint.id, @workspace.id, "ru")}
+        aria-current={if @locale == "ru", do: "page"}
+      >
+        RU
+      </a>
+    </nav>
+  </div>
+
+  <header class="blueprint-page-header blueprint-detail-header">
+    <div>
+      <p class="blueprint-eyebrow">
+        {if @blueprint.built_in, do: t(@locale, :built_in), else: @workspace.name}
+      </p>
+      <h1>{localized(@blueprint.name, @locale)}</h1>
+      <p class="blueprint-lede">{localized(@blueprint.description, @locale)}</p>
+    </div>
+    <div class="blueprint-detail-actions">
+      <a
+        :if={@can_edit && !@blueprint.built_in}
+        class="blueprint-primary-button"
+        href={edit_path(@blueprint.id, @workspace.id, @locale)}
+      >
+        {t(@locale, :edit)}
+      </a>
+      <form
+        :if={@can_edit}
+        action={"/blueprints/#{@blueprint.id}/duplicate"}
+        method="post"
+      >
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <input type="hidden" name="workspace_id" value={@workspace.id} />
+        <input type="hidden" name="locale" value={@locale} />
+        <button class="blueprint-quiet-button" type="submit">{t(@locale, :duplicate)}</button>
+      </form>
+      <form action={"/blueprints/#{@blueprint.id}/test"} method="post">
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <input type="hidden" name="workspace_id" value={@workspace.id} />
+        <input type="hidden" name="locale" value={@locale} />
+        <button class="blueprint-quiet-button" type="submit">{t(@locale, :test)}</button>
+      </form>
+      <a
+        class="blueprint-quiet-button"
+        href={"/blueprints/#{@blueprint.id}/export?" <> URI.encode_query(%{"workspace_id" => @workspace.id, "locale" => @locale})}
+      >
+        {t(@locale, :export)}
+      </a>
+    </div>
+  </header>
+
+  <div class="blueprint-contract-strip" aria-label={t(@locale, :advanced)}>
+    <div>
+      <span>{t(@locale, :version)}</span><strong>v{@blueprint.active_version.version}</strong>
+    </div>
+    <div><span>{t(@locale, :validated)}</span><strong>✓</strong></div>
+    <div>
+      <span>{t(@locale, :content_hash)}</span>
+      <code title={@blueprint.active_version.content_hash}>
+        {short_hash(@blueprint.active_version.content_hash)}…
+      </code>
+    </div>
+    <div>
+      <span>{t(@locale, :read_only)}</span><strong>{if @blueprint.built_in, do: "✓", else: "—"}</strong>
+    </div>
+  </div>
+
+  <section :if={@blueprint.built_in} class="blueprint-readonly-note">
+    <span aria-hidden="true">◇</span>
+    <p>{t(@locale, :read_only_notice)}</p>
+  </section>
+
+  <section
+    :if={@test_result}
+    class={["blueprint-test-result", "is-#{@test_result.status}"]}
+    aria-live="polite"
+  >
+    <header>
+      <div>
+        <p class="blueprint-eyebrow">{t(@locale, :test_result)}</p>
+        <h2>{t(@locale, String.to_existing_atom(@test_result.status))}</h2>
+        <p>{t(@locale, :not_published)}</p>
+      </div>
+      <span class="blueprint-test-seal" aria-hidden="true">
+        {if @test_result.status == "passed", do: "✓", else: "!"}
+      </span>
+    </header>
+    <div class="blueprint-test-metrics">
+      <div>
+        <strong>{t(@locale, :miniature)}</strong><span>{t(@locale, :package_structure)} · ✓</span>
+      </div>
+      <div>
+        <strong>{@test_result.cost.actual} {@test_result.cost.currency}</strong><span>{t(@locale, :cost)}</span>
+      </div>
+      <div>
+        <strong>{@test_result.cost.provider_calls}</strong><span>{t(@locale, :provider_calls)}</span>
+      </div>
+    </div>
+    <details>
+      <summary>{t(@locale, :warnings)} · {length(@test_result.warnings)}</summary>
+      <p :if={@test_result.warnings == []}>{t(@locale, :no_warnings)}</p>
+      <ul :if={@test_result.warnings != []}>
+        <li :for={warning <- @test_result.warnings}>{warning}</li>
+      </ul>
+    </details>
+    <details>
+      <summary>{t(@locale, :failures)} · {length(@test_result.failures)}</summary>
+      <p :if={@test_result.failures == []}>{t(@locale, :no_failures)}</p>
+      <ul :if={@test_result.failures != []}>
+        <li :for={failure <- @test_result.failures}>{failure["stage"]}: {failure["message"]}</li>
+      </ul>
+    </details>
+  </section>
+
+  <section class="blueprint-modules-section">
+    <header>
+      <p class="blueprint-eyebrow">01—04</p>
+      <h2>{t(@locale, :four_modules)}</h2>
+      <p>{t(@locale, :modules_lede)}</p>
+    </header>
+
+    <div class="blueprint-module-list">
+      <article
+        :for={module <- ~w(research agents simulation report)}
+        class="blueprint-module-card"
+      >
+        <div class="blueprint-module-index">{module_number(module)}</div>
+        <div class="blueprint-module-body">
+          <header>
+            <div>
+              <h3>{module_title(@locale, module)}</h3>
+              <p>{module_hint(@locale, module)}</p>
+            </div>
+            <span>{t(@locale, :validated)} ✓</span>
+          </header>
+          <div class="blueprint-instruction-copy">
+            {@blueprint.active_version.instructions[module]}
+          </div>
+          <details class="blueprint-schema-details">
+            <summary>{t(@locale, :expected_output)}</summary>
+            <pre><code>{schema_json(@blueprint.active_version, module)}</code></pre>
+          </details>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <details class="blueprint-advanced-panel">
+    <summary>{t(@locale, :advanced)}</summary>
+    <div>
+      <section>
+        <h3>{t(@locale, :manifest)}</h3>
+        <pre><code>{manifest_yaml(@blueprint.active_version)}</code></pre>
+      </section>
+      <section>
+        <h3>{t(@locale, :immutable_history)}</h3>
+        <ol>
+          <li :for={version <- @blueprint.versions}>
+            <strong>v{version.version}</strong>
+            <code>{short_hash(version.content_hash)}</code>
+            <time datetime={DateTime.to_iso8601(version.inserted_at)}>
+              {Calendar.strftime(version.inserted_at, "%Y-%m-%d")}
+            </time>
+          </li>
+        </ol>
+      </section>
+    </div>
+  </details>
+</div>

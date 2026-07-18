@@ -70,6 +70,8 @@ The Blueprint-first product migration is tracked in
 [docs/hydra-blueprint-studio-implementation-status.md](docs/hydra-blueprint-studio-implementation-status.md).
 Its boundary decision is recorded in
 [docs/adr/0001-blueprint-first-product-boundary.md](docs/adr/0001-blueprint-first-product-boundary.md).
+The portable package contract and import boundary are documented in
+[docs/blueprint-packages.md](docs/blueprint-packages.md).
 
 Production browser access is authenticated. Set
 `HYDRA_BOOTSTRAP_ADMIN_EMAIL` and a password of at least 12 characters in

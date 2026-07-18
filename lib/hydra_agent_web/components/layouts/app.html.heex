@@ -1,25 +1,41 @@
 <div class="runtime-app">
   <% simulations_path = HydraAgentWeb.UserAuth.default_path(@current_user) %>
-  <a class="runtime-skip-link" href="#runtime-content">Skip to content</a>
+  <% locale = assigns[:locale] || "en" %>
+  <a class="runtime-skip-link" href="#runtime-content">
+    {HydraAgentWeb.BlueprintCopy.t(locale, :skip)}
+  </a>
   <header class="runtime-topbar">
-    <a href="/" class="runtime-brand" aria-label="Hydra home">
+    <a
+      href="/"
+      class="runtime-brand"
+      aria-label={HydraAgentWeb.BlueprintCopy.t(locale, :brand_home)}
+    >
       <span class="runtime-brand-mark" aria-hidden="true">H</span>
       <span>Hydra</span>
     </a>
 
-    <nav class="runtime-global-nav" aria-label="Global navigation">
-      <a href="/control">Workspace</a>
-      <a href={simulations_path}>Studies</a>
-      <a href="/control/runtime" class="runtime-system-link">
-        <span class="runtime-status-dot" aria-hidden="true"></span> System
+    <nav
+      class="runtime-global-nav"
+      aria-label={HydraAgentWeb.BlueprintCopy.t(locale, :global_nav)}
+    >
+      <a href={simulations_path}>
+        {HydraAgentWeb.BlueprintCopy.t(locale, :nav_simulations)}
+      </a>
+      <a href={"/blueprints?locale=#{locale}"}>
+        {HydraAgentWeb.BlueprintCopy.t(locale, :nav_blueprints)}
       </a>
       <a
-        :if={@current_user}
-        href={~p"/account/security"}
+        href={if @current_user, do: ~p"/account/security", else: "/control/settings"}
         class="runtime-account-button runtime-account-link"
-        aria-label={"Account settings for #{@current_user.display_name}"}
+        aria-label={
+          @current_user &&
+            HydraAgentWeb.BlueprintCopy.account_settings_label(locale, @current_user.display_name)
+        }
       >
-        Account
+        {HydraAgentWeb.BlueprintCopy.t(locale, :nav_settings)}
+      </a>
+      <a :if={HydraAgent.Accounts.operations_authorized?(@current_user)} href="/control">
+        {HydraAgentWeb.BlueprintCopy.t(locale, :nav_operations)}
       </a>
       <form :if={@current_user} action={~p"/logout"} method="post">
         <input type="hidden" name="_method" value="delete" />
@@ -27,9 +43,9 @@
         <button
           type="submit"
           class="runtime-account-button runtime-signout-button"
-          aria-label="Sign out"
+          aria-label={HydraAgentWeb.BlueprintCopy.t(locale, :nav_sign_out)}
         >
-          Sign out
+          {HydraAgentWeb.BlueprintCopy.t(locale, :nav_sign_out)}
         </button>
       </form>
     </nav>

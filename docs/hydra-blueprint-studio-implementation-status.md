@@ -11,8 +11,9 @@ entire epic or release is complete.
 
 ## Current status
 
-- Active epic: **Epic 0 — Repository map and migration safety**
-- Next vertical slice: Blueprint and immutable Blueprint Version domain
+- Active epic: **Epic 2 — Simple Simulation Studio shell**
+- Completed epic: **Epic 1 — Blueprint domain and package portability**
+- Next vertical slice: durable Simulation and immutable Simulation Version shell
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
@@ -24,10 +25,10 @@ All flags are runtime configuration and do not mutate persisted records.
 
 | Environment variable | Default | Purpose |
 |---|---:|---|
-| `HYDRA_PRODUCT_SURFACE` | `legacy_simlab` | Selects `legacy_simlab` or `blueprint_studio` once the Studio shell exists. |
+| `HYDRA_PRODUCT_SURFACE` | `legacy_simlab` | Selects the legacy entry route or the additive Blueprint Studio entry route. |
 | `HYDRA_BALANCED_MODE` | `true` | Enables bounded selective model cognition. The new execution contract is not implemented yet. |
 | `HYDRA_DEEP_MODE` | `false` | Keeps experimental model-intensive execution disabled. |
-| `HYDRA_BLUEPRINT_IMPORT` | `true` | Enables package import after the safe importer is implemented. |
+| `HYDRA_BLUEPRINT_IMPORT` | `true` | Enables the safe package-import surface and rejects direct imports when disabled. |
 | `HYDRA_LEGACY_SIMLAB` | `true` | Preserves the current product routes and records during migration. |
 
 The flag contract is implemented by `HydraAgent.ProductFeatures`. Invalid
@@ -41,8 +42,8 @@ product behavior.
 | Blueprint-first object | Existing authoritative asset | Reuse and migration decision |
 |---|---|---|
 | Workspace | `HydraAgent.Runtime.Workspace`, `workspaces` | Reuse as the tenant, knowledge, policy, and simulation boundary. |
-| Blueprint | None | Add workspace/system-scoped schema and context. This is a justified new object. |
-| Blueprint Version | Agent/skill versioning patterns only | Add immutable schema; reuse versioning conventions, validation, and audit patterns. |
+| Blueprint | `HydraAgent.Simulations.Blueprint`, `simulation_blueprints` | Implemented as workspace/system-scoped persistence with exact built-in constraints. |
+| Blueprint Version | `HydraAgent.Simulations.BlueprintVersion`, `simulation_blueprint_versions` | Implemented as immutable content-addressed versions with active-version integrity triggers. |
 | Simulation | `SimLab.Schemas.Study`, `sim_lab_studies` | Adapt legacy studies first. Add only fields/adapter state the general lifecycle cannot express. |
 | Simulation Version | No equivalent | Add immutable snapshot linked to Simulation and Blueprint Version. Do not overwrite studies. |
 | Context Pack | `sim_lab_context_packs`, sources, evidence items, research runs | Reuse evidence storage and review semantics; extend grounding classes and link to Simulation Version. |
@@ -84,7 +85,7 @@ product behavior.
 | `/simulations` | `/lab/studies` and workspace study index | New route pending Studio shell. Legacy routes preserved. |
 | `/simulations/new` | study creation on workspace index | New one-question composer pending. |
 | `/simulations/:id/*` | one large workspace-study controller/template | Split by deep-linkable stage without duplicating domain logic. |
-| `/blueprints/*` | none | New routes after Blueprint context and import safety exist. |
+| `/blueprints/*` | Blueprint library, detail, editor, test, import, export | Implemented with workspace role boundaries and EN/RU interface copy. |
 | `/settings/*` | `/settings`, `/control/settings`, provider/tool pages | Present product-safe subsections; keep authority-sensitive controls under Operations. |
 | `/operations/*` | `/control/*`, `/dashboard`, runtime surfaces | Preserve operator routes; later add safe redirects/aliases. |
 | `/lab/*` | current SimLab product | Retained while `HYDRA_LEGACY_SIMLAB=true`. |
@@ -129,9 +130,14 @@ converted by Epic 0.
 ## Migrations
 
 - Epic 0: no database migration.
-- Next proposed migration: create `simulation_blueprints` and
-  `simulation_blueprint_versions` only. It must be additive, workspace-scoped
-  for custom Blueprints, and support system built-ins without a fake workspace.
+- Epic 1: additive `simulation_blueprints` and
+  `simulation_blueprint_versions` tables. Custom records are workspace-scoped;
+  the two system built-ins do not use a fake workspace. Database constraints
+  and triggers enforce scope, exact built-in slugs, author scope, immutable
+  versions, and an active version belonging to its Blueprint.
+- Next proposed migration: Simulation and immutable Simulation Version only,
+  with an explicit adapter to legacy `sim_lab_studies` and no destructive
+  conversion.
 
 ## Acceptance ledger
 
@@ -152,15 +158,21 @@ converted by Epic 0.
 
 ### Epic 1 — Blueprint domain and package portability
 
-- [ ] Blueprint and immutable Blueprint Version persistence.
-- [ ] Manifest parser and semantic validator.
-- [ ] Safe ZIP importer and deterministic exporter.
-- [ ] Four instruction modules and schema references.
-- [ ] Exactly two built-in Blueprints.
-- [ ] List, view, duplicate, edit, test, import, and export UI.
-- [ ] Malicious archives rejected.
-- [ ] Mock Blueprint Test miniature result.
-- [ ] English and Russian visible copy.
+- [x] Blueprint and immutable Blueprint Version persistence.
+- [x] Manifest parser and semantic validator.
+- [x] Safe ZIP importer and deterministic exporter.
+- [x] Four instruction modules and schema references.
+- [x] Exactly two built-in Blueprints.
+- [x] List, view, duplicate, edit, test, import, and export UI.
+- [x] Malicious archives rejected.
+- [x] Mock Blueprint Test miniature result.
+- [x] English and Russian visible copy.
+
+Acceptance evidence: built-ins can be duplicated and versioned without
+rewriting history; deterministic export/import preserves the semantic content
+hash; traversal, symlink, size-bomb, executable, hash, YAML, capability, and
+schema-reference attacks are covered; the provider-free miniature validates
+three agents and two rounds without publishing.
 
 ## Baseline evidence
 
@@ -175,6 +187,14 @@ audit clean, Sobelow completed with only the repository's reviewed
 low-confidence allowlisted findings, and 548 ExUnit tests passed with zero
 failures (seed 207823, 8.9 seconds).
 
+The exact Epic 1 worktree passed `mix precommit` on 2026-07-18: compilation
+with warnings as errors, dependency lock hygiene and audit, formatting,
+Sobelow with no high-confidence findings, and 575 ExUnit tests with zero
+failures (seed 115287, 8.8 seconds). The 42-test Blueprint-focused suite includes
+package safety, manifest and JSON Schema validation, tenant persistence,
+immutable versioning, controller journeys, feature-flag boundaries, and
+provider-free testing.
+
 The current legacy visual baseline is captured at desktop and 390px mobile in:
 
 - `docs/screenshots/blueprint-baseline-2026-07-18/legacy-simulations-desktop.png`;
@@ -183,6 +203,17 @@ The current legacy visual baseline is captured at desktop and 390px mobile in:
 
 The browser console reported no errors on the captured demo index. The images
 are migration evidence, not approval of the legacy information architecture.
+
+Epic 1 browser QA at 1280×720 is captured in:
+
+- `docs/screenshots/blueprint-studio-epic1-2026-07-18/blueprint-library-en-desktop.jpg`;
+- `docs/screenshots/blueprint-studio-epic1-2026-07-18/blueprint-detail-ru-desktop.jpg`;
+- `docs/screenshots/blueprint-studio-epic1-2026-07-18/blueprint-test-ru-desktop.jpg`.
+
+The evidence covers the English library, Russian detail hierarchy, localized
+test result, ordinary navigation, deterministic zero-provider test disclosure,
+sample reveal, and built-in restore interaction. Blueprint-specific narrow
+viewport capture remains part of Epic 2 mobile-shell acceptance.
 
 The exact-worktree aggregate Quick-engine baseline is recorded in
 `docs/benchmarks/2026-07-18-quick-engine-10k.json`. On the recorded arm64
@@ -194,10 +225,11 @@ engine must earn its own 10k result.
 
 ## Known incompatibilities and open decisions
 
-- The new `/simulations` and `/blueprints` surfaces do not exist yet.
-- Current navigation exposes runtime management to ordinary authenticated users;
-  the specification limits the normal navigation to Simulations, Blueprints,
-  and Settings.
+- The new `/simulations` surface does not exist yet; `/blueprints` is complete
+  for the Epic 1 contract.
+- Normal Blueprint navigation is limited to Simulations, Blueprints, and
+  Settings. Operations is role-gated to system administrators and workspace
+  owners/administrators.
 - Current SimLab lifecycle and terminology are Decision Replay-oriented.
 - Existing Context Pack grounding terms differ from the new six-class contract.
 - Current scenarios are not a general versioned declarative Script.
@@ -207,7 +239,8 @@ engine must earn its own 10k result.
 - Exact replay currently covers deterministic saved inputs but not recorded
   model decisions.
 - Analysis Pack and claim-validated report regeneration are missing.
-- English/Russian product localization infrastructure is not established.
+- English/Russian copy and locale persistence are established for Blueprint
+  Studio; the Simulation Studio shell must extend the same contract.
 - The relationship between neutral runtime `runs` and `sim_lab_runs` must be
   defined before the general Run contract changes.
 

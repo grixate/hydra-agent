@@ -18,6 +18,9 @@ defmodule HydraAgent.Accounts.User do
     has_many :workspace_memberships, HydraAgent.Accounts.WorkspaceMembership
     has_many :workspaces, through: [:workspace_memberships, :workspace]
 
+    has_many :owned_simulation_blueprints, HydraAgent.Simulations.Blueprint,
+      foreign_key: :owner_user_id
+
     timestamps(type: :utc_datetime_usec)
   end
 

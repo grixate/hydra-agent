@@ -99,6 +99,18 @@ defmodule HydraAgent.Accounts do
   def list_research_workspaces(user), do: list_workspaces(user, "viewer")
   def list_operator_workspaces(user), do: list_workspaces(user, "admin")
 
+  def operations_authorized?(nil), do: not browser_auth_enabled?()
+  def operations_authorized?(%User{global_role: "system_admin"}), do: true
+
+  def operations_authorized?(%User{id: user_id}) do
+    WorkspaceMembership
+    |> where(
+      [membership],
+      membership.user_id == ^user_id and membership.role in ["admin", "owner"]
+    )
+    |> Repo.exists?()
+  end
+
   def list_workspaces(%User{global_role: "system_admin"}, _minimum_role) do
     Workspace |> order_by([workspace], asc: workspace.name) |> Repo.all()
   end

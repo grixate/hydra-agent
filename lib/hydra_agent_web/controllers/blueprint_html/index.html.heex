@@ -1,0 +1,113 @@
+<div class="blueprint-studio blueprint-library">
+  <header class="blueprint-page-header blueprint-library-header">
+    <div>
+      <p class="blueprint-eyebrow">{t(@locale, :library_eyebrow)}</p>
+      <h1>{t(@locale, :library_title)}</h1>
+      <p class="blueprint-lede">{t(@locale, :library_lede)}</p>
+    </div>
+    <nav class="blueprint-locale-switch" aria-label={t(@locale, :locale_label)}>
+      <a
+        href={index_path(@workspace && @workspace.id, "en")}
+        aria-current={if @locale == "en", do: "page"}
+      >
+        {t(@locale, :english)}
+      </a>
+      <span aria-hidden="true">/</span>
+      <a
+        href={index_path(@workspace && @workspace.id, "ru")}
+        aria-current={if @locale == "ru", do: "page"}
+      >
+        {t(@locale, :russian)}
+      </a>
+    </nav>
+  </header>
+
+  <form :if={@workspace} class="blueprint-workspace-switch" action="/blueprints" method="get">
+    <label for="blueprint-workspace">{t(@locale, :workspace)}</label>
+    <select id="blueprint-workspace" name="workspace_id">
+      <option
+        :for={workspace <- @workspaces}
+        value={workspace.id}
+        selected={workspace.id == @workspace.id}
+      >
+        {workspace.name}
+      </option>
+    </select>
+    <input type="hidden" name="locale" value={@locale} />
+    <button type="submit">{t(@locale, :switch)}</button>
+  </form>
+
+  <section :if={!@workspace} class="blueprint-empty-state">
+    <span aria-hidden="true">00</span>
+    <h2>{t(@locale, :no_workspace_title)}</h2>
+    <p>{t(@locale, :no_workspace_lede)}</p>
+  </section>
+
+  <section :if={@workspace} class="blueprint-card-grid" aria-label={t(@locale, :library_eyebrow)}>
+    <article
+      :for={blueprint <- @blueprints}
+      class={["blueprint-card", blueprint.built_in && "is-built-in"]}
+    >
+      <div class="blueprint-card-meta">
+        <span>{if blueprint.built_in, do: t(@locale, :built_in), else: t(@locale, :custom)}</span>
+        <span>v{blueprint.active_version.version}</span>
+      </div>
+      <h2>{localized(blueprint.name, @locale)}</h2>
+      <p>{localized(blueprint.description, @locale)}</p>
+      <div class="blueprint-card-modules" aria-label={t(@locale, :four_modules)}>
+        <span :for={module <- ~w(research agents simulation report)}>
+          {module_number(module)}
+        </span>
+      </div>
+      <footer>
+        <a class="blueprint-text-action" href={show_path(blueprint.id, @workspace.id, @locale)}>
+          {t(@locale, :open)} <span aria-hidden="true">↗</span>
+        </a>
+        <form
+          :if={@can_edit && blueprint.built_in}
+          action={"/blueprints/#{blueprint.id}/duplicate"}
+          method="post"
+        >
+          <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+          <input type="hidden" name="workspace_id" value={@workspace.id} />
+          <input type="hidden" name="locale" value={@locale} />
+          <button class="blueprint-quiet-button" type="submit">
+            {t(@locale, :duplicate)}
+          </button>
+        </form>
+      </footer>
+    </article>
+  </section>
+
+  <section
+    :if={@workspace && !Enum.any?(@blueprints, &(not &1.built_in))}
+    class="blueprint-inline-empty"
+  >
+    <p><strong>{t(@locale, :empty_title)}</strong> {t(@locale, :empty_lede)}</p>
+  </section>
+
+  <section :if={@workspace && @can_edit && @import_enabled} class="blueprint-import-panel">
+    <div>
+      <p class="blueprint-eyebrow">.hydra-blueprint</p>
+      <h2>{t(@locale, :import_title)}</h2>
+      <p>{t(@locale, :import_lede)}</p>
+    </div>
+    <form action="/blueprints/import" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+      <input type="hidden" name="workspace_id" value={@workspace.id} />
+      <input type="hidden" name="locale" value={@locale} />
+      <label class="blueprint-file-field">
+        <span>{t(@locale, :choose_file)}</span>
+        <input
+          type="file"
+          name="package"
+          accept=".hydra-blueprint,application/zip"
+          required
+          data-blueprint-file
+        />
+        <small data-blueprint-filename>{t(@locale, :no_file)}</small>
+      </label>
+      <button class="blueprint-primary-button" type="submit">{t(@locale, :import)}</button>
+    </form>
+  </section>
+</div>

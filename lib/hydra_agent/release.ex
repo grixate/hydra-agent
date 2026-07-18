@@ -9,7 +9,15 @@ defmodule HydraAgent.Release do
 
     for repo <- repos() do
       {:ok, _started, _stopped} =
-        Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :up, all: true))
+        Ecto.Migrator.with_repo(repo, fn started_repo ->
+          migrations = Ecto.Migrator.run(started_repo, :up, all: true)
+
+          if started_repo == HydraAgent.Repo do
+            HydraAgent.Simulations.Blueprints.ensure_builtins!()
+          end
+
+          migrations
+        end)
     end
   end
 

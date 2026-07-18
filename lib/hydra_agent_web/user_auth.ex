@@ -91,9 +91,13 @@ defmodule HydraAgentWeb.UserAuth do
   end
 
   def default_path(user) do
-    case Accounts.default_research_workspace_id(user) do
-      nil -> ~p"/control"
-      workspace_id -> "/lab/workspaces/#{workspace_id}/studies"
+    workspace_id = Accounts.default_research_workspace_id(user)
+
+    case {HydraAgent.ProductFeatures.blueprint_studio?(), workspace_id} do
+      {true, nil} -> ~p"/blueprints"
+      {true, workspace_id} -> "/blueprints?workspace_id=#{workspace_id}"
+      {false, nil} -> ~p"/control"
+      {false, workspace_id} -> "/lab/workspaces/#{workspace_id}/studies"
     end
   end
 

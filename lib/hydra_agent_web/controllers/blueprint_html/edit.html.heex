@@ -1,0 +1,127 @@
+<div class="blueprint-studio blueprint-editor">
+  <div class="blueprint-detail-nav">
+    <a href={show_path(@blueprint.id, @workspace.id, @locale)}>
+      <span aria-hidden="true">←</span> {localized(@blueprint.name, @locale)}
+    </a>
+    <span>v{@version.version}</span>
+  </div>
+
+  <header class="blueprint-page-header blueprint-editor-header">
+    <div>
+      <p class="blueprint-eyebrow">{t(@locale, :edit)}</p>
+      <h1>{t(@locale, :edit_title)}</h1>
+      <p class="blueprint-lede">{t(@locale, :edit_lede)}</p>
+    </div>
+  </header>
+
+  <div :if={@error} class="blueprint-form-error" role="alert">{@error}</div>
+  <div class="blueprint-restore-announcement" aria-live="polite" data-blueprint-announcer></div>
+
+  <form class="blueprint-editor-form" action={"/blueprints/#{@blueprint.id}"} method="post">
+    <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+    <input type="hidden" name="_method" value="patch" />
+    <input type="hidden" name="workspace_id" value={@workspace.id} />
+    <input type="hidden" name="locale" value={@locale} />
+
+    <label class="blueprint-version-field" for="blueprint-version">
+      <span>{t(@locale, :new_version)}</span>
+      <input
+        id="blueprint-version"
+        type="text"
+        name="blueprint[version]"
+        value={@proposed_version}
+        inputmode="text"
+        pattern="[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?"
+        required
+      />
+      <small>{t(@locale, :version_hint)} Active: v{@version.version}</small>
+    </label>
+
+    <div class="blueprint-editor-modules">
+      <section
+        :for={module <- ~w(research agents simulation report)}
+        class="blueprint-editor-card"
+      >
+        <header>
+          <span>{module_number(module)}</span>
+          <div>
+            <h2>{module_title(@locale, module)}</h2>
+            <p>{module_hint(@locale, module)}</p>
+          </div>
+        </header>
+
+        <label for={"blueprint-instructions-#{module}"}>{t(@locale, :instructions)}</label>
+        <textarea
+          id={"blueprint-instructions-#{module}"}
+          name={"blueprint[instructions][#{module}]"}
+          rows="11"
+          required
+          data-blueprint-textarea
+        >{@instructions[module]}</textarea>
+
+        <div class="blueprint-editor-tools">
+          <button
+            :if={@source_version}
+            type="button"
+            data-blueprint-restore={module}
+            data-blueprint-target={"blueprint-instructions-#{module}"}
+            data-blueprint-message={t(@locale, :restored)}
+          >
+            {t(@locale, :restore_default)}
+          </button>
+          <button
+            :if={sample_for(@version, module)}
+            type="button"
+            data-blueprint-sample={"blueprint-sample-#{module}"}
+          >
+            {t(@locale, :sample_output)}
+          </button>
+          <details>
+            <summary>{t(@locale, :expected_output)}</summary>
+            <pre><code>{schema_json(@version, module)}</code></pre>
+          </details>
+        </div>
+
+        <template :if={@source_version} id={"blueprint-default-#{module}"}>
+          {@source_version.instructions[module]}
+        </template>
+        <div
+          :if={sample_for(@version, module)}
+          id={"blueprint-sample-#{module}"}
+          class="blueprint-sample"
+          hidden
+        >
+          <p>{t(@locale, :sample_note)}</p>
+          <pre><code>{sample_for(@version, module)}</code></pre>
+        </div>
+      </section>
+    </div>
+
+    <details class="blueprint-advanced-panel blueprint-editor-advanced">
+      <summary>{t(@locale, :advanced)}</summary>
+      <div>
+        <label for="blueprint-manifest">
+          <span>{t(@locale, :raw_yaml)}</span>
+          <small>{t(@locale, :raw_yaml_hint)}</small>
+        </label>
+        <textarea
+          id="blueprint-manifest"
+          name="blueprint[manifest_yaml]"
+          rows="28"
+          spellcheck="false"
+          required
+        >{@manifest_yaml}</textarea>
+      </div>
+    </details>
+
+    <footer class="blueprint-save-bar">
+      <p>{t(@locale, :not_published)}</p>
+      <div>
+        <a href={show_path(@blueprint.id, @workspace.id, @locale)}>{t(@locale, :cancel)}</a>
+        <button class="blueprint-primary-button" type="submit">
+          {t(@locale, :save_version)}
+        </button>
+      </div>
+    </footer>
+  </form>
+</div>
