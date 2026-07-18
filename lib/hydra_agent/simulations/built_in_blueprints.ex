@@ -190,11 +190,11 @@ defmodule HydraAgent.Simulations.BuiltInBlueprints do
                   "type" => "string",
                   "enum" => [
                     "user_data",
+                    "user_document",
                     "external_source",
                     "analogue",
                     "model_prior",
-                    "assumption",
-                    "counter_evidence"
+                    "assumption"
                   ]
                 }
               })

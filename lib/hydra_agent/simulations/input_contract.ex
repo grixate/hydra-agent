@@ -43,6 +43,7 @@ defmodule HydraAgent.Simulations.InputContract do
          true <- uri.scheme == "https",
          true <- is_binary(uri.host) and uri.host != "",
          true <- is_nil(uri.userinfo),
+         true <- is_nil(uri.port) or uri.port == 443,
          true <- is_nil(uri.fragment),
          true <- public_hostname?(uri.host) do
       true
@@ -56,8 +57,9 @@ defmodule HydraAgent.Simulations.InputContract do
   defp public_hostname?(host) do
     downcased = String.downcase(host)
 
-    downcased not in ["localhost", "localhost.localdomain"] and
-      not String.ends_with?(downcased, ".localhost") and
+    String.contains?(downcased, ".") and
+      downcased not in ["localhost", "localhost.localdomain"] and
+      not Enum.any?(~w(.local .localhost .internal .lan), &String.ends_with?(downcased, &1)) and
       match?({:error, _}, :inet.parse_address(String.to_charlist(host)))
   end
 

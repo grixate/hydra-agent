@@ -43,7 +43,7 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     assert russian =~ "Начните с одного вопроса"
   end
 
-  test "a question-only submission creates a durable draft and deep-links directly to Build", %{
+  test "a question-only submission creates durable context and deep-links directly to Build", %{
     conn: conn,
     workspace: workspace,
     general: general
@@ -73,8 +73,13 @@ defmodule HydraAgentWeb.SimulationControllerTest do
       |> html_response(200)
 
     assert build =~ "Build the world"
-    assert build =~ "Build not started"
-    assert build =~ "No provider has been called"
+    assert build =~ "Context is usable with gaps"
+    assert build =~ "Context Pack v1"
+    assert build =~ "2 claims"
+    assert build =~ "3 assumptions"
+    refute build =~ "3 assumptionss"
+    assert build =~ "Context and assumptions"
+    assert build =~ "Inspect context"
     assert build =~ "Understanding the question"
     assert build =~ "Finding useful context"
     assert build =~ "Designing the population"
@@ -119,6 +124,7 @@ defmodule HydraAgentWeb.SimulationControllerTest do
           "population_size" => "8000",
           "geography" => "Germany",
           "horizon" => "one quarter",
+          "historical_cutoff" => "2024-01-31",
           "notes" => "Inventory is capped at current capacity.",
           "urls" => "https://example.com/research#summary\nhttps://openai.com/research",
           "files" => [
@@ -132,11 +138,13 @@ defmodule HydraAgentWeb.SimulationControllerTest do
       })
 
     assert response.status == 302
-    [simulation] = Repo.all(Simulation) |> Repo.preload(:active_version)
+    [simulation] = Repo.all(Simulation) |> Repo.preload([:active_version, :active_context_pack])
     version = simulation.active_version
     assert version.population_size == 8_000
     assert version.normalized_input["geography"] == "Germany"
     assert version.normalized_input["horizon"] == "one quarter"
+    assert version.normalized_input["historical_cutoff"] == "2024-01-31"
+    assert simulation.active_context_pack.historical_cutoff == ~D[2024-01-31]
     assert version.inputs["notes"] == "Inventory is capped at current capacity."
 
     assert Enum.map(version.inputs["urls"], & &1["uri"]) == [
@@ -186,6 +194,91 @@ defmodule HydraAgentWeb.SimulationControllerTest do
 
     assert html_response(disabled_mode, 422) =~ "not enabled"
     assert Repo.aggregate(Simulation, :count) == 0
+
+    invalid_cutoff =
+      conn
+      |> recycle()
+      |> post("/simulations?workspace_id=#{workspace.id}&locale=en", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en",
+        "simulation" => %{
+          "question" => "How might a historical replay enforce its date boundary?",
+          "blueprint_id" => to_string(general.id),
+          "locale" => "en",
+          "execution_mode" => "quick",
+          "historical_cutoff" => "not-a-date"
+        }
+      })
+
+    assert html_response(invalid_cutoff, 422) =~ "valid historical cutoff date"
+    assert Repo.aggregate(Simulation, :count) == 0
+  end
+
+  test "the Context inspector is traceable, bilingual, and source exclusion versions the Pack", %{
+    conn: conn,
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might a staffing policy alter service queues?",
+        "blueprint_id" => general.id,
+        "geography" => "Germany",
+        "horizon" => "one quarter",
+        "historical_cutoff" => "2024-01-31",
+        "inputs" => %{"notes" => "Peak demand is twice the daily average."}
+      })
+
+    [source] = Enum.filter(simulation.active_context_pack.sources, &(&1["kind"] == "user_data"))
+
+    english_path =
+      "/simulations/#{simulation.id}/context?workspace_id=#{workspace.id}&locale=en"
+
+    english = conn |> get(english_path) |> html_response(200)
+
+    assert english =~ "<h1>Context and assumptions</h1>"
+    assert english =~ "Interpreted world"
+    assert english =~ "Peak demand is twice the daily average."
+    assert english =~ "User data"
+    assert english =~ "Model prior"
+    assert english =~ "Assumptions"
+    assert english =~ "2024-01-31"
+    assert english =~ "Pack version"
+    assert english =~ "v1"
+    assert english =~ "1 assumption"
+    refute english =~ "1 assumptions"
+    assert english =~ "Informal influencer"
+    refute english =~ "informal_influencer"
+    assert english =~ "Research not run"
+    assert english =~ "Exclude source"
+    refute english =~ "Oban"
+    refute english =~ "worker"
+
+    russian =
+      conn
+      |> recycle()
+      |> get("/simulations/#{simulation.id}/context?workspace_id=#{workspace.id}&locale=ru")
+      |> html_response(200)
+
+    assert russian =~ "<html lang=\"ru\""
+    assert russian =~ "<h1>Контекст и допущения</h1>"
+    assert russian =~ "Интерпретация мира"
+    assert russian =~ "Историческая отсечка"
+
+    response =
+      conn
+      |> recycle()
+      |> post("/simulations/#{simulation.id}/context/sources/#{source["id"]}/exclude", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en"
+      })
+
+    assert redirected_to(response) ==
+             "/simulations/#{simulation.id}/context?locale=en&workspace_id=#{workspace.id}"
+
+    refreshed = HydraAgent.Simulations.get_simulation_for_workspace!(workspace.id, simulation.id)
+    assert refreshed.active_context_pack.version == 2
+    refute Enum.any?(refreshed.active_context_pack.sources, &(&1["id"] == source["id"]))
   end
 
   test "Run, Results, and Compare are honest deep-linkable gates", %{
@@ -323,6 +416,17 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     refute html =~ ">New simulation<"
     refute html =~ ">Duplicate<"
     refute html =~ ">Archive<"
+
+    context =
+      conn
+      |> recycle()
+      |> init_test_session(user_id: viewer.id, session_version: viewer.session_version)
+      |> get("/simulations/#{simulation.id}/context?workspace_id=#{workspace.id}&locale=en")
+      |> html_response(200)
+
+    assert context =~ "Context and assumptions"
+    refute context =~ "Exclude source"
+    refute context =~ "Add bounded web context"
 
     denied =
       conn

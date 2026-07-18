@@ -19,6 +19,8 @@ defmodule HydraAgent.Runtime.Workspace do
     has_many :simulation_blueprints, HydraAgent.Simulations.Blueprint
     has_many :simulations, HydraAgent.Simulations.Simulation
     has_many :simulation_versions, HydraAgent.Simulations.SimulationVersion
+    has_many :simulation_context_packs, HydraAgent.Simulations.ContextPack
+    has_many :simulation_context_research_runs, HydraAgent.Simulations.ContextResearchRun
     has_many :workspace_memberships, HydraAgent.Accounts.WorkspaceMembership
     has_many :users, through: [:workspace_memberships, :user]
 

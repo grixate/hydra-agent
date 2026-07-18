@@ -22,6 +22,8 @@ defmodule HydraAgent.Audit do
   alias HydraAgent.Simulations.Blueprint, as: SimulationBlueprint
   alias HydraAgent.Simulations.BlueprintVersion, as: SimulationBlueprintVersion
   alias HydraAgent.Simulations.BuildStage, as: SimulationBuildStage
+  alias HydraAgent.Simulations.ContextPack, as: SimulationContextPack
+  alias HydraAgent.Simulations.ContextResearchRun, as: SimulationContextResearchRun
   alias HydraAgent.Simulations.Simulation, as: StudioSimulation
   alias HydraAgent.Simulations.SimulationVersion, as: StudioSimulationVersion
 
@@ -99,7 +101,14 @@ defmodule HydraAgent.Audit do
       "simulation_versions" =>
         map_records(studio_simulation_versions(workspace_id), &studio_simulation_version_json/1),
       "build_stages" =>
-        map_records(simulation_build_stages(workspace_id), &simulation_build_stage_json/1)
+        map_records(simulation_build_stages(workspace_id), &simulation_build_stage_json/1),
+      "context_packs" =>
+        map_records(simulation_context_packs(workspace_id), &simulation_context_pack_json/1),
+      "context_research_runs" =>
+        map_records(
+          simulation_context_research_runs(workspace_id),
+          &simulation_context_research_run_json/1
+        )
     }
   end
 
@@ -146,6 +155,20 @@ defmodule HydraAgent.Audit do
     SimulationBuildStage
     |> where([stage], stage.workspace_id == ^workspace_id)
     |> order_by([stage], asc: stage.simulation_version_id, asc: stage.ordinal)
+    |> Repo.all()
+  end
+
+  defp simulation_context_packs(workspace_id) do
+    SimulationContextPack
+    |> where([pack], pack.workspace_id == ^workspace_id)
+    |> order_by([pack], asc: pack.simulation_version_id, asc: pack.version)
+    |> Repo.all()
+  end
+
+  defp simulation_context_research_runs(workspace_id) do
+    SimulationContextResearchRun
+    |> where([run], run.workspace_id == ^workspace_id)
+    |> order_by([run], asc: run.simulation_version_id, asc: run.id)
     |> Repo.all()
   end
 
@@ -520,6 +543,7 @@ defmodule HydraAgent.Audit do
       "source_simulation_id" => simulation.source_simulation_id,
       "legacy_study_id" => simulation.legacy_study_id,
       "active_version_id" => simulation.active_version_id,
+      "active_context_pack_id" => simulation.active_context_pack_id,
       "title" => simulation.title,
       "question" => simulation.question,
       "locale" => simulation.locale,
@@ -600,6 +624,110 @@ defmodule HydraAgent.Audit do
       "completed_at" => stage.completed_at,
       "inserted_at" => stage.inserted_at,
       "updated_at" => stage.updated_at
+    }
+  end
+
+  defp simulation_context_pack_json(pack) do
+    %{
+      "id" => pack.id,
+      "workspace_id" => pack.workspace_id,
+      "simulation_id" => pack.simulation_id,
+      "simulation_version_id" => pack.simulation_version_id,
+      "created_by_user_id" => pack.created_by_user_id,
+      "version" => pack.version,
+      "interpretation" => %{
+        "primary_question_fingerprint" => fingerprint(pack.interpretation["primary_question"]),
+        "world_fingerprint" => fingerprint(pack.interpretation["world"]),
+        "agent_types" => pack.interpretation["agent_types"],
+        "candidate_resources" => pack.interpretation["candidate_resources"],
+        "candidate_actions" => pack.interpretation["candidate_actions"],
+        "missing_inputs" => pack.interpretation["missing_inputs"]
+      },
+      "scope" => pack.scope,
+      "research_plan" =>
+        Enum.map(pack.research_plan, fn lane ->
+          %{
+            "lane" => lane["lane"],
+            "purpose" => lane["purpose"],
+            "status" => lane["status"],
+            "safe_query_fingerprint" => fingerprint(lane["safe_query"])
+          }
+        end),
+      "sources" => Enum.map(pack.sources, &simulation_context_source_json/1),
+      "claims" =>
+        Enum.map(pack.claims, fn claim ->
+          %{
+            "id" => claim["id"],
+            "statement_fingerprint" => fingerprint(claim["statement"]),
+            "grounding_class" => claim["grounding_class"],
+            "source_id" => claim["source_id"],
+            "confidence" => claim["confidence"],
+            "influences" => claim["influences"],
+            "instruction_flags" => claim["instruction_flags"]
+          }
+        end),
+      "assumptions" =>
+        Enum.map(pack.assumptions, fn assumption ->
+          %{
+            "id" => assumption["id"],
+            "statement_fingerprint" => fingerprint(assumption["statement"]),
+            "rationale" => assumption["rationale"],
+            "visible" => assumption["visible"]
+          }
+        end),
+      "gaps" =>
+        Enum.map(pack.gaps, fn gap ->
+          %{
+            "id" => gap["id"],
+            "kind" => gap["kind"],
+            "lane" => gap["lane"],
+            "source_id" => gap["source_id"],
+            "statement_fingerprint" => fingerprint(gap["statement"])
+          }
+        end),
+      "research_metadata" => pack.research_metadata,
+      "historical_cutoff" => pack.historical_cutoff,
+      "status" => pack.status,
+      "confidence" => pack.confidence,
+      "content_hash" => pack.content_hash,
+      "inserted_at" => pack.inserted_at
+    }
+  end
+
+  defp simulation_context_source_json(source) do
+    %{
+      "id" => source["id"],
+      "kind" => source["kind"],
+      "title" => source["title"],
+      "uri" => safe_source_uri(source["uri"]),
+      "uri_hash" => fingerprint(source["uri"]),
+      "published_at" => source["published_at"],
+      "content_hash" => source["content_hash"],
+      "status" => source["status"],
+      "instruction_flags" => source["instruction_flags"],
+      "review_required" => source["review_required"],
+      "excerpt_fingerprint" => fingerprint(source["excerpt"])
+    }
+  end
+
+  defp simulation_context_research_run_json(run) do
+    %{
+      "id" => run.id,
+      "workspace_id" => run.workspace_id,
+      "simulation_id" => run.simulation_id,
+      "simulation_version_id" => run.simulation_version_id,
+      "context_pack_id" => run.context_pack_id,
+      "provider" => run.provider,
+      "status" => run.status,
+      "input_snapshot" => run.input_snapshot,
+      "planned_lanes" => run.planned_lanes,
+      "completed_lanes" => run.completed_lanes,
+      "failed_lanes" => run.failed_lanes,
+      "failure_reason" => run.failure_reason,
+      "started_at" => run.started_at,
+      "completed_at" => run.completed_at,
+      "inserted_at" => run.inserted_at,
+      "updated_at" => run.updated_at
     }
   end
 

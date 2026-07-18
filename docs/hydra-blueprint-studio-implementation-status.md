@@ -11,9 +11,10 @@ entire epic or release is complete.
 
 ## Current status
 
-- Active epic: **Epic 3 — Automatic Context Pack**
-- Completed epic: **Epic 2 — Simple Simulation Studio shell**
-- Next vertical slice: immutable Context Pack and bounded question interpretation
+- Active epic: **Epic 4 — Population Model and agent compiler**
+- Completed epic: **Epic 3 — Automatic Context Pack**
+- Next vertical slice: deterministic Population Model, compact agent state, and
+  representative selection
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
@@ -46,7 +47,7 @@ product behavior.
 | Blueprint Version | `HydraAgent.Simulations.BlueprintVersion`, `simulation_blueprint_versions` | Implemented as immutable content-addressed versions with active-version integrity triggers. |
 | Simulation | `HydraAgent.Simulations.Simulation`, `simulations`; legacy `SimLab.Schemas.Study` | Implemented as the general workspace-scoped identity. Legacy studies remain visible through links and are not rewritten. |
 | Simulation Version | `HydraAgent.Simulations.SimulationVersion`, `simulation_versions` | Implemented as an immutable, content-addressed input snapshot linked to the exact Blueprint Version. |
-| Context Pack | `sim_lab_context_packs`, sources, evidence items, research runs | Reuse evidence storage and review semantics; extend grounding classes and link to Simulation Version. |
+| Context Pack | `HydraAgent.Simulations.ContextPack`; legacy `sim_lab_context_packs`, sources, evidence items, research runs | Implemented as a general immutable Simulation-Version artifact. The bounded legacy retrieval runner and provider boundary are adapted without conflating legacy Study records. |
 | Population Model | Personas, action patterns, `BehaviorCompiler` | Introduce a general structured contract. Adapt personas/patterns as legacy archetypes/policies and keep deterministic fallback. |
 | Agent Instance | Generated aggregate cohorts and representative traces | Add compact run-owned state, not permanent runtime agent profiles or one process per agent. |
 | Representative Persona | `sim_lab_personas` | Reuse presentation and evidence links through an adapter. Do not treat persona count as population size. |
@@ -69,9 +70,9 @@ product behavior.
 
 | Requirement | Existing code | Planned reuse |
 |---|---|---|
-| Durable build jobs | Six `simulation_build_stages`; Oban and SimLab workers available | Shell stage state is durable. Add version-keyed Epic 3 workers to current Oban queues. |
-| Question interpretation | `StudyParser` | Generalize into a structured contract with schema validation. |
-| Bounded research | research planner, safe query abstraction, Tavily/configured provider, evidence pipeline | Reuse provider and safety boundary; extend grounding vocabulary. |
+| Durable build jobs | Six `simulation_build_stages`; Oban and SimLab workers | Version-keyed Context research runs and an idempotent Oban worker are implemented on the current research queue. |
+| Question interpretation | `HydraAgent.Simulations.ContextBuilder`; legacy `StudyParser` | A bounded deterministic interpreter now produces the Context Pack contract without requiring a provider. Later model assistance must preserve this validated boundary. |
+| Bounded research | research planner, safe query abstraction, configured web provider, direct public-URL fetcher, evidence pipeline | Reused behind durable Context research runs with four-lane Quick planning, partial completion, source attribution, and immutable late-result versions. |
 | Population fallback | `BehaviorCompiler` | Preserve behind new interface as explicit emergency fallback. |
 | Deterministic execution | `SimulationRunner`, `Simulator`, persisted input fingerprint | Reuse mechanisms after the general Script compiler defines stable semantics. |
 | Live progress | Phoenix PubSub and SimLab notifications | Add product-stage events without exposing queue or worker names. |
@@ -84,7 +85,7 @@ product behavior.
 |---|---|---|
 | `/simulations` | General Simulation list plus explicit legacy-study links | Implemented and selected as the Blueprint Studio entry route. Legacy routes preserved. |
 | `/simulations/new` | One-question composer | Implemented with optional notes/data, URLs, files, geography, horizon, mode, and Blueprint. |
-| `/simulations/:id/*` | Durable Build, Run, Results, and Compare stages | Implemented as deep links with truthful readiness gates and shared domain logic. |
+| `/simulations/:id/*` | Durable Build, Context, Run, Results, and Compare stages | Implemented as deep links with a source/claim/assumption inspector, truthful readiness gates, and shared domain logic. |
 | `/blueprints/*` | Blueprint library, detail, editor, test, import, export | Implemented with workspace role boundaries and EN/RU interface copy. |
 | `/settings/*` | `/settings`, `/control/settings`, provider/tool pages | Present product-safe subsections; keep authority-sensitive controls under Operations. |
 | `/operations/*` | `/control/*`, `/dashboard`, runtime surfaces | Preserve operator routes; later add safe redirects/aliases. |
@@ -140,9 +141,14 @@ converted by Epic 0.
   author roles, workspace and Blueprint scope, duplicate/legacy provenance,
   immutable Version history, active-Version identity, and immutable Build-stage
   identity. Legacy `sim_lab_studies` are not converted.
-- Next proposed migration: Context Pack versioning and explicit links from an
-  immutable Simulation Version, reusing existing source/evidence storage where
-  its semantics remain valid.
+- Epic 3: additive `simulation_context_packs` and
+  `simulation_context_research_runs`, plus an active Context Pack reference on
+  `simulations`. Database constraints and triggers enforce immutable Pack
+  content, workspace/Simulation/Version scope, author identity, active-Pack
+  lineage, durable research-run identity, provider/status allowlists, and
+  bounded lane counts. The follow-up additive constraint migration permits the
+  credential-free `direct_sources` retrieval route. No legacy evidence or
+  Context Pack row is rewritten.
 
 ## Acceptance ledger
 
@@ -208,6 +214,43 @@ truthful zero-provider/disabled-Run states, responsive wrapping, compact Build
 title, full-width lifecycle controls, and absence of horizontal document
 overflow.
 
+### Epic 3 — Automatic Context Pack
+
+- [x] Deterministic bounded question interpretation and four-lane Quick plan.
+- [x] Every new Simulation atomically receives a usable immutable Context Pack
+  v1, including a no-data question with explicit priors, assumptions, and gaps.
+- [x] Durable, retryable research runs adapt the existing bounded retrieval
+  provider and create a new Pack version for completed or late results.
+- [x] Supplied public HTTPS URLs can be retrieved without search-provider
+  credentials through a DNS-pinned, redirect-free, size- and timeout-bounded
+  path.
+- [x] The six required grounding classes are enforced; source attribution,
+  excerpts, content hashes, and publication dates survive normalization.
+- [x] Model priors and assumptions remain distinct and visible.
+- [x] A failed retrieval lane or individual source becomes a visible gap and
+  does not corrupt or block the usable Pack.
+- [x] Historical cutoff excludes later evidence; Decision Replay also excludes
+  evidence without a verified publication date.
+- [x] Source exclusion creates immutable Pack v2+, removes dependent claims,
+  preserves the exclusion for later research, and resets downstream stages.
+- [x] Retrieved/uploaded content is inert, active markup is stripped, and
+  instruction-like content is flagged and quarantined before claim extraction.
+- [x] Context content is bounded, deduplicated, content-addressed, workspace
+  scoped, and included in privacy-preserving audit exports.
+- [x] English and Russian Context inspectors expose sources, claims, priors,
+  assumptions, research status, plan, gaps, and honest qualitative confidence.
+- [x] Ordinary viewers can inspect but cannot mutate; provider, worker, queue,
+  and credential internals remain absent from the product surface.
+- [x] Real desktop and 390 px browser QA confirms no horizontal overflow and a
+  usable Build/Context hierarchy in both locales.
+
+Acceptance evidence: the focused Context suite covers deterministic no-data
+builds, all grounding boundaries, attribution, accumulation caps, partial
+lanes, supplied-URL success and failure without search credentials, historical
+cutoffs, prompt-injection quarantine, source exclusion and no-op rebuilds,
+automatic enqueue behavior, immutable database triggers, audit redaction,
+authorization, and both locales. The full release gate is recorded below.
+
 ## Baseline evidence
 
 The previous production-readiness pass recorded 543 tests, 75.04% line
@@ -238,6 +281,16 @@ audit privacy, locale behavior, and the Blueprint Studio default-route switch.
 `mix assets.build` also passes. A real runtime startup smoke with
 `HYDRA_PRODUCT_SURFACE=blueprint_studio` resolves the surface to
 `blueprint_studio` and serves the Studio routes.
+
+The exact Epic 3 worktree passed `mix precommit` on 2026-07-18: compilation with
+warnings as errors, dependency lock hygiene and audit, formatting, Sobelow with
+only the repository's reviewed low-confidence findings, and 611 ExUnit tests
+with zero failures (seed 445065, 8.8 seconds). Its 47-test focused Context suite
+also passes, as does `mix assets.build`. Live production-provider staging
+evidence remains intentionally open: mocks and credential-free direct-source
+retrieval prove failure and lineage behavior, but no public performance, cost,
+or provider-compatibility claim is authorized until the real-provider staging
+matrix is executed.
 
 The current legacy visual baseline is captured at desktop and 390px mobile in:
 

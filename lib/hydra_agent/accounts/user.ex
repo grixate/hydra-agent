@@ -26,6 +26,9 @@ defmodule HydraAgent.Accounts.User do
     has_many :created_simulation_versions, HydraAgent.Simulations.SimulationVersion,
       foreign_key: :created_by_user_id
 
+    has_many :created_simulation_context_packs, HydraAgent.Simulations.ContextPack,
+      foreign_key: :created_by_user_id
+
     timestamps(type: :utc_datetime_usec)
   end
 

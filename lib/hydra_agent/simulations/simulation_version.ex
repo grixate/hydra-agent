@@ -26,6 +26,8 @@ defmodule HydraAgent.Simulations.SimulationVersion do
     belongs_to :created_by_user, HydraAgent.Accounts.User
 
     has_many :build_stages, HydraAgent.Simulations.BuildStage
+    has_many :context_packs, HydraAgent.Simulations.ContextPack
+    has_many :context_research_runs, HydraAgent.Simulations.ContextResearchRun
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end

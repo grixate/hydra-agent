@@ -190,6 +190,7 @@ defmodule HydraAgent.AuditTest do
     refute Enum.any?(studio["simulations"], &(&1["id"] == excluded.id))
     assert Enum.count(studio["blueprints"], & &1["built_in"]) == 2
     assert length(studio["build_stages"]) == 6
+    assert length(studio["context_packs"]) == 1
 
     [version] = studio["simulation_versions"]
     assert version["content_hash"] == included.active_version.content_hash
@@ -201,6 +202,18 @@ defmodule HydraAgent.AuditTest do
              version["input_summary"]["files"]
 
     assert file_hash == sha256_for_test(secret_file)
+
+    [context_pack] = studio["context_packs"]
+    assert context_pack["id"] == included.active_context_pack.id
+    assert context_pack["content_hash"] == included.active_context_pack.content_hash
+    assert is_binary(context_pack["interpretation"]["primary_question_fingerprint"])
+    assert Enum.any?(context_pack["sources"], &is_binary(&1["excerpt_fingerprint"]))
+    assert Enum.all?(context_pack["claims"], &is_binary(&1["statement_fingerprint"]))
+    assert Enum.all?(context_pack["assumptions"], &is_binary(&1["statement_fingerprint"]))
+    refute Enum.any?(context_pack["sources"], &Map.has_key?(&1, "excerpt"))
+    refute Enum.any?(context_pack["claims"], &Map.has_key?(&1, "statement"))
+    refute Enum.any?(context_pack["assumptions"], &Map.has_key?(&1, "statement"))
+
     refute encoded =~ secret_note
     refute encoded =~ secret_file
     refute encoded =~ "\"text\""

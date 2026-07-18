@@ -3190,3 +3190,541 @@
     border-right: 0;
   }
 }
+
+/* Simulation Context Pack */
+
+.simulation-context-brief {
+  margin-top: 58px;
+  padding: 26px 0 30px;
+  border-top: 1px solid var(--sim-line-strong);
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-context-brief > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 36px;
+}
+
+.simulation-context-brief h2,
+.simulation-context-hero h1,
+.simulation-context-scope h2,
+.simulation-context-section h2 {
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.045em;
+}
+
+.simulation-context-brief h2 {
+  margin: 11px 0 8px;
+  font-size: 34px;
+}
+
+.simulation-context-brief header p:last-child {
+  max-width: 620px;
+  margin: 0;
+  color: var(--sim-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.simulation-context-brief header > a,
+.simulation-context-brief > form button,
+.simulation-context-research-action button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 15px;
+  border: 1px solid var(--sim-line-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--sim-ink);
+  font-size: 10px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.simulation-context-brief > dl {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 28px 0 0;
+}
+
+.simulation-context-brief dl div {
+  padding-left: 17px;
+  border-left: 1px solid var(--sim-line);
+}
+
+.simulation-context-brief dl div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.simulation-context-brief dt,
+.simulation-context-hero dt,
+.simulation-context-world dt {
+  color: var(--sim-faint);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.simulation-context-brief dd,
+.simulation-context-hero dd,
+.simulation-context-world dd {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.simulation-context-page {
+  width: min(100%, 1160px);
+}
+
+.simulation-context-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(330px, 0.6fr);
+  align-items: end;
+  gap: 64px;
+  padding: 38px 0 56px;
+}
+
+.simulation-context-hero h1 {
+  max-width: 760px;
+  margin: 17px 0 20px;
+  font-size: clamp(52px, 6vw, 76px);
+  line-height: 0.94;
+}
+
+.simulation-context-hero > div > p:last-child {
+  max-width: 660px;
+  margin: 0;
+  color: var(--sim-muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.simulation-context-hero dl {
+  display: grid;
+  margin: 0;
+  border-top: 1px solid var(--sim-line-strong);
+}
+
+.simulation-context-hero dl div {
+  display: flex;
+  min-height: 47px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-context-hero code {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.simulation-context-status {
+  display: flex;
+  min-height: 86px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 30px;
+  padding: 16px 20px;
+  border: 1px solid #d6dfd8;
+  border-radius: 12px;
+  background: #f3f6f3;
+}
+
+.simulation-context-status > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.simulation-context-status strong {
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.simulation-context-status p {
+  margin: 5px 0 0;
+  color: var(--sim-muted);
+  font-size: 10px;
+}
+
+.simulation-context-research-action > span {
+  color: var(--sim-muted);
+  font-size: 9px;
+}
+
+.simulation-context-scope {
+  margin-top: 76px;
+}
+
+.simulation-context-scope > header,
+.simulation-context-section > header {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--sim-line-strong);
+}
+
+.simulation-context-scope h2,
+.simulation-context-section h2 {
+  margin: 0;
+  font-size: 35px;
+}
+
+.simulation-context-section > header > span {
+  margin-left: auto;
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.simulation-context-world {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+  gap: 60px;
+  padding: 29px 0 34px;
+}
+
+.simulation-context-world > p {
+  max-width: 700px;
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.simulation-context-world dl {
+  margin: 0;
+}
+
+.simulation-context-world dl div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 15px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-context-candidates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--sim-line);
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-context-candidates article {
+  padding: 21px 22px 25px;
+  border-left: 1px solid var(--sim-line);
+}
+
+.simulation-context-candidates article:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.simulation-context-candidates h3,
+.simulation-context-plan h3 {
+  margin: 0 0 13px;
+  color: var(--sim-faint);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.simulation-context-candidates p {
+  display: inline-block;
+  margin: 4px 5px 0 0;
+  padding: 5px 8px;
+  border: 1px solid var(--sim-line);
+  border-radius: 999px;
+  color: #4f5852;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+}
+
+.simulation-context-section {
+  margin-top: 82px;
+}
+
+.simulation-context-empty {
+  margin: 24px 0 0;
+  color: var(--sim-muted);
+  font-size: 11px;
+}
+
+.simulation-source-list > article {
+  padding: 24px 0 27px;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-source-list article > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 30px;
+}
+
+.simulation-source-list header span,
+.simulation-claim-list article > span,
+.simulation-gap-list article > span,
+.simulation-context-plan article > span {
+  color: var(--sim-sage);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.simulation-source-list h3 {
+  margin: 7px 0 4px;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+}
+
+.simulation-source-list a {
+  color: var(--sim-muted);
+  font-size: 9px;
+  text-decoration: none;
+}
+
+.simulation-source-list small {
+  display: block;
+  margin-top: 5px;
+  color: var(--sim-faint);
+  font-size: 8px;
+}
+
+.simulation-source-list button {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--sim-muted);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.simulation-source-list article > p {
+  max-width: 850px;
+  margin: 17px 0 0;
+  color: #505953;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.simulation-source-warning {
+  display: inline-flex;
+  margin-top: 13px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: #f5ece7;
+  color: #8b5d4c;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.simulation-claim-list article {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr) 72px;
+  align-items: baseline;
+  gap: 24px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-claim-list p,
+.simulation-assumption-list p,
+.simulation-gap-list p {
+  margin: 0;
+  color: #3d4540;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.simulation-claim-list em {
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+  font-style: normal;
+  text-align: right;
+}
+
+.simulation-claim-list div > a {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--sim-muted);
+  font-size: 8px;
+  text-decoration: none;
+}
+
+.simulation-claim-list div > a:hover,
+.simulation-claim-list div > a:focus-visible {
+  color: var(--sim-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.simulation-context-two-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 52px;
+}
+
+.simulation-assumption-list article,
+.simulation-gap-list article {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  padding: 17px 0;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-gap-list article {
+  grid-template-columns: 120px minmax(0, 1fr);
+}
+
+.simulation-assumption-list article > span {
+  color: var(--sim-sage);
+  font-size: 10px;
+}
+
+.simulation-context-plan {
+  margin: 86px 0 20px;
+  border-top: 1px solid var(--sim-line-strong);
+}
+
+.simulation-context-plan > header {
+  display: flex;
+  min-height: 55px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-context-plan > header span {
+  color: var(--sim-muted);
+  font-size: 9px;
+}
+
+.simulation-context-plan article {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 22px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--sim-line);
+}
+
+.simulation-context-plan h3 {
+  margin: 0 0 5px;
+  color: var(--sim-ink);
+}
+
+.simulation-context-plan details {
+  margin-top: 5px;
+}
+
+.simulation-context-plan summary {
+  color: var(--sim-faint);
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.simulation-context-plan p {
+  margin: 7px 0 0;
+  overflow: hidden;
+  color: var(--sim-faint);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .simulation-context-brief > header,
+  .simulation-context-status,
+  .simulation-source-list article > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .simulation-context-brief > dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 20px;
+  }
+
+  .simulation-context-brief dl div:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .simulation-context-hero,
+  .simulation-context-world,
+  .simulation-context-two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-context-hero {
+    gap: 36px;
+    padding-top: 24px;
+  }
+
+  .simulation-context-hero h1 {
+    font-size: clamp(43px, 13vw, 56px);
+  }
+
+  .simulation-context-status {
+    display: flex;
+    min-height: 0;
+    gap: 16px;
+    padding: 18px;
+  }
+
+  .simulation-context-scope > header,
+  .simulation-context-section > header {
+    flex-wrap: wrap;
+  }
+
+  .simulation-context-scope h2,
+  .simulation-context-section h2 {
+    width: 100%;
+  }
+
+  .simulation-context-world {
+    gap: 28px;
+  }
+
+  .simulation-context-candidates {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-context-candidates article,
+  .simulation-context-candidates article:first-child {
+    padding: 18px 0;
+    border-top: 1px solid var(--sim-line);
+    border-left: 0;
+  }
+
+  .simulation-claim-list article,
+  .simulation-gap-list article,
+  .simulation-context-plan article {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .simulation-claim-list em {
+    text-align: left;
+  }
+}

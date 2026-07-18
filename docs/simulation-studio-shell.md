@@ -2,9 +2,9 @@
 
 The Blueprint-first Simulation Studio is an additive product surface for
 creating durable simulation drafts before any build or provider work begins.
-It is intentionally a shell: Epic 2 establishes the lifecycle, persistence,
-input boundary, permissions, and honest empty states. It does not claim that a
-Context Pack or runnable Simulation Pack exists.
+Epic 2 established the lifecycle, persistence, input boundary, permissions, and
+honest empty states. Epic 3 now creates a usable immutable Context Pack for
+every new Simulation, but a runnable Simulation Pack still does not exist.
 
 ## Runtime surface
 
@@ -19,14 +19,18 @@ The Studio routes are:
 |---|---|
 | `GET /simulations` | Workspace-scoped Simulation list and legacy-study links. |
 | `GET /simulations/new` | One-question composer. |
-| `POST /simulations` | Atomically create a Simulation, immutable Version, and six Build stages. |
+| `POST /simulations` | Atomically create a Simulation, immutable Version, Context Pack v1, and six Build stages. |
 | `GET /simulations/:id` | Redirect to the durable current lifecycle stage. |
 | `GET /simulations/:id/build` | Build progress, Blueprint instructions, and readiness summary. |
+| `GET /simulations/:id/context` | Inspect sources, claims, priors, assumptions, gaps, and retrieval state. |
 | `GET /simulations/:id/run` | Run checkpoint; disabled until a valid Pack exists. |
 | `GET /simulations/:id/results` | Results checkpoint with honest empty states. |
 | `GET /simulations/:id/compare` | Comparison checkpoint. |
 | `POST /simulations/:id/duplicate` | Create an independent v1 snapshot with provenance. |
 | `POST /simulations/:id/archive` | Archive without deleting history. |
+| `POST /simulations/:id/context/build` | Revalidate current context; identical content is a no-op. |
+| `POST /simulations/:id/context/research` | Queue bounded durable research when a route is configured. |
+| `POST /simulations/:id/context/sources/:source_id/exclude` | Create a new Pack version without the source or dependent claims. |
 
 Workspace viewers may inspect. Researchers, administrators, owners, and system
 administrators may create, duplicate, or archive. Operator-only navigation is
@@ -39,8 +43,9 @@ Creation is one database transaction:
 1. create the workspace-scoped `simulations` identity;
 2. create immutable `simulation_versions` v1 with the exact active Blueprint
    Version and a deterministic content hash;
-3. create the six product-language `simulation_build_stages` rows;
-4. activate v1 only after all rows exist.
+3. create deterministic immutable Context Pack v1;
+4. create the six product-language `simulation_build_stages` rows;
+5. activate Version v1 and Pack v1 only after all rows exist.
 
 PostgreSQL constraints and triggers enforce the tenant and identity boundary,
 not only Ecto changesets. A Simulation Version cannot be updated. The active
@@ -79,10 +84,12 @@ security assumption.
 | Locale | English or Russian. |
 | Mode | Quick always available; Balanced and Deep require their runtime flags. |
 
-The shell performs no retrieval and makes zero provider calls. URLs are stored
-as pending references; their network-safety policy must be enforced again by
-the future retrieval worker because DNS resolution can change between entry
-and use.
+Creation performs no retrieval and waits on zero provider calls. URLs are first
+stored as pending references. After commit, bounded retrieval is queued through
+the configured web route or through the credential-free direct-source route.
+Network-safety policy is enforced again by the retrieval worker because DNS can
+change between entry and use. Research failure cannot roll back the already
+durable Simulation, Version, or usable Context Pack.
 
 ## Privacy and audit
 
@@ -93,8 +100,9 @@ notes, file contents, and Blueprint instruction text. Records from another
 workspace cannot enter the export.
 
 The current UI reports what exists rather than forecasting missing values:
-draft saved, Build not started, zero provider calls, and no estimated cost. Run
-is disabled until later epics produce a validated immutable Simulation Pack.
+draft saved, Context Pack version and state, qualitative confidence, visible
+gaps, and no invented cost. Run is disabled until later epics produce a
+validated immutable Simulation Pack.
 
 ## Verification
 
@@ -106,3 +114,6 @@ tests. Visual evidence is stored in
 The implementation ledger in
 `docs/hydra-blueprint-studio-implementation-status.md` is authoritative for
 which acceptance criteria have evidence and which remain open.
+
+Epic 3 architecture, retrieval safety, local Codex adapter boundaries, and
+release evidence are documented in `docs/automatic-context-pack.md`.

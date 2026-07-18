@@ -25,7 +25,9 @@ defmodule HydraAgent.SimLab.Research.WebResearchPlanner do
     context = "#{parsed_study.domain} #{parsed_study.target_audience} #{parsed_study.change}"
     private_entities = Map.get(opts, :private_entities, [])
 
-    Enum.map(@lanes, fn {lane, purpose} ->
+    parsed_study
+    |> lanes_for_depth()
+    |> Enum.map(fn {lane, purpose} ->
       intent = lane_query(lane, context, region)
 
       %{
@@ -40,6 +42,14 @@ defmodule HydraAgent.SimLab.Research.WebResearchPlanner do
       }
     end)
   end
+
+  defp lanes_for_depth(%{research_depth: "quick"}) do
+    Enum.filter(@lanes, fn {lane, _purpose} ->
+      lane in ~w(market_context behavioral_research regulatory negative_evidence)
+    end)
+  end
+
+  defp lanes_for_depth(_parsed_study), do: @lanes
 
   defp lane_query("market_context", context, region), do: "#{context} market context #{region}"
 

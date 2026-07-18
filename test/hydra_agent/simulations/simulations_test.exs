@@ -1,5 +1,6 @@
 defmodule HydraAgent.SimulationsTest do
   use HydraAgent.DataCase, async: false
+  use Oban.Testing, repo: HydraAgent.Repo
 
   import Ecto.Query
   import HydraAgent.RuntimeFixtures
@@ -10,8 +11,11 @@ defmodule HydraAgent.SimulationsTest do
   alias HydraAgent.Simulations.{
     Blueprints,
     BuildStage,
+    ContextPack,
+    ContextResearchRun,
     Simulation,
-    SimulationVersion
+    SimulationVersion,
+    Workers.ContextResearchWorker
   }
 
   setup do
@@ -20,7 +24,7 @@ defmodule HydraAgent.SimulationsTest do
     %{workspace: workspace, general: general, decision_replay: decision_replay}
   end
 
-  test "one question creates a durable versioned draft and six build stages", %{
+  test "one question creates a durable versioned build with a usable Context Pack", %{
     workspace: workspace,
     general: general
   } do
@@ -34,12 +38,25 @@ defmodule HydraAgent.SimulationsTest do
     }
 
     assert {:ok, simulation} = HydraAgent.Simulations.create_simulation(workspace, nil, attrs)
-    assert simulation.status == "draft"
+    assert simulation.status == "building"
     assert simulation.active_version.version == 1
     assert simulation.active_version.blueprint_version_id == general.active_version.id
     assert simulation.active_version.execution_mode == "quick"
     assert simulation.active_version.population_size == 5_000
     assert byte_size(simulation.active_version.content_hash) == 64
+    assert simulation.active_context_pack.version == 1
+    assert simulation.active_context_pack.status == "partial"
+    assert simulation.active_context_pack.sources == []
+    assert simulation.active_context_pack.research_metadata["retrieval_status"] == "not_run"
+    assert byte_size(simulation.active_context_pack.content_hash) == 64
+
+    assert Enum.all?(simulation.active_context_pack.claims, fn claim ->
+             claim["grounding_class"] == "model_prior"
+           end)
+
+    assert Enum.all?(simulation.active_context_pack.assumptions, fn assumption ->
+             assumption["grounding_class"] == "assumption" and assumption["visible"]
+           end)
 
     persisted = HydraAgent.Simulations.get_simulation_for_workspace!(workspace.id, simulation.id)
     assert persisted.question == attrs["question"]
@@ -47,8 +64,8 @@ defmodule HydraAgent.SimulationsTest do
 
     assert Enum.map(HydraAgent.Simulations.list_build_stages(persisted), &{&1.stage, &1.status}) ==
              [
-               {"understanding_question", "pending"},
-               {"finding_context", "pending"},
+               {"understanding_question", "complete"},
+               {"finding_context", "partial"},
                {"designing_population", "pending"},
                {"writing_rules", "pending"},
                {"checking_model", "pending"},
@@ -93,6 +110,24 @@ defmodule HydraAgent.SimulationsTest do
              "notes" => 1,
              "urls" => 1
            }
+
+    sources = simulation.active_context_pack.sources
+    claims = simulation.active_context_pack.claims
+
+    assert Enum.any?(sources, &(&1["kind"] == "user_data" and &1["status"] == "active"))
+    assert Enum.any?(sources, &(&1["kind"] == "user_document" and &1["status"] == "active"))
+    assert Enum.any?(sources, &(&1["kind"] == "external_source" and &1["status"] == "pending"))
+    assert Enum.any?(claims, &(&1["grounding_class"] == "user_data"))
+    assert Enum.any?(claims, &(&1["grounding_class"] == "user_document"))
+
+    run = Repo.one!(ContextResearchRun)
+    assert run.provider == "direct_sources"
+    assert run.status == "queued"
+
+    assert_enqueued(
+      worker: ContextResearchWorker,
+      args: %{"context_research_run_id" => run.id}
+    )
   end
 
   test "the domain rejects tampered file metadata even outside the web boundary", %{
@@ -138,7 +173,7 @@ defmodule HydraAgent.SimulationsTest do
 
     assert {:ok, copy} = HydraAgent.Simulations.duplicate_simulation(first, nil)
     assert copy.source_simulation_id == first.id
-    assert copy.title == "Adoption test copy"
+    assert copy.title == "Copy · Adoption test"
     assert copy.active_version.id != first.active_version.id
     assert copy.active_version.blueprint_version_id == first.active_version.blueprint_version_id
   end
@@ -212,6 +247,21 @@ defmodule HydraAgent.SimulationsTest do
     assert Repo.get!(Study, study.id).question == "What did the team know before the decision?"
   end
 
+  test "Decision Replay enables strict publication-date handling at its historical cutoff", %{
+    workspace: workspace,
+    decision_replay: decision_replay
+  } do
+    assert {:ok, simulation} =
+             HydraAgent.Simulations.create_simulation(workspace, nil, %{
+               "question" => "What could the team have known before the launch decision?",
+               "blueprint_id" => decision_replay.id,
+               "historical_cutoff" => "2024-01-31"
+             })
+
+    assert simulation.active_version.normalized_input["strict_historical_cutoff"] == true
+    assert simulation.active_context_pack.scope["strict_historical_cutoff"] == true
+  end
+
   test "database triggers reject build-stage identity mutation", %{
     workspace: workspace,
     general: general
@@ -246,6 +296,129 @@ defmodule HydraAgent.SimulationsTest do
       |> where([version], version.id == ^simulation.active_version.id)
       |> Repo.update_all(set: [question: "Mutated question"])
     end
+  end
+
+  test "database triggers keep Context Packs immutable", %{
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might immutable context preserve exact provenance?",
+        "blueprint_id" => general.id
+      })
+
+    assert_raise Postgrex.Error, ~r/simulation context packs are immutable/, fn ->
+      ContextPack
+      |> where([pack], pack.id == ^simulation.active_context_pack.id)
+      |> Repo.update_all(set: [status: "ready"])
+    end
+  end
+
+  test "source exclusion creates a new immutable Pack and resets downstream build stages", %{
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might service notes influence a queue simulation?",
+        "blueprint_id" => general.id,
+        "inputs" => %{"notes" => "Peak-hour demand is twice the daily average."}
+      })
+
+    first_pack = simulation.active_context_pack
+    [source] = Enum.filter(first_pack.sources, &(&1["kind"] == "user_data"))
+
+    stage =
+      simulation
+      |> HydraAgent.Simulations.list_build_stages()
+      |> Enum.find(&(&1.stage == "designing_population"))
+
+    now = DateTime.utc_now()
+
+    stage
+    |> BuildStage.changeset(%{status: "complete", started_at: now, completed_at: now})
+    |> Repo.update!()
+
+    assert {:ok, result} =
+             HydraAgent.Simulations.exclude_context_source(simulation, source["id"], nil)
+
+    assert result.created
+    assert result.context_pack.version == 2
+    refute Enum.any?(result.context_pack.sources, &(&1["id"] == source["id"]))
+    refute Enum.any?(result.context_pack.claims, &(&1["source_id"] == source["id"]))
+    assert result.context_pack.research_metadata["rebuild_required"]
+    assert source["id"] in result.context_pack.research_metadata["excluded_source_ids"]
+
+    assert Repo.get!(ContextPack, first_pack.id).sources == first_pack.sources
+
+    assert simulation
+           |> HydraAgent.Simulations.list_build_stages()
+           |> Enum.find(&(&1.stage == "designing_population"))
+           |> Map.fetch!(:status) == "pending"
+
+    assert {:error, :context_source_not_found} =
+             HydraAgent.Simulations.exclude_context_source(
+               result.simulation,
+               "source-does-not-exist",
+               nil
+             )
+
+    assert {:ok, %{created: false, context_pack: rebuilt}} =
+             HydraAgent.Simulations.build_context_pack(result.simulation, nil)
+
+    assert rebuilt.id == result.context_pack.id
+    refute Enum.any?(rebuilt.sources, &(&1["id"] == source["id"]))
+  end
+
+  test "bounded mock research completes four lanes and activates attributable sources", %{
+    workspace: workspace,
+    general: general
+  } do
+    {:ok, simulation} =
+      HydraAgent.Simulations.create_simulation(workspace, nil, %{
+        "question" => "How might teams adopt a new coordination practice?",
+        "blueprint_id" => general.id
+      })
+
+    assert {:ok, %{run: run, queued: true}} =
+             HydraAgent.Simulations.queue_context_research(simulation, nil, "mock")
+
+    assert_enqueued(
+      worker: ContextResearchWorker,
+      args: %{"context_research_run_id" => run.id}
+    )
+
+    assert :ok =
+             perform_job(ContextResearchWorker, %{"context_research_run_id" => run.id})
+
+    completed = Repo.reload!(run)
+    refreshed = HydraAgent.Simulations.get_simulation_for_workspace!(workspace.id, simulation.id)
+
+    assert completed.status == "completed"
+    assert completed.planned_lanes == 4
+    assert completed.completed_lanes == 4
+    assert completed.failed_lanes == 0
+    assert completed.context_pack_id == refreshed.active_context_pack_id
+    assert refreshed.active_context_pack.version == 2
+    assert refreshed.active_context_pack.status == "ready"
+    assert refreshed.active_context_pack.research_metadata["provider_calls"] == 4
+
+    assert Enum.all?(refreshed.active_context_pack.sources, fn source ->
+             source["kind"] == "external_source" and
+               String.starts_with?(source["uri"], "https://") and
+               source["title"] != ""
+           end)
+
+    assert Enum.any?(refreshed.active_context_pack.claims, fn claim ->
+             claim["grounding_class"] == "external_source" and
+               is_binary(claim["source_id"])
+           end)
+
+    assert {:ok, %{created: false, context_pack: unchanged}} =
+             HydraAgent.Simulations.build_context_pack(refreshed, nil)
+
+    assert unchanged.id == refreshed.active_context_pack.id
   end
 
   test "database triggers reject cross-workspace Simulation provenance", %{

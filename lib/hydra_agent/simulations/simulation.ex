@@ -18,9 +18,12 @@ defmodule HydraAgent.Simulations.Simulation do
     belongs_to :source_simulation, __MODULE__
     belongs_to :legacy_study, HydraAgent.SimLab.Schemas.Study
     belongs_to :active_version, HydraAgent.Simulations.SimulationVersion
+    belongs_to :active_context_pack, HydraAgent.Simulations.ContextPack
 
     has_many :versions, HydraAgent.Simulations.SimulationVersion
     has_many :build_stages, HydraAgent.Simulations.BuildStage
+    has_many :context_packs, HydraAgent.Simulations.ContextPack
+    has_many :context_research_runs, HydraAgent.Simulations.ContextResearchRun
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -67,6 +70,25 @@ defmodule HydraAgent.Simulations.Simulation do
     simulation
     |> change(active_version_id: version.id)
     |> foreign_key_constraint(:active_version_id)
+  end
+
+  def activate_context_changeset(simulation, context_pack) do
+    simulation
+    |> change(active_context_pack_id: context_pack.id, status: "building")
+    |> foreign_key_constraint(:active_context_pack_id)
+    |> check_constraint(:status, name: :simulations_status_check)
+  end
+
+  def activate_build_changeset(simulation, version, context_pack) do
+    simulation
+    |> change(
+      active_version_id: version.id,
+      active_context_pack_id: context_pack.id,
+      status: "building"
+    )
+    |> foreign_key_constraint(:active_version_id)
+    |> foreign_key_constraint(:active_context_pack_id)
+    |> check_constraint(:status, name: :simulations_status_check)
   end
 
   def archive_changeset(simulation, now) do

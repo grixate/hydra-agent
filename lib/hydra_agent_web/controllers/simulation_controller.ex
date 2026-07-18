@@ -69,9 +69,58 @@ defmodule HydraAgentWeb.SimulationController do
   end
 
   def build(conn, params), do: render_stage(conn, params, :build)
+  def context(conn, params), do: render_context(conn, params)
   def run(conn, params), do: render_stage(conn, params, :run)
   def results(conn, params), do: render_stage(conn, params, :results)
   def compare(conn, params), do: render_stage(conn, params, :compare)
+
+  def build_context(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         {:ok, _result} <-
+           Simulations.build_context_pack(simulation, conn.assigns[:current_user]) do
+      conn
+      |> put_flash(:info, t(conn, :context_assembled))
+      |> redirect(to: stage_path(simulation.id, :context, workspace.id, conn.assigns.locale))
+    else
+      _ -> not_found(conn)
+    end
+  end
+
+  def research_context(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         {:ok, _result} <-
+           Simulations.queue_context_research(simulation, conn.assigns[:current_user]) do
+      conn
+      |> put_flash(:info, t(conn, :context_research_queued))
+      |> redirect(to: stage_path(simulation.id, :context, workspace.id, conn.assigns.locale))
+    else
+      {:error, :research_not_configured} ->
+        conn
+        |> put_flash(:error, t(conn, :context_research_not_configured))
+        |> redirect(
+          to: stage_path(params["id"], :context, params["workspace_id"], conn.assigns.locale)
+        )
+
+      _ ->
+        not_found(conn)
+    end
+  end
+
+  def exclude_context_source(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         {:ok, _result} <-
+           Simulations.exclude_context_source(
+             simulation,
+             params["source_id"],
+             conn.assigns[:current_user]
+           ) do
+      conn
+      |> put_flash(:info, t(conn, :context_source_excluded))
+      |> redirect(to: stage_path(simulation.id, :context, workspace.id, conn.assigns.locale))
+    else
+      _ -> not_found(conn)
+    end
+  end
 
   def duplicate(conn, params) do
     with {_workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
@@ -124,7 +173,28 @@ defmodule HydraAgentWeb.SimulationController do
         stages: stages,
         stage: stage,
         can_edit: authorized?(conn, workspace.id, "researcher"),
+        context_pack: simulation.active_context_pack,
+        context_research_run: Simulations.latest_context_research_run(simulation),
+        context_research_configured:
+          HydraAgent.SimLab.Research.Providers.web_search_configured?(),
         ready_summary: Simulations.ready_summary(simulation)
+      )
+    else
+      _ -> not_found(conn)
+    end
+  end
+
+  defp render_context(conn, params) do
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "viewer") do
+      render(conn, :context,
+        page_title: t(conn, :context_title),
+        workspace: workspace,
+        simulation: simulation,
+        context_pack: simulation.active_context_pack,
+        context_research_run: Simulations.latest_context_research_run(simulation),
+        context_research_configured:
+          HydraAgent.SimLab.Research.Providers.web_search_configured?(),
+        can_edit: authorized?(conn, workspace.id, "researcher")
       )
     else
       _ -> not_found(conn)
@@ -183,6 +253,7 @@ defmodule HydraAgentWeb.SimulationController do
        do: t(conn, :invalid_file)
 
   defp error_copy(conn, :mode_disabled), do: t(conn, :mode_disabled)
+  defp error_copy(conn, :invalid_historical_cutoff), do: t(conn, :invalid_cutoff)
   defp error_copy(conn, _reason), do: t(conn, :invalid_form)
 
   defp stringify_form(form) when is_map(form) do

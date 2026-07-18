@@ -1,0 +1,272 @@
+<div class="simulation-studio simulation-context-page">
+  <header class="simulation-composer-header">
+    <a
+      href={stage_path(@simulation.id, "build", @workspace.id, @locale)}
+      class="simulation-back-link"
+    >
+      <span aria-hidden="true">←</span> {t(@locale, :context_return_build)}
+    </a>
+    <nav class="blueprint-locale-switch" aria-label={t(@locale, :locale_label)}>
+      <a
+        href={stage_path(@simulation.id, "context", @workspace.id, "en")}
+        aria-current={if @locale == "en", do: "page"}
+      >
+        {t(@locale, :english)}
+      </a>
+      <span aria-hidden="true">/</span>
+      <a
+        href={stage_path(@simulation.id, "context", @workspace.id, "ru")}
+        aria-current={if @locale == "ru", do: "page"}
+      >
+        {t(@locale, :russian)}
+      </a>
+    </nav>
+  </header>
+
+  <header class="simulation-context-hero">
+    <div>
+      <p class="blueprint-eyebrow">02.1 · {t(@locale, :context_pack)}</p>
+      <h1>{t(@locale, :context_title)}</h1>
+      <p>{t(@locale, :context_lede)}</p>
+    </div>
+    <%= if @context_pack do %>
+      <dl>
+        <div>
+          <dt>{t(@locale, :context_version)}</dt>
+          <dd>v{@context_pack.version}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :context_confidence)}</dt>
+          <dd>{confidence_label(@locale, @context_pack.confidence)}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :content_hash)}</dt>
+          <dd><code>{@context_pack.content_hash |> short_hash()}…</code></dd>
+        </div>
+      </dl>
+    <% end %>
+  </header>
+
+  <%= if @context_pack do %>
+    <section class="simulation-context-status">
+      <div>
+        <span aria-hidden="true">◇</span>
+        <div>
+          <strong>
+            {t(
+              @locale,
+              if(@context_pack.status == "ready", do: :context_ready, else: :context_partial)
+            )}
+          </strong>
+          <p>{context_pack_summary(@locale, @context_pack)}</p>
+        </div>
+      </div>
+      <div class="simulation-context-research-action">
+        <%= cond do %>
+          <% @context_research_run && @context_research_run.status in ["queued", "running"] -> %>
+            <span>{t(@locale, context_research_status_key(@context_research_run.status))}</span>
+          <% @can_edit && @context_research_configured -> %>
+            <form action={"/simulations/#{@simulation.id}/context/research"} method="post">
+              <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+              <input type="hidden" name="workspace_id" value={@workspace.id} />
+              <input type="hidden" name="locale" value={@locale} />
+              <button type="submit">{t(@locale, :context_add_web)}</button>
+            </form>
+          <% @can_edit -> %>
+            <span>{t(@locale, :context_web_unavailable)}</span>
+          <% true -> %>
+        <% end %>
+      </div>
+    </section>
+
+    <section class="simulation-context-scope">
+      <header>
+        <p class="blueprint-eyebrow">01 · {t(@locale, :context_scope)}</p>
+        <h2>{t(@locale, :context_world)}</h2>
+      </header>
+      <div class="simulation-context-world">
+        <p>{@context_pack.interpretation["world"]}</p>
+        <dl>
+          <div>
+            <dt>{t(@locale, :context_geography)}</dt>
+            <dd>{@context_pack.scope["geography"] || "—"}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :context_horizon)}</dt>
+            <dd>{@context_pack.scope["horizon"] || "—"}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :context_cutoff)}</dt>
+            <dd>
+              {@context_pack.historical_cutoff || t(@locale, :context_no_cutoff)}
+            </dd>
+          </div>
+        </dl>
+      </div>
+      <div class="simulation-context-candidates">
+        <article>
+          <h3>{t(@locale, :context_agent_types)}</h3>
+          <p :for={item <- @context_pack.interpretation["agent_types"]}>
+            {context_identifier(item, @locale)}
+          </p>
+        </article>
+        <article>
+          <h3>{t(@locale, :context_resources)}</h3>
+          <p :for={item <- @context_pack.interpretation["candidate_resources"]}>
+            {context_identifier(item, @locale)}
+          </p>
+        </article>
+        <article>
+          <h3>{t(@locale, :context_actions)}</h3>
+          <p :for={item <- @context_pack.interpretation["candidate_actions"]}>
+            {context_identifier(item, @locale)}
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="simulation-context-section" id="sources">
+      <header>
+        <p class="blueprint-eyebrow">02 · {t(@locale, :context_sources)}</p>
+        <h2>{t(@locale, :context_sources)}</h2>
+        <span>{length(@context_pack.sources)}</span>
+      </header>
+      <p :if={@context_pack.sources == []} class="simulation-context-empty">
+        {t(@locale, :context_no_sources)}
+      </p>
+      <div class="simulation-source-list">
+        <article :for={source <- @context_pack.sources} id={"source-#{source["id"]}"}>
+          <header>
+            <div>
+              <span>{t(@locale, context_source_status_key(source["status"]))}</span>
+              <h3>{source["title"]}</h3>
+              <a
+                :if={source["uri"]}
+                href={source["uri"]}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                {source_host(source)} <span aria-hidden="true">↗</span>
+              </a>
+              <small :if={source["published_at"]}>
+                {tx(@locale, :context_published, date: source["published_at"])}
+              </small>
+            </div>
+            <form
+              :if={@can_edit}
+              action={"/simulations/#{@simulation.id}/context/sources/#{source["id"]}/exclude"}
+              method="post"
+            >
+              <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+              <input type="hidden" name="workspace_id" value={@workspace.id} />
+              <input type="hidden" name="locale" value={@locale} />
+              <button
+                type="submit"
+                aria-label={tx(@locale, :context_exclude_source_named, source: source["title"])}
+              >
+                {t(@locale, :context_exclude_source)}
+              </button>
+            </form>
+          </header>
+          <p :if={source["excerpt"]}>{source["excerpt"]}</p>
+          <div :if={source["review_required"]} class="simulation-source-warning">
+            {t(@locale, :context_source_review)}
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="simulation-context-section">
+      <header>
+        <p class="blueprint-eyebrow">03 · {t(@locale, :context_claims)}</p>
+        <h2>{t(@locale, :context_claims)}</h2>
+        <span>{length(@context_pack.claims)}</span>
+      </header>
+      <p :if={@context_pack.claims == []} class="simulation-context-empty">
+        {t(@locale, :context_no_claims)}
+      </p>
+      <div class="simulation-claim-list">
+        <article :for={claim <- @context_pack.claims}>
+          <span>{t(@locale, grounding_key(claim["grounding_class"]))}</span>
+          <div>
+            <p>{claim["statement"]}</p>
+            <%= if source = claim_source(claim, @context_pack.sources) do %>
+              <a href={"#source-#{source["id"]}"}>
+                {tx(@locale, :context_claim_source, source: source["title"])}
+              </a>
+            <% end %>
+          </div>
+          <em>{confidence_label(@locale, claim["confidence"])}</em>
+        </article>
+      </div>
+    </section>
+
+    <div class="simulation-context-two-column">
+      <section class="simulation-context-section">
+        <header>
+          <p class="blueprint-eyebrow">04 · {t(@locale, :context_assumptions)}</p>
+          <h2>{t(@locale, :context_assumptions)}</h2>
+          <span>{length(@context_pack.assumptions)}</span>
+        </header>
+        <div class="simulation-assumption-list">
+          <article :for={assumption <- @context_pack.assumptions}>
+            <span aria-hidden="true">◇</span>
+            <p>{assumption["statement"]}</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="simulation-context-section">
+        <header>
+          <p class="blueprint-eyebrow">05 · {t(@locale, :context_gaps)}</p>
+          <h2>{t(@locale, :context_gaps)}</h2>
+          <span>{length(@context_pack.gaps)}</span>
+        </header>
+        <p :if={@context_pack.gaps == []} class="simulation-context-empty">
+          {t(@locale, :context_no_gaps)}
+        </p>
+        <div class="simulation-gap-list">
+          <article :for={gap <- @context_pack.gaps}>
+            <span>{t(@locale, context_gap_key(gap["kind"]))}</span>
+            <p>{gap["statement"]}</p>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <section class="simulation-context-plan">
+      <header>
+        <p class="blueprint-eyebrow">06 · {t(@locale, :context_research_plan)}</p>
+        <span>
+          {tx(@locale, :context_provider_calls,
+            count: @context_pack.research_metadata["provider_calls"] || 0
+          )}
+        </span>
+      </header>
+      <article :for={lane <- @context_pack.research_plan}>
+        <span>{t(@locale, context_lane_status_key(lane["status"]))}</span>
+        <div>
+          <h3>{lane["purpose"]}</h3>
+          <details>
+            <summary>{t(@locale, :context_show_query)}</summary>
+            <p>{lane["safe_query"]}</p>
+          </details>
+        </div>
+      </article>
+    </section>
+  <% else %>
+    <section class="simulation-zero-state">
+      <span class="simulation-orbit" aria-hidden="true">◇</span>
+      <h2>{t(@locale, :context_pack)}</h2>
+      <p>{t(@locale, :context_lede)}</p>
+      <form :if={@can_edit} action={"/simulations/#{@simulation.id}/context/build"} method="post">
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <input type="hidden" name="workspace_id" value={@workspace.id} />
+        <input type="hidden" name="locale" value={@locale} />
+        <button class="simulation-primary-link" type="submit">
+          {t(@locale, :assemble_context)}
+        </button>
+      </form>
+    </section>
+  <% end %>
+</div>

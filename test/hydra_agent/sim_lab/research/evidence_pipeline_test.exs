@@ -238,4 +238,31 @@ defmodule HydraAgent.SimLab.Research.EvidencePipelineTest do
     assert Runner.run(@question, %{}, provider) ==
              Runner.run(@question, %{}, reversed_provider)
   end
+
+  test "normalizes publication dates into source and claim provenance" do
+    provider = fn lane ->
+      if lane.lane == "market_context" do
+        {:ok,
+         [
+           %{
+             title: "Archived evidence",
+             url: "https://evidence.example/archive",
+             snippet: "Evidence available before a historical decision.",
+             published_at: "2024-01-15T08:30:00Z",
+             reliability: "high"
+           }
+         ]}
+      else
+        {:ok, []}
+      end
+    end
+
+    output = Runner.run(@question, %{}, provider)
+    assert [source] = output.sources
+    assert source.metadata["published_at"] == "2024-01-15"
+
+    assert [evidence] = output.evidence
+    assert evidence.source_ref["published_at"] == "2024-01-15"
+    assert hd(evidence.metadata["provenance"])["published_at"] == "2024-01-15"
+  end
 end

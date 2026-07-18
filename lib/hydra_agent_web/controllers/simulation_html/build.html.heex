@@ -66,8 +66,18 @@
     <aside>
       <span aria-hidden="true">◇</span>
       <div>
-        <strong>{t(@locale, :build_not_started)}</strong>
-        <p>{t(@locale, :build_not_started_lede)}</p>
+        <%= if @context_pack do %>
+          <strong>
+            {t(
+              @locale,
+              if(@context_pack.status == "ready", do: :context_ready, else: :context_partial)
+            )}
+          </strong>
+          <p>{context_pack_summary(@locale, @context_pack)}</p>
+        <% else %>
+          <strong>{t(@locale, :build_not_started)}</strong>
+          <p>{t(@locale, :build_not_started_lede)}</p>
+        <% end %>
       </div>
     </aside>
   </section>
@@ -103,8 +113,53 @@
     </div>
     <div>
       <span>{t(@locale, :provider_calls)}</span>
-      <strong>{t(@locale, :zero)}</strong>
+      <strong>{(@context_pack && @context_pack.research_metadata["provider_calls"]) || 0}</strong>
     </div>
+  </section>
+
+  <section class="simulation-context-brief">
+    <header>
+      <div>
+        <p class="blueprint-eyebrow">02.1 · {t(@locale, :context_pack)}</p>
+        <h2>{t(@locale, :context_title)}</h2>
+        <p>{t(@locale, :context_lede)}</p>
+      </div>
+      <a href={stage_path(@simulation.id, "context", @workspace.id, @locale)}>
+        {t(@locale, :inspect_context)} <span aria-hidden="true">→</span>
+      </a>
+    </header>
+
+    <%= if @context_pack do %>
+      <dl>
+        <div>
+          <dt>{t(@locale, :context_version)}</dt>
+          <dd>v{@context_pack.version}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :context_sources)}</dt>
+          <dd>{length(@context_pack.sources)}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :context_claims)}</dt>
+          <dd>{length(@context_pack.claims)}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :context_assumptions)}</dt>
+          <dd>{length(@context_pack.assumptions)}</dd>
+        </div>
+        <div>
+          <dt>{t(@locale, :context_confidence)}</dt>
+          <dd>{confidence_label(@locale, @context_pack.confidence)}</dd>
+        </div>
+      </dl>
+    <% else %>
+      <form :if={@can_edit} action={"/simulations/#{@simulation.id}/context/build"} method="post">
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <input type="hidden" name="workspace_id" value={@workspace.id} />
+        <input type="hidden" name="locale" value={@locale} />
+        <button type="submit">{t(@locale, :assemble_context)}</button>
+      </form>
+    <% end %>
   </section>
 
   <% modules = [

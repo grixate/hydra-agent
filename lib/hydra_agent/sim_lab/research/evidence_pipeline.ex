@@ -120,6 +120,11 @@ defmodule HydraAgent.SimLab.Research.EvidencePipeline do
     synthetic_test? = field(result, :synthetic_test) == true
     uri = canonical_uri(field(result, :url))
 
+    published_at =
+      field(result, :published_at) || field(result, :published_date) || field(result, :date)
+
+    published_at = normalize_published_at(published_at)
+
     cond do
       title == "" and snippet == "" ->
         :discard
@@ -158,6 +163,7 @@ defmodule HydraAgent.SimLab.Research.EvidencePipeline do
           title: title,
           snippet: snippet,
           uri: if(grounding_level == "assumption", do: nil, else: uri),
+          published_at: published_at,
           content_hash: content_hash,
           grounding_level: grounding_level,
           source_type: source_type(grounding_level),
@@ -250,6 +256,11 @@ defmodule HydraAgent.SimLab.Research.EvidencePipeline do
         status: "parsed"
       }
 
+      source =
+        if representative.published_at,
+          do: put_in(source, [:metadata, "published_at"], representative.published_at),
+          else: source
+
       references =
         Enum.reduce(ordered_group, references, fn candidate, acc ->
           Map.put(acc, candidate.id, reference)
@@ -294,6 +305,11 @@ defmodule HydraAgent.SimLab.Research.EvidencePipeline do
       "provider_mode" => candidate.provider_mode
     }
 
+    provenance =
+      if candidate.published_at,
+        do: Map.put(provenance, "published_at", candidate.published_at),
+        else: provenance
+
     %{
       source_reference: source_reference,
       kind: "research_candidate",
@@ -327,6 +343,11 @@ defmodule HydraAgent.SimLab.Research.EvidencePipeline do
         "simulation_impacts" => [candidate.lane.expected_simulation_impact]
       }
     }
+    |> then(fn evidence ->
+      if candidate.published_at,
+        do: put_in(evidence, [:source_ref, "published_at"], candidate.published_at),
+        else: evidence
+    end)
   end
 
   defp merge_exact_claims(evidence) do
@@ -517,6 +538,25 @@ defmodule HydraAgent.SimLab.Research.EvidencePipeline do
   end
 
   defp canonical_uri(_uri), do: nil
+
+  defp normalize_published_at(%Date{} = date), do: Date.to_iso8601(date)
+
+  defp normalize_published_at(%DateTime{} = datetime),
+    do: datetime |> DateTime.to_date() |> Date.to_iso8601()
+
+  defp normalize_published_at(%NaiveDateTime{} = datetime),
+    do: datetime |> NaiveDateTime.to_date() |> Date.to_iso8601()
+
+  defp normalize_published_at(value) when is_binary(value) do
+    candidate = value |> String.trim() |> String.slice(0, 10)
+
+    case Date.from_iso8601(candidate) do
+      {:ok, date} -> Date.to_iso8601(date)
+      _ -> nil
+    end
+  end
+
+  defp normalize_published_at(_value), do: nil
 
   defp public_link_hostname?(host) do
     normalized = String.downcase(host)

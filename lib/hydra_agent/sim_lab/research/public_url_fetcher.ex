@@ -49,8 +49,10 @@ defmodule HydraAgent.SimLab.Research.PublicUrlFetcher do
          true <- uri.scheme == "https",
          true <- is_binary(uri.host) and uri.host != "",
          true <- is_nil(uri.userinfo),
+         true <- is_nil(uri.port) or uri.port == 443,
+         true <- public_hostname?(uri.host),
          true <- not ip_literal?(uri.host) do
-      {:ok, uri}
+      {:ok, %{uri | host: String.downcase(uri.host), port: nil, fragment: nil}}
     else
       _ -> {:error, :invalid_public_https_url}
     end
@@ -113,6 +115,14 @@ defmodule HydraAgent.SimLab.Research.PublicUrlFetcher do
       {:ok, _address} -> true
       _ -> false
     end
+  end
+
+  defp public_hostname?(host) do
+    normalized = String.downcase(host)
+
+    String.contains?(normalized, ".") and
+      normalized not in ["localhost", "localhost.localdomain"] and
+      not Enum.any?(~w(.local .localhost .internal .lan), &String.ends_with?(normalized, &1))
   end
 
   defp pinned_url(uri, address) do

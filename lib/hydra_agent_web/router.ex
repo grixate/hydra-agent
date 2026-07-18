@@ -177,6 +177,14 @@ defmodule HydraAgentWeb.Router do
     post "/simulations", SimulationController, :create
     get "/simulations/:id", SimulationController, :show
     get "/simulations/:id/build", SimulationController, :build
+    get "/simulations/:id/context", SimulationController, :context
+    post "/simulations/:id/context/build", SimulationController, :build_context
+    post "/simulations/:id/context/research", SimulationController, :research_context
+
+    post "/simulations/:id/context/sources/:source_id/exclude",
+         SimulationController,
+         :exclude_context_source
+
     get "/simulations/:id/run", SimulationController, :run
     get "/simulations/:id/results", SimulationController, :results
     get "/simulations/:id/compare", SimulationController, :compare
