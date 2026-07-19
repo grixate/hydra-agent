@@ -1,0 +1,160 @@
+<section class="privacy-settings" aria-labelledby="privacy-title">
+  <header class="privacy-settings-header">
+    <div class="privacy-settings-topline">
+      <p>{t(@locale, :eyebrow)}</p>
+      <nav aria-label="Language">
+        <a
+          href={~p"/settings/privacy?workspace_id=#{@workspace && @workspace.id}&locale=en"}
+          aria-current={if @locale == "en", do: "page"}
+        >
+          EN
+        </a>
+        <span aria-hidden="true">/</span>
+        <a
+          href={~p"/settings/privacy?workspace_id=#{@workspace && @workspace.id}&locale=ru"}
+          aria-current={if @locale == "ru", do: "page"}
+        >
+          RU
+        </a>
+      </nav>
+    </div>
+    <h1 id="privacy-title">{t(@locale, :title)}</h1>
+    <p>{t(@locale, :lede)}</p>
+    <div class="privacy-settings-actions">
+      <a href={~p"/account/security"}>{t(@locale, :account_security)}</a>
+      <a :if={@operations_authorized?} href={~p"/control/settings"}>
+        {t(@locale, :operations)}
+      </a>
+    </div>
+  </header>
+
+  <form :if={length(@workspaces) > 1} method="get" class="privacy-workspace-picker">
+    <input type="hidden" name="locale" value={@locale} />
+    <label for="privacy-workspace">{t(@locale, :workspace)}</label>
+    <select id="privacy-workspace" name="workspace_id">
+      <option
+        :for={workspace <- @workspaces}
+        value={workspace.id}
+        selected={@workspace && workspace.id == @workspace.id}
+      >
+        {workspace.name}
+      </option>
+    </select>
+    <button type="submit">{t(@locale, :workspace)}</button>
+  </form>
+
+  <aside :if={!@disclosure.complete?} class="privacy-notice" role="status">
+    <span aria-hidden="true">!</span>
+    <div>
+      <strong>{t(@locale, :incomplete_title)}</strong>
+      <p>{t(@locale, :incomplete_lede)}</p>
+    </div>
+  </aside>
+
+  <section class="privacy-section" aria-labelledby="privacy-operator-title">
+    <header>
+      <span>01</span>
+      <h2 id="privacy-operator-title">{t(@locale, :operator_title)}</h2>
+    </header>
+    <dl class="privacy-operator-grid">
+      <div>
+        <dt>{t(@locale, :operator)}</dt>
+        <dd>{disclosure_value(@disclosure.operator_name, @locale)}</dd>
+      </div>
+      <div>
+        <dt>{t(@locale, :support)}</dt>
+        <dd>{disclosure_value(@disclosure.support_email, @locale)}</dd>
+      </div>
+      <div>
+        <dt>{t(@locale, :security)}</dt>
+        <dd>{disclosure_value(@disclosure.security_email, @locale)}</dd>
+      </div>
+      <div>
+        <dt>{t(@locale, :privacy_notice)}</dt>
+        <dd>{disclosure_value(@disclosure.privacy_url, @locale)}</dd>
+      </div>
+      <div>
+        <dt>{t(@locale, :retention)}</dt>
+        <dd>{disclosure_value(@disclosure.retention_summary, @locale)}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="privacy-section" aria-labelledby="privacy-flow-title">
+    <header>
+      <span>02</span>
+      <div>
+        <h2 id="privacy-flow-title">{t(@locale, :flow_title)}</h2>
+        <p>{t(@locale, :flow_lede)}</p>
+      </div>
+    </header>
+    <div class="privacy-flow-grid">
+      <article>
+        <small>01</small>
+        <h3>{t(@locale, :research_title)}</h3>
+        <p>{t(@locale, :research_body)}</p>
+      </article>
+      <article>
+        <small>02</small>
+        <h3>{t(@locale, :balanced_title)}</h3>
+        <p>{t(@locale, :balanced_body)}</p>
+      </article>
+      <article>
+        <small>03</small>
+        <h3>{t(@locale, :report_title)}</h3>
+        <p>{t(@locale, :report_body)}</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="privacy-section" aria-labelledby="privacy-routes-title">
+    <header>
+      <span>03</span>
+      <div>
+        <h2 id="privacy-routes-title">{t(@locale, :routes_title)}</h2>
+        <p>{t(@locale, :routes_lede)}</p>
+      </div>
+    </header>
+    <div :if={@providers != []} class="privacy-route-list">
+      <article :for={provider <- @providers}>
+        <div>
+          <strong>{provider.name}</strong>
+          <span class={"is-#{provider.posture}"}>
+            {provider_posture(@locale, provider.posture)}
+          </span>
+        </div>
+        <p>{provider.kind} · {t(@locale, :route_model)} {provider.model}</p>
+      </article>
+    </div>
+    <p :if={@providers == []} class="privacy-empty">{t(@locale, :no_routes)}</p>
+  </section>
+
+  <div class="privacy-bottom-grid">
+    <section class="privacy-section" aria-labelledby="privacy-safeguards-title">
+      <header>
+        <span>04</span>
+        <h2 id="privacy-safeguards-title">{t(@locale, :safeguards_title)}</h2>
+      </header>
+      <ul class="privacy-safeguards">
+        <li :for={item <- t(@locale, :safeguards)}>{item}</li>
+      </ul>
+    </section>
+
+    <div class="privacy-side-stack">
+      <section class="privacy-section" aria-labelledby="privacy-storage-title">
+        <header>
+          <span>05</span>
+          <h2 id="privacy-storage-title">{t(@locale, :storage_title)}</h2>
+        </header>
+        <p>{t(@locale, :storage_body)}</p>
+      </section>
+      <section class="privacy-section privacy-codex" aria-labelledby="privacy-codex-title">
+        <header>
+          <span>06</span>
+          <h2 id="privacy-codex-title">{t(@locale, :codex_title)}</h2>
+        </header>
+        <p>{t(@locale, :codex_body)}</p>
+      </section>
+    </div>
+  </div>
+</section>

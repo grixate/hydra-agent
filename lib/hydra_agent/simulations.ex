@@ -38,6 +38,7 @@ defmodule HydraAgent.Simulations do
     PriceRegistry,
     ReportExporter,
     ReportGenerator,
+    RunDiagnostics,
     RunPack,
     ScriptBuilder,
     ScriptExporter,
@@ -369,6 +370,8 @@ defmodule HydraAgent.Simulations do
   end
 
   def inspect_run_pack(binary), do: RunPack.import(binary)
+
+  def diagnose_run(%SimulationRunRecord{} = record), do: RunDiagnostics.build(record)
 
   def export_manual_external_request(%Simulation{} = simulation),
     do: ManualExternalModel.request(simulation)

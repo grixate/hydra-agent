@@ -159,6 +159,14 @@
           </dl>
         </details>
 
+        <a
+          :if={@can_admin}
+          class="simulation-support-diagnostic"
+          href={run_diagnostics_path(@simulation.id, @latest_run.id, @workspace.id, @locale)}
+        >
+          {t(@locale, :run_support_diagnostic)} <span aria-hidden="true">↓</span>
+        </a>
+
         <section
           :if={
             @latest_run.mode == "balanced" && @cognition_summary &&

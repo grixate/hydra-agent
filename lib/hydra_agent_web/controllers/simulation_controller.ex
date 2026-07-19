@@ -24,7 +24,12 @@ defmodule HydraAgentWeb.SimulationController do
          window_seconds: 3_600,
          identity: :user_workspace
        ]
-       when action in [:export_simulation_pack, :export_run_pack, :export_manual_request]
+       when action in [
+              :export_simulation_pack,
+              :export_run_pack,
+              :export_manual_request,
+              :run_diagnostics
+            ]
 
   plug HydraAgentWeb.Plugs.RateLimit,
        [
@@ -209,6 +214,26 @@ defmodule HydraAgentWeb.SimulationController do
       portable_download(conn, export, "application/json")
     else
       {:error, reason} -> portable_download_error(conn, params, :build, reason)
+      _reason -> not_found(conn)
+    end
+  end
+
+  def run_diagnostics(conn, params) do
+    with {_workspace, simulation} <- fetch_simulation(conn, params, "admin"),
+         %{} = record <- Simulations.get_simulation_run_record(params["run_id"]),
+         true <-
+           record.simulation_id == simulation.id and
+             record.workspace_id == simulation.workspace_id do
+      diagnostic = Simulations.diagnose_run(record)
+      filename = "hydra-run-diagnostic-#{diagnostic["support_code"]}.json"
+
+      conn
+      |> put_resp_header("cache-control", "private, no-store")
+      |> put_resp_header("x-content-type-options", "nosniff")
+      |> put_resp_header("content-disposition", ~s(attachment; filename="#{filename}"))
+      |> put_resp_content_type("application/json")
+      |> send_resp(200, Jason.encode!(diagnostic, pretty: true) <> "\n")
+    else
       _reason -> not_found(conn)
     end
   end
@@ -672,6 +697,7 @@ defmodule HydraAgentWeb.SimulationController do
         stages: stages,
         stage: stage,
         can_edit: authorized?(conn, workspace.id, "researcher"),
+        can_admin: authorized?(conn, workspace.id, "admin"),
         context_pack: simulation.active_context_pack,
         population_model: simulation.active_population_model,
         simulation_script: simulation.active_script,

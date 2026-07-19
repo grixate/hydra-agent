@@ -155,6 +155,28 @@ defmodule HydraAgent.Release do
     result
   end
 
+  @doc "Run one explicit, low-cost structured-output probe against a configured provider."
+  def probe_provider(workspace_slug, provider_name)
+      when is_binary(workspace_slug) and is_binary(provider_name) do
+    load_app()
+
+    {:ok, result, _stopped} =
+      Ecto.Migrator.with_repo(HydraAgent.Repo, fn repo ->
+        workspace = repo.get_by!(HydraAgent.Runtime.Workspace, slug: workspace_slug)
+
+        provider =
+          repo.get_by!(HydraAgent.Runtime.ProviderConfig,
+            workspace_id: workspace.id,
+            name: provider_name,
+            enabled: true
+          )
+
+        HydraAgent.ProviderStaging.probe(provider)
+      end)
+
+    result
+  end
+
   defp repos, do: Application.fetch_env!(@app, :ecto_repos)
 
   defp load_app do

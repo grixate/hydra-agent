@@ -24,6 +24,13 @@ config :hydra_agent, :browser_auth, enabled?: false
 
 config :hydra_agent, :browser_worker_url, nil
 
+config :hydra_agent, :public_disclosure,
+  operator_name: nil,
+  support_email: nil,
+  security_email: nil,
+  privacy_url: nil,
+  retention_summary: nil
+
 config :hydra_agent, :mcp_security,
   stdio_executable_allowlist: [],
   env_ref_allowlist: []

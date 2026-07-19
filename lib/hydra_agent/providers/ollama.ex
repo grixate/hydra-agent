@@ -5,14 +5,16 @@ defmodule HydraAgent.Providers.Ollama do
 
   @impl true
   def chat(provider, request) do
-    provider
-    |> request(:post, "/api/chat", %{
-      model: request["model"] || provider.model,
-      messages: request["messages"] || [],
-      stream: false,
-      options: request["options"] || %{}
-    })
-    |> normalize_chat_response(provider)
+    with :ok <- validate_request_size(request) do
+      provider
+      |> request(:post, "/api/chat", %{
+        model: request["model"] || provider.model,
+        messages: request["messages"] || [],
+        stream: false,
+        options: request["options"] || %{}
+      })
+      |> normalize_chat_response(provider)
+    end
   end
 
   @impl true
@@ -81,40 +83,90 @@ defmodule HydraAgent.Providers.Ollama do
       [
         method: method,
         url: base_url(provider) <> path,
-        receive_timeout: provider.metadata["receive_timeout_ms"] || 60_000
+        receive_timeout: provider.metadata["receive_timeout_ms"] || 60_000,
+        retry: false,
+        redirect: false,
+        compressed: false
       ]
       |> maybe_put_json(body)
+      |> Keyword.merge(test_req_options(provider))
 
     case Req.request(req) do
       {:ok, %{status: status, body: response_body}} when status in 200..299 ->
         {:ok, response_body}
 
       {:ok, %{status: status, body: response_body}} ->
-        {:error,
-         %{"reason" => "provider_http_error", "status" => status, "body" => response_body}}
+        {:error, provider_http_error(status, response_body)}
 
-      {:error, error} ->
-        {:error, %{"reason" => "provider_request_failed", "error" => Exception.message(error)}}
+      {:error, _error} ->
+        {:error, %{"reason" => "provider_request_failed"}}
     end
+  rescue
+    _error -> {:error, %{"reason" => "provider_request_failed"}}
   end
 
   defp normalize_chat_response({:ok, body}, provider) do
-    {:ok,
-     %{
-       "provider" => provider.name,
-       "model" => body["model"] || provider.model,
-       "message" => body["message"] || %{"role" => "assistant", "content" => ""},
-       "usage" => %{
-         "input_tokens" => body["prompt_eval_count"] || 0,
-         "output_tokens" => body["eval_count"] || 0,
-         "total_tokens" => (body["prompt_eval_count"] || 0) + (body["eval_count"] || 0)
-       }
-     }}
+    with %{"content" => content} = message when is_binary(content) <- body["message"],
+         true <- String.valid?(content),
+         {:ok, usage} <- normalize_usage(body) do
+      {:ok,
+       %{
+         "provider" => provider.name,
+         "model" => body["model"] || provider.model,
+         "message" => %{"role" => message["role"] || "assistant", "content" => content},
+         "usage" => usage
+       }}
+    else
+      _invalid -> {:error, %{"reason" => "invalid_provider_response"}}
+    end
   end
 
   defp normalize_chat_response({:error, error}, _provider), do: {:error, error}
 
   defp maybe_put_json(req, nil), do: req
   defp maybe_put_json(req, body), do: Keyword.put(req, :json, body)
+
+  defp normalize_usage(%{"prompt_eval_count" => input, "eval_count" => output})
+       when is_integer(input) and input >= 0 and is_integer(output) and output >= 0 do
+    {:ok,
+     %{
+       "input_tokens" => input,
+       "output_tokens" => output,
+       "total_tokens" => input + output
+     }}
+  end
+
+  defp normalize_usage(_body), do: {:error, :invalid_usage}
+
+  defp validate_request_size(request) when is_map(request) do
+    if :erlang.iolist_size(Jason.encode_to_iodata!(request)) <= 2_000_000,
+      do: :ok,
+      else: {:error, %{"reason" => "provider_request_too_large"}}
+  rescue
+    _error -> {:error, %{"reason" => "invalid_provider_request"}}
+  end
+
+  defp validate_request_size(_request), do: {:error, %{"reason" => "invalid_provider_request"}}
+
+  defp provider_http_error(status, body) do
+    message = if is_map(body), do: bounded_string(body["error"], 500)
+
+    %{"reason" => "provider_http_error", "status" => status}
+    |> maybe_put("provider_message", message)
+  end
+
+  defp bounded_string(value, maximum) when is_binary(value), do: String.slice(value, 0, maximum)
+  defp bounded_string(_value, _maximum), do: nil
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
   defp base_url(provider), do: String.trim_trailing(provider.base_url || @default_base_url, "/")
+
+  defp test_req_options(%{metadata: %{req_options: options}}) when is_list(options), do: options
+
+  defp test_req_options(%{metadata: %{"req_options" => options}}) when is_list(options),
+    do: options
+
+  defp test_req_options(_provider), do: []
 end

@@ -241,6 +241,10 @@ defmodule HydraAgentWeb.Router do
         SimulationController,
         :export_run_pack
 
+    get "/simulations/:id/runs/:run_id/diagnostics.json",
+        SimulationController,
+        :run_diagnostics
+
     get "/simulations/:id/results/reports/:report_id/export/:format",
         SimulationController,
         :export_report
@@ -258,6 +262,7 @@ defmodule HydraAgentWeb.Router do
     get "/blueprints/:id/export", BlueprintController, :export
     get "/account/security", SessionController, :security
     put "/account/security", SessionController, :update_password
+    get "/settings/privacy", PrivacyController, :show
 
     live_session :authenticated, on_mount: [{HydraAgentWeb.UserAuth, :ensure_authenticated}] do
       live "/dashboard", ControlLive, :index

@@ -36,6 +36,13 @@ if browser_worker_url = System.get_env("HYDRA_BROWSER_WORKER_URL") do
   config :hydra_agent, :browser_worker_url, browser_worker_url
 end
 
+config :hydra_agent, :public_disclosure,
+  operator_name: System.get_env("HYDRA_OPERATOR_NAME"),
+  support_email: System.get_env("HYDRA_SUPPORT_EMAIL"),
+  security_email: System.get_env("HYDRA_SECURITY_EMAIL"),
+  privacy_url: System.get_env("HYDRA_PRIVACY_URL"),
+  retention_summary: System.get_env("HYDRA_RETENTION_SUMMARY")
+
 if executables = System.get_env("HYDRA_MCP_STDIO_EXECUTABLES") do
   config :hydra_agent, :mcp_security,
     stdio_executable_allowlist:

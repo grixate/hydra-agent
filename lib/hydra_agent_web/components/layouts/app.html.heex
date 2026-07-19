@@ -25,7 +25,9 @@
         {HydraAgentWeb.BlueprintCopy.t(locale, :nav_blueprints)}
       </a>
       <a
-        href={if @current_user, do: ~p"/account/security", else: "/control/settings"}
+        href={
+          if @current_user, do: "/settings/privacy?locale=#{locale}", else: "/control/settings"
+        }
         class="runtime-account-button runtime-account-link"
         aria-label={
           @current_user &&

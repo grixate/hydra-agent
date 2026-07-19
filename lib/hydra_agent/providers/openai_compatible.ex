@@ -9,14 +9,16 @@ defmodule HydraAgent.Providers.OpenAICompatible do
 
   @impl true
   def chat(provider, request) do
-    provider
-    |> request(:post, "/chat/completions", %{
-      model: request["model"] || provider.model,
-      messages: request["messages"] || [],
-      temperature: request["temperature"],
-      max_tokens: request["max_tokens"]
-    })
-    |> normalize_chat_response(provider)
+    with :ok <- validate_request_size(request) do
+      provider
+      |> request(:post, "/chat/completions", %{
+        model: request["model"] || provider.model,
+        messages: request["messages"] || [],
+        temperature: request["temperature"],
+        max_tokens: request["max_tokens"]
+      })
+      |> normalize_chat_response(provider)
+    end
   end
 
   @impl true
@@ -79,22 +81,27 @@ defmodule HydraAgent.Providers.OpenAICompatible do
           method: method,
           url: url,
           headers: [{"authorization", "Bearer #{api_key}"}, {"content-type", "application/json"}],
-          receive_timeout: provider.metadata["receive_timeout_ms"] || 60_000
+          receive_timeout: provider.metadata["receive_timeout_ms"] || 60_000,
+          retry: false,
+          redirect: false,
+          compressed: false
         ]
         |> maybe_put_json(body)
+        |> Keyword.merge(test_req_options(provider))
 
       case Req.request(req) do
         {:ok, %{status: status, body: response_body}} when status in 200..299 ->
           {:ok, response_body}
 
         {:ok, %{status: status, body: response_body}} ->
-          {:error,
-           %{"reason" => "provider_http_error", "status" => status, "body" => response_body}}
+          {:error, provider_http_error(status, response_body)}
 
         {:error, error} ->
-          {:error, %{"reason" => "provider_request_failed", "error" => Exception.message(error)}}
+          {:error, request_error(error)}
       end
     end
+  rescue
+    error -> {:error, request_error(error)}
   end
 
   defp stream_request(provider, body, callback) when is_function(callback, 1) do
@@ -113,6 +120,9 @@ defmodule HydraAgent.Providers.OpenAICompatible do
           ],
           json: reject_nil_values(body),
           receive_timeout: provider.metadata["receive_timeout_ms"] || 60_000,
+          retry: false,
+          redirect: false,
+          compressed: false,
           into: stream_into(callback, initial_state)
         ]
         |> Keyword.merge(test_req_options(provider))
@@ -144,9 +154,11 @@ defmodule HydraAgent.Providers.OpenAICompatible do
            }}
 
         {:error, error} ->
-          {:error, %{"reason" => "provider_request_failed", "error" => Exception.message(error)}}
+          {:error, request_error(error)}
       end
     end
+  rescue
+    error -> {:error, request_error(error)}
   end
 
   defp stream_into(callback, initial_state) do
@@ -178,23 +190,22 @@ defmodule HydraAgent.Providers.OpenAICompatible do
   end
 
   defp normalize_chat_response({:ok, body}, provider) do
-    message =
-      body
-      |> get_in(["choices"])
-      |> List.wrap()
-      |> List.first()
-      |> case do
-        %{"message" => message} -> message
-        _ -> %{"role" => "assistant", "content" => ""}
-      end
-
-    {:ok,
-     %{
-       "provider" => provider.name,
-       "model" => body["model"] || provider.model,
-       "message" => message,
-       "usage" => normalize_usage(body["usage"] || %{})
-     }}
+    with %{"choices" => [%{"message" => message} | _]} when is_map(message) <- body,
+         content when is_binary(content) <- message["content"],
+         true <- String.valid?(content),
+         {:ok, usage} <- normalize_chat_usage(body["usage"]) do
+      {:ok,
+       %{
+         "provider" => provider.name,
+         "model" => body["model"] || provider.model,
+         "request_id" => bounded_string(body["id"], 200),
+         "message" => %{"role" => message["role"] || "assistant", "content" => content},
+         "usage" => usage
+       }
+       |> reject_nil_values()}
+    else
+      _invalid -> {:error, %{"reason" => "invalid_provider_response"}}
+    end
   end
 
   defp normalize_chat_response({:error, error}, _provider), do: {:error, error}
@@ -226,10 +237,64 @@ defmodule HydraAgent.Providers.OpenAICompatible do
     }
   end
 
+  defp normalize_chat_usage(usage) when is_map(usage) do
+    input = usage["prompt_tokens"] || usage["input_tokens"]
+    output = usage["completion_tokens"] || usage["output_tokens"]
+
+    total =
+      usage["total_tokens"] || ((is_integer(input) and is_integer(output)) && input + output)
+
+    if nonnegative_integer?(input) and nonnegative_integer?(output) and
+         nonnegative_integer?(total) do
+      {:ok,
+       %{
+         "input_tokens" => input,
+         "output_tokens" => output,
+         "total_tokens" => total
+       }}
+    else
+      {:error, :invalid_usage}
+    end
+  end
+
+  defp normalize_chat_usage(_usage), do: {:error, :invalid_usage}
+
   defp maybe_put_json(req, nil), do: req
   defp maybe_put_json(req, body), do: Keyword.put(req, :json, reject_nil_values(body))
 
   defp reject_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
+
+  defp validate_request_size(request) when is_map(request) do
+    if :erlang.iolist_size(Jason.encode_to_iodata!(request)) <= 2_000_000,
+      do: :ok,
+      else: {:error, %{"reason" => "provider_request_too_large"}}
+  rescue
+    _error -> {:error, %{"reason" => "invalid_provider_request"}}
+  end
+
+  defp validate_request_size(_request), do: {:error, %{"reason" => "invalid_provider_request"}}
+
+  defp provider_http_error(status, body) do
+    vendor = if is_map(body), do: body["error"], else: nil
+
+    %{"reason" => "provider_http_error", "status" => status}
+    |> maybe_put("provider_code", vendor_value(vendor, "code"))
+    |> maybe_put("provider_type", vendor_value(vendor, "type"))
+    |> maybe_put("provider_message", vendor_value(vendor, "message"))
+  end
+
+  defp request_error(_error), do: %{"reason" => "provider_request_failed"}
+
+  defp vendor_value(map, key) when is_map(map), do: bounded_string(map[key], 500)
+  defp vendor_value(_map, _key), do: nil
+
+  defp bounded_string(value, maximum) when is_binary(value), do: String.slice(value, 0, maximum)
+  defp bounded_string(_value, _maximum), do: nil
+
+  defp nonnegative_integer?(value), do: is_integer(value) and value >= 0
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp base_url(provider), do: String.trim_trailing(provider.base_url || @default_base_url, "/")
 
