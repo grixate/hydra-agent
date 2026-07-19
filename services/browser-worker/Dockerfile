@@ -11,6 +11,9 @@ RUN npm ci --omit=dev --ignore-scripts \
 
 COPY server.js smoke.js server.test.js accessibility-audit.js ./
 RUN npm run check && HYDRA_BROWSER_INTEGRATION_TEST=1 npm test
+RUN rm -rf /usr/lib/node_modules/npm \
+  && rm -f /usr/bin/npm /usr/bin/npx \
+  && rm -f server.test.js accessibility-audit.js
 
 USER pwuser
 

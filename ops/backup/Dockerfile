@@ -1,6 +1,7 @@
 FROM postgres:16-alpine
 
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl \
+  && rm -f /usr/local/bin/gosu
 
 COPY backup check-backup verify-backup backup-loop off-host-rehearsal /opt/hydra-backup/
 RUN mkdir -p /backups \

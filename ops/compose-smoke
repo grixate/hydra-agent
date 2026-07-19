@@ -111,7 +111,7 @@ for service in app browser-worker backup; do
   service_uid="$(compose exec -T "$service" id -u | tr -d '\r')"
   test "$service_uid" != "0"
 done
-compose exec -T browser-worker npm run smoke
+compose exec -T browser-worker node smoke.js
 
 attempt=0
 until docker exec "$backup_id" sh -c \

@@ -4,8 +4,11 @@ ARG DEBIAN_VERSION=bookworm-20250428-slim
 
 FROM hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION} AS build
 
-RUN apt-get update -y && apt-get install -y build-essential git \
-  && apt-get clean && rm -f /var/lib/apt/lists/*_*
+RUN apt-get update -y \
+  && apt-get upgrade -y \
+  && apt-get install -y --no-install-recommends build-essential git \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -27,8 +30,12 @@ RUN mix release
 
 FROM debian:${DEBIAN_VERSION} AS app
 
-RUN apt-get update -y && apt-get install -y libstdc++6 openssl libncurses6 locales ca-certificates curl \
-  && apt-get clean && rm -f /var/lib/apt/lists/*_*
+RUN apt-get update -y \
+  && apt-get upgrade -y \
+  && apt-get install -y --no-install-recommends \
+  libstdc++6 openssl libncurses6 locales ca-certificates curl \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 
 ENV LANG=C.UTF-8
 ENV MIX_ENV=prod
