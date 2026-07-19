@@ -106,6 +106,7 @@
       "strict_historical_cutoff": true
     }
   ],
+  "candidate_application_commit": "779c610abfc0a3d302421d6984f9642807b37dbe",
   "provider_posture": "deterministic structured mock; external latency and billing are excluded",
   "qualification": "controlled-pilot fixture",
   "recorded_at": "2026-07-19T02:54:29.511086Z",

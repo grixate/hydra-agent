@@ -2,7 +2,7 @@
   "schema_version": 1,
   "recorded_at": "2026-07-19T03:14:12.470Z",
   "qualification": "local candidate accessibility audit",
-  "worktree_parent_commit": "05a1a4985b22e1a8c2dbcebb2aa2d0b548cfda72",
+  "candidate_application_commit": "779c610abfc0a3d302421d6984f9642807b37dbe",
   "environment": {
     "operating_system": "macOS 26.5.1 (25F80)",
     "browser": "Google Chrome 150.0.7871.127",

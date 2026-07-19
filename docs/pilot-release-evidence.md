@@ -4,6 +4,8 @@ This matrix distinguishes code-complete gates from environment-dependent
 qualification. A gate is `passed` only when its evidence comes from the current
 candidate and the environment it claims to qualify.
 
+Candidate application commit: `779c610abfc0a3d302421d6984f9642807b37dbe`.
+
 | Gate | Current state | Evidence / required completion |
 |---|---|---|
 | Real no-data Build | Passed locally | General fixture completed from one question with no supplied sources; assumptions and gaps remained explicit. |
