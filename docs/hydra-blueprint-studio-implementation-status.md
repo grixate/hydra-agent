@@ -721,6 +721,10 @@ also passes.
 - [x] The operator kit covers ownership, deployment, disclosure, live provider
   staging, support diagnosis, incident recovery, accessibility, pilot cases,
   privacy/provider templates, and explicit go/no-go evidence.
+- [x] Exact-revision production application, browser-worker, and backup images
+  build successfully. Release and Compose smoke cover blank-database
+  migrations, readiness, API boundaries, immutable assets, concurrent health,
+  container isolation and limits, encrypted backup, and disposable restore.
 - [ ] Run the live provider probe for every enabled production route and
   fallback. No non-mock provider or production credential exists locally.
 - [ ] Complete a human VoiceOver/Safari review against the immutable staging
@@ -742,6 +746,17 @@ The same worktree passed the coverage floor at 76.78% with 710 tests and zero
 failures. Browser-worker syntax and proxy-security tests passed with nine tests
 and two environment-dependent real-Chromium cases skipped; the separate live
 Chrome accessibility audit passed all 69 route/viewport checks.
+
+Candidate commit `b8e25e7f29d0af99061ab3599b78d3d67f1cc160` passed a clean
+`mix precommit` with 710 tests and zero failures, built all three `linux/arm64`
+production images, passed all 11 browser-worker tests inside its Playwright
+image, and passed both `ops/release-smoke` and `ops/compose-smoke`. The latter
+includes an encrypted disposable restore and full container-boundary checks;
+it remains intentionally distinct from the required independent-storage
+rehearsal. All three exact-revision images also pass the Trivy 0.70.0 gate with
+zero fixable HIGH/CRITICAL findings after Debian package upgrades and removal
+of unused runtime npm/gosu tooling. Content-addressed evidence is in
+`docs/release/2026-07-19-production-artifact-smoke.json`.
 
 ## Baseline evidence
 

@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-19T04:11:11Z",
+  "qualification": "local arm64 production-artifact smoke",
+  "candidate_repository_commit": "b8e25e7f29d0af99061ab3599b78d3d67f1cc160",
+  "environment": {
+    "host": "macOS 26.5.1 (25F80)",
+    "virtualization": "Colima 0.10.1 with macOS Virtualization.Framework and virtiofs",
+    "docker_client": "29.5.2",
+    "docker_server": "29.2.1",
+    "docker_compose": "5.1.4",
+    "architecture": "linux/arm64"
+  },
+  "images": [
+    {
+      "name": "hydra-agent:pilot-b8e25e7",
+      "image_id": "sha256:b56a24da6a17a19f876c58a38cad7ddb498ddd351ed887b3d15fa72e5113994e",
+      "size_bytes": 81377361,
+      "runtime_user": "hydra",
+      "revision_label": "b8e25e7f29d0af99061ab3599b78d3d67f1cc160",
+      "build": "passed"
+    },
+    {
+      "name": "hydra-browser-worker:pilot-b8e25e7",
+      "image_id": "sha256:0dba63f74c38a268bbbcc14cbc51303c166ccae2fbc91143e5d5717913aa1414",
+      "size_bytes": 942060061,
+      "runtime_user": "pwuser",
+      "revision_label": "b8e25e7f29d0af99061ab3599b78d3d67f1cc160",
+      "build": "passed",
+      "containerized_browser_tests": {
+        "passed": 11,
+        "failed": 0,
+        "skipped": 0,
+        "includes_real_chromium_dns_rebinding_and_loopback_bypass": true
+      }
+    },
+    {
+      "name": "hydra-agent-backup:pilot-b8e25e7",
+      "image_id": "sha256:dd34a2f44b43509a3cc87442df73639db689a0c2288e111a27b455d0e539a7ca",
+      "size_bytes": 114241393,
+      "runtime_user": "postgres",
+      "revision_label": "b8e25e7f29d0af99061ab3599b78d3d67f1cc160",
+      "build": "passed"
+    }
+  ],
+  "base_images": [
+    "hexpm/elixir@sha256:04e031d1582ce1f09a025c834b9caffbb2eee904a643b23901431e825d29bb4e",
+    "debian@sha256:4b50eb66f977b4062683ff434ef18ac191da862dbe966961bc11990cf5791a8d",
+    "mcr.microsoft.com/playwright@sha256:57b65fdc9ceabe0ef613124c7bbe2babcf9362c4d85e382fe3b03604e84b428a",
+    "postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
+  ],
+  "vulnerability_scan": {
+    "status": "passed",
+    "scanner": "Trivy 0.70.0",
+    "scanner_image": "aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+    "policy": "fail on fixable HIGH or CRITICAL findings; ignore unfixed findings",
+    "application_high": 0,
+    "application_critical": 0,
+    "browser_high": 0,
+    "browser_critical": 0,
+    "backup_high": 0,
+    "backup_critical": 0,
+    "high_or_critical_image_misconfigurations": 0,
+    "embedded_secrets": 0,
+    "ci_regression_gate": "ops/image-scan",
+    "hardening": [
+      "upgraded Debian build and runtime packages before compilation and release assembly",
+      "removed the global npm toolchain and audit/test sources from the browser runtime after image tests",
+      "removed unused gosu from the backup runtime, which already executes as postgres"
+    ]
+  },
+  "release_smoke": {
+    "status": "passed",
+    "assertions": [
+      "all migrations applied to a blank PostgreSQL 16 database",
+      "application reached ready state",
+      "unauthenticated API access returned 401 and authenticated health/metrics succeeded",
+      "production assets were content-digested, public-cacheable for at least one year, and gzip encoded",
+      "HSTS was emitted behind the trusted HTTPS proxy boundary",
+      "100 concurrent authenticated health requests returned 200"
+    ]
+  },
+  "compose_smoke": {
+    "status": "passed",
+    "assertions": [
+      "migration service exited successfully before application start",
+      "application, browser worker, backup service, and PostgreSQL reached the expected states",
+      "all services had CPU, memory, PID, log, and no-new-privileges bounds",
+      "application, migration, browser, and backup containers used read-only roots and dropped all capabilities",
+      "application, browser, and backup containers ran as non-root users",
+      "browser control and egress networks were isolated from the database network",
+      "browser-worker smoke passed through its runtime boundary",
+      "provider environment-file injection was available only as configured",
+      "an encrypted backup was produced and structurally verified",
+      "the backup restored into a disposable database with migration ledger and core tables present"
+    ]
+  },
+  "repository_gate": {
+    "mix_precommit": "passed",
+    "tests": 710,
+    "failures": 0,
+    "dependency_audit": "no known vulnerabilities",
+    "static_analysis": "completed with only reviewed low-confidence findings"
+  },
+  "limitations": [
+    "This is a local arm64 build and runtime qualification; registry push, signing, provenance attestation, target-architecture scanning, and target-host capacity remain deployment actions.",
+    "The successful disposable restore used a Docker volume on the same physical host and does not satisfy the independent off-host restore gate.",
+    "No enabled non-mock provider or production credential was available, so real-provider staging remains open.",
+    "Automated accessibility evidence does not replace the required human VoiceOver/Safari pass."
+  ]
+}
