@@ -253,6 +253,69 @@ defmodule HydraAgentWeb.SimulationCopy do
       results_empty: "Results will appear after a completed run.",
       results_empty_lede:
         "State, Flow, and Explain remain locked until the Run Record and Analysis Pack exist.",
+      analysis_ready: "Analysis ready",
+      analysis_lede:
+        "Inspect the computed evidence first, then generate a bounded interpretation without rerunning the simulation.",
+      analysis_verified: "Verified from the final Run snapshot",
+      analysis_directional: "Simulation output, not observed evidence.",
+      analysis_directional_lede:
+        "Treat patterns as directional. The population is synthetic and real-world validation remains necessary.",
+      analysis_recorded_decisions: "Recorded decisions",
+      analysis_robustness: "Seed robustness",
+      analysis_robustness_available: "Available",
+      analysis_robustness_insufficient: "More runs needed",
+      analysis_metrics: "Computed metrics",
+      analysis_pivotal_events: "Pivotal events",
+      analysis_exports: "Analysis exports",
+      analysis_machine_readable: "Portable",
+      analysis_lineage: "Exact lineage",
+      analysis_increased: "Increased",
+      analysis_decreased: "Decreased",
+      analysis_stable: "Stable",
+      analysis_observed: "Observed in run",
+      report_label: "Interpretation",
+      report_create_title: "Create a report",
+      report_create_lede:
+        "A report can explain the Analysis Pack, but it cannot change its metrics, events, or lineage.",
+      report_generate: "Generate report",
+      report_regenerate_action: "Generate new version",
+      report_no_rerun: "Uses the saved Analysis Pack · no simulation rerun",
+      report_queued: "Report queued. This page will update when the validated version is ready.",
+      report_in_progress: "Report in progress",
+      report_writing: "Writing from recorded evidence",
+      report_writing_lede:
+        "Hydra is checking every reference and numeric claim before anything is published.",
+      report_validated: "Validated report",
+      report_not_published: "Not published",
+      report_failed: "The report did not pass validation",
+      report_failed_lede:
+        "The completed Run and Analysis Pack are unchanged. Adjust the report settings or provider and try again.",
+      report_references: "%{count} evidence references",
+      report_limitations: "Limitations",
+      report_next_steps: "Recommended next steps",
+      report_download_markdown: "Download Markdown",
+      report_download_html: "Printable HTML",
+      report_regenerate: "Create another version",
+      report_regenerate_lede: "Change language, audience, length, or model without rerunning.",
+      report_history: "%{count} report versions",
+      report_language: "Language",
+      report_language_en: "English",
+      report_language_ru: "Russian",
+      report_audience: "Audience",
+      report_audience_general: "General",
+      report_audience_executive: "Executive",
+      report_audience_technical: "Technical",
+      report_length: "Length",
+      report_length_concise: "Concise",
+      report_length_standard: "Standard",
+      report_length_detailed: "Detailed",
+      report_model: "Model",
+      report_route_unavailable:
+        "Connect an enabled structured-generation provider before creating a report.",
+      report_too_large:
+        "This Analysis Pack exceeds the selected report model’s bounded input envelope.",
+      report_usage: "%{tokens} tokens",
+      report_usage_cost: "%{tokens} tokens · %{cost}",
       compare_title: "Compare runs",
       compare_runs: "Compare runs",
       compare_empty: "Run at least two compatible scenarios before comparing them.",
@@ -772,6 +835,69 @@ defmodule HydraAgentWeb.SimulationCopy do
       results_empty: "Результаты появятся после завершённого запуска.",
       results_empty_lede:
         "Состояние, потоки и объяснения недоступны до появления записи запуска и пакета анализа.",
+      analysis_ready: "Анализ готов",
+      analysis_lede:
+        "Сначала изучите рассчитанные данные, затем создайте ограниченную интерпретацию без повторного запуска симуляции.",
+      analysis_verified: "Проверено по финальному снимку запуска",
+      analysis_directional: "Результат симуляции, а не наблюдаемое доказательство.",
+      analysis_directional_lede:
+        "Интерпретируйте закономерности как направленные. Популяция синтетическая, поэтому необходима проверка в реальном мире.",
+      analysis_recorded_decisions: "Записанные решения",
+      analysis_robustness: "Устойчивость к seed",
+      analysis_robustness_available: "Доступна",
+      analysis_robustness_insufficient: "Нужны дополнительные запуски",
+      analysis_metrics: "Рассчитанные метрики",
+      analysis_pivotal_events: "Ключевые события",
+      analysis_exports: "Экспорт анализа",
+      analysis_machine_readable: "Переносимый",
+      analysis_lineage: "Точное происхождение",
+      analysis_increased: "Рост",
+      analysis_decreased: "Снижение",
+      analysis_stable: "Без изменений",
+      analysis_observed: "Зафиксировано в запуске",
+      report_label: "Интерпретация",
+      report_create_title: "Создать отчёт",
+      report_create_lede:
+        "Отчёт объясняет пакет анализа, но не может изменить его метрики, события или происхождение.",
+      report_generate: "Создать отчёт",
+      report_regenerate_action: "Создать новую версию",
+      report_no_rerun: "Использует сохранённый пакет анализа · без повторного запуска",
+      report_queued: "Отчёт поставлен в очередь. Страница обновится после проверки версии.",
+      report_in_progress: "Отчёт создаётся",
+      report_writing: "Интерпретация записанных данных",
+      report_writing_lede: "Hydra проверяет каждую ссылку и числовое утверждение до публикации.",
+      report_validated: "Проверенный отчёт",
+      report_not_published: "Не опубликован",
+      report_failed: "Отчёт не прошёл проверку",
+      report_failed_lede:
+        "Завершённый запуск и пакет анализа не изменились. Измените настройки отчёта или провайдера и попробуйте снова.",
+      report_references: "Ссылок на данные: %{count}",
+      report_limitations: "Ограничения",
+      report_next_steps: "Рекомендуемые следующие шаги",
+      report_download_markdown: "Скачать Markdown",
+      report_download_html: "Версия для печати",
+      report_regenerate: "Создать другую версию",
+      report_regenerate_lede:
+        "Измените язык, аудиторию, объём или модель без повторного запуска.",
+      report_history: "Версий отчёта: %{count}",
+      report_language: "Язык",
+      report_language_en: "Английский",
+      report_language_ru: "Русский",
+      report_audience: "Аудитория",
+      report_audience_general: "Широкая",
+      report_audience_executive: "Руководители",
+      report_audience_technical: "Техническая",
+      report_length: "Объём",
+      report_length_concise: "Краткий",
+      report_length_standard: "Стандартный",
+      report_length_detailed: "Подробный",
+      report_model: "Модель",
+      report_route_unavailable:
+        "Подключите активного провайдера структурированной генерации, чтобы создать отчёт.",
+      report_too_large:
+        "Этот пакет анализа превышает ограниченный входной контекст выбранной модели отчёта.",
+      report_usage: "%{tokens} токенов",
+      report_usage_cost: "%{tokens} токенов · %{cost}",
       compare_title: "Сравнение запусков",
       compare_runs: "Сравнить запуски",
       compare_empty: "Для сравнения нужны как минимум два совместимых сценария.",
@@ -1056,4 +1182,23 @@ defmodule HydraAgentWeb.SimulationCopy do
       String.replace(copy, "%{#{name}}", to_string(value))
     end)
   end
+
+  def report_reference_count("ru", count) when is_integer(count) and count >= 0 do
+    remainder_100 = rem(count, 100)
+    remainder_10 = rem(count, 10)
+
+    label =
+      cond do
+        remainder_10 == 1 and remainder_100 != 11 -> "Ссылка на данные"
+        remainder_10 in 2..4 and remainder_100 not in 12..14 -> "Ссылки на данные"
+        true -> "Ссылок на данные"
+      end
+
+    "#{label}: #{count}"
+  end
+
+  def report_reference_count(_locale, 1), do: "1 evidence reference"
+
+  def report_reference_count(_locale, count) when is_integer(count) and count >= 0,
+    do: "#{count} evidence references"
 end

@@ -11,6 +11,8 @@ defmodule HydraAgent.Simulations do
   alias HydraAgent.SimLab.Schemas.Study
 
   alias HydraAgent.Simulations.{
+    AnalysisBuilder,
+    AnalysisPack,
     Blueprint,
     Blueprints,
     BudgetPlan,
@@ -32,6 +34,8 @@ defmodule HydraAgent.Simulations do
     PopulationModel,
     PopulationValidator,
     PriceRegistry,
+    ReportExporter,
+    ReportGenerator,
     ScriptBuilder,
     ScriptExporter,
     ScriptPreview,
@@ -39,6 +43,7 @@ defmodule HydraAgent.Simulations do
     ScriptValidator,
     Simulation,
     SimulationRunRecord,
+    SimulationReport,
     SimulationScript,
     SimulationVersion
   }
@@ -270,6 +275,46 @@ defmodule HydraAgent.Simulations do
 
   def run_cognition_summary(%SimulationRunRecord{} = record),
     do: BalancedCognition.summary(record.id)
+
+  def ensure_analysis_pack(%SimulationRunRecord{} = record),
+    do: AnalysisBuilder.ensure_for_run(record)
+
+  def get_analysis_pack(%SimulationRunRecord{} = record) do
+    Repo.get_by(AnalysisPack, simulation_run_record_id: record.id)
+  end
+
+  def list_simulation_reports(%AnalysisPack{} = pack) do
+    SimulationReport
+    |> where([report], report.analysis_pack_id == ^pack.id)
+    |> order_by([report], desc: report.version)
+    |> Repo.all()
+  end
+
+  def get_simulation_report(%AnalysisPack{} = pack, id) do
+    SimulationReport
+    |> where([report], report.analysis_pack_id == ^pack.id and report.id == ^normalize_id(id))
+    |> Repo.one()
+  end
+
+  def queue_simulation_report(%AnalysisPack{} = pack, user, attrs \\ %{}),
+    do: ReportGenerator.queue(pack, user, attrs)
+
+  def report_provider_routes(%AnalysisPack{} = pack),
+    do: ModelRouter.available_routes(pack.workspace_id)
+
+  def export_analysis_json(%AnalysisPack{} = pack), do: ReportExporter.analysis_json(pack)
+  def export_analysis_metrics_csv(%AnalysisPack{} = pack), do: ReportExporter.metrics_csv(pack)
+
+  def export_run_events_csv(%SimulationRunRecord{} = record),
+    do: ReportExporter.events_csv(record)
+
+  def export_run_transactions_csv(%SimulationRunRecord{} = record),
+    do: ReportExporter.transactions_csv(record)
+
+  def export_report_markdown(%SimulationReport{} = report),
+    do: ReportExporter.report_markdown(report)
+
+  def export_report_html(%SimulationReport{} = report), do: ReportExporter.report_html(report)
 
   def current_model_route_plan(%Simulation{} = simulation) do
     case current_budget_plan(simulation) do

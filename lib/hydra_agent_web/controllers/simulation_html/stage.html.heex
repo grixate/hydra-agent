@@ -487,24 +487,301 @@
         </footer>
       </section>
     <% :results -> %>
-      <section class="simulation-stage-empty">
+      <section :if={!@analysis_pack} class="simulation-stage-empty">
         <span aria-hidden="true">○</span>
-        <p class="blueprint-eyebrow">04 · {t(@locale, :explore)}</p>
+        <p class="blueprint-eyebrow">03 · {t(@locale, :explore)}</p>
         <h2>{t(@locale, :results_title)}</h2>
         <strong>{t(@locale, :results_empty)}</strong>
         <p>{t(@locale, :results_empty_lede)}</p>
-        <div>
-          <span>{t(@locale, :locked)} · State</span>
-          <span>{t(@locale, :locked)} · Flow</span>
-          <span>{t(@locale, :locked)} · Explain</span>
-        </div>
-        <a href={stage_path(@simulation.id, "build", @workspace.id, @locale)}>
-          {t(@locale, :edit_build)}
-        </a>
-        <a href={stage_path(@simulation.id, "compare", @workspace.id, @locale)}>
-          {t(@locale, :compare_runs)}
+        <a href={stage_path(@simulation.id, "run", @workspace.id, @locale)}>
+          {t(@locale, :run)}
         </a>
       </section>
+
+      <%= if @analysis_pack do %>
+        <section class="simulation-analysis-hero">
+          <div>
+            <p class="blueprint-eyebrow">03 · {t(@locale, :analysis_ready)}</p>
+            <h2>{t(@locale, :results_title)}</h2>
+            <p>{t(@locale, :analysis_lede)}</p>
+          </div>
+          <div class="simulation-analysis-lineage">
+            <span aria-hidden="true">✓</span>
+            <small>{t(@locale, :analysis_verified)}</small>
+            <code>{short_hash(@analysis_pack.content_hash)}</code>
+          </div>
+        </section>
+
+        <aside class="simulation-analysis-caveat">
+          <span aria-hidden="true">◇</span>
+          <p>
+            <strong>{t(@locale, :analysis_directional)}</strong>
+            {t(@locale, :analysis_directional_lede)}
+          </p>
+        </aside>
+
+        <dl class="simulation-analysis-strip">
+          <div>
+            <dt>{t(@locale, :rounds)}</dt>
+            <dd>{@analysis_pack.usage["rounds"]}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :population)}</dt>
+            <dd>{format_count(@analysis_pack.usage["population_size"], @locale)}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :analysis_recorded_decisions)}</dt>
+            <dd>{@analysis_pack.usage["recorded_decisions"]}</dd>
+          </div>
+          <div>
+            <dt>{t(@locale, :analysis_robustness)}</dt>
+            <dd>{t(@locale, robustness_key(@analysis_pack.robustness["status"]))}</dd>
+          </div>
+        </dl>
+
+        <div class="simulation-results-layout">
+          <main class="simulation-report-column">
+            <section
+              :if={@latest_report && report_active?(@latest_report)}
+              class="simulation-report-progress"
+              aria-live="polite"
+              aria-busy="true"
+              data-run-auto-refresh="true"
+            >
+              <span class="simulation-report-spinner" aria-hidden="true"></span>
+              <div>
+                <p class="blueprint-eyebrow">{t(@locale, :report_in_progress)}</p>
+                <h3>{t(@locale, :report_writing)}</h3>
+                <p>{t(@locale, :report_writing_lede)}</p>
+              </div>
+            </section>
+
+            <article
+              :if={@latest_report && @latest_report.status == "ready"}
+              class="simulation-report-document"
+            >
+              <header>
+                <div>
+                  <p class="blueprint-eyebrow">
+                    {t(@locale, :report_validated)} · v{@latest_report.version}
+                  </p>
+                  <h3>{@latest_report.title}</h3>
+                  <p>{@latest_report.summary}</p>
+                </div>
+                <span>{String.upcase(@latest_report.locale)}</span>
+              </header>
+
+              <section :for={section <- @latest_report.sections}>
+                <h4>{section["heading"]}</h4>
+                <p>{section["body"]}</p>
+                <details>
+                  <summary>
+                    {report_reference_count(@locale, length(section["references"]))}
+                  </summary>
+                  <ul>
+                    <li :for={reference <- section["references"]}><code>{reference}</code></li>
+                  </ul>
+                </details>
+              </section>
+
+              <div class="simulation-report-tail">
+                <section>
+                  <h4>{t(@locale, :report_limitations)}</h4>
+                  <ul>
+                    <li :for={item <- @latest_report.limitations}>{item}</li>
+                  </ul>
+                </section>
+                <section>
+                  <h4>{t(@locale, :report_next_steps)}</h4>
+                  <ul>
+                    <li :for={item <- @latest_report.recommended_next_steps}>{item}</li>
+                  </ul>
+                </section>
+              </div>
+
+              <footer>
+                <div>
+                  <a href={
+                    report_export_path(
+                      @simulation.id,
+                      @latest_report.id,
+                      "md",
+                      @workspace.id,
+                      @locale
+                    )
+                  }>
+                    {t(@locale, :report_download_markdown)}
+                  </a>
+                  <a href={
+                    report_export_path(
+                      @simulation.id,
+                      @latest_report.id,
+                      "html",
+                      @workspace.id,
+                      @locale
+                    )
+                  }>
+                    {t(@locale, :report_download_html)}
+                  </a>
+                </div>
+                <small>
+                  {provider_option_label(@latest_report.route_snapshot)} · {report_usage_label(
+                    @latest_report,
+                    @locale
+                  )}
+                </small>
+              </footer>
+            </article>
+
+            <section
+              :if={@latest_report && @latest_report.status == "failed"}
+              class="simulation-report-failed"
+              role="status"
+            >
+              <span aria-hidden="true">!</span>
+              <div>
+                <p class="blueprint-eyebrow">{t(@locale, :report_not_published)}</p>
+                <h3>{t(@locale, :report_failed)}</h3>
+                <p>{t(@locale, :report_failed_lede)}</p>
+              </div>
+            </section>
+
+            <section
+              :if={!@latest_report || @latest_report.status == "failed"}
+              class="simulation-report-empty"
+            >
+              <p class="blueprint-eyebrow">{t(@locale, :report_label)}</p>
+              <h3>{t(@locale, :report_create_title)}</h3>
+              <p>{t(@locale, :report_create_lede)}</p>
+              <.report_form
+                simulation={@simulation}
+                workspace={@workspace}
+                locale={@locale}
+                routes={@report_provider_routes}
+                source_report={Enum.find(@reports, &(&1.status == "ready"))}
+              />
+            </section>
+
+            <details
+              :if={@latest_report && @latest_report.status == "ready" && @can_edit}
+              class="simulation-report-regenerate"
+            >
+              <summary>
+                <strong>{t(@locale, :report_regenerate)}</strong>
+                <small>{t(@locale, :report_regenerate_lede)}</small>
+              </summary>
+              <.report_form
+                simulation={@simulation}
+                workspace={@workspace}
+                locale={@locale}
+                routes={@report_provider_routes}
+                source_report={@latest_report}
+              />
+            </details>
+
+            <details :if={length(@reports) > 1} class="simulation-report-history">
+              <summary>{tx(@locale, :report_history, count: length(@reports))}</summary>
+              <ol>
+                <li :for={report <- @reports}>
+                  <div>
+                    <strong>
+                      {t(@locale, report_status_key(report.status))} · v{report.version}
+                    </strong>
+                    <small>
+                      {String.upcase(report.locale)} · {t(
+                        @locale,
+                        report_audience_key(report.audience)
+                      )} · {t(@locale, report_length_key(report.length))}
+                    </small>
+                  </div>
+                  <span>{provider_option_label(report.route_snapshot)}</span>
+                </li>
+              </ol>
+            </details>
+          </main>
+
+          <aside class="simulation-analysis-column">
+            <section>
+              <header>
+                <p class="blueprint-eyebrow">{t(@locale, :analysis_metrics)}</p>
+                <span>{length(@analysis_pack.metrics)}</span>
+              </header>
+              <dl class="simulation-analysis-metrics">
+                <div :for={metric <- Enum.take(@analysis_pack.metrics, 8)}>
+                  <dt>{analysis_metric_label(metric, @locale)}</dt>
+                  <dd>{analysis_metric_value(metric, @locale)}</dd>
+                  <small>{t(@locale, analysis_direction_key(metric["direction"]))}</small>
+                </div>
+              </dl>
+            </section>
+
+            <section :if={@analysis_pack.pivotal_events != []}>
+              <header>
+                <p class="blueprint-eyebrow">{t(@locale, :analysis_pivotal_events)}</p>
+                <span>{length(@analysis_pack.pivotal_events)}</span>
+              </header>
+              <ol class="simulation-analysis-events">
+                <li :for={event <- Enum.take(@analysis_pack.pivotal_events, 6)}>
+                  <span>{event["round"]}</span>
+                  <div>
+                    <strong>{event["summary"]}</strong>
+                    <code>{event["ref"]}</code>
+                  </div>
+                </li>
+              </ol>
+            </section>
+
+            <section>
+              <header>
+                <p class="blueprint-eyebrow">{t(@locale, :analysis_exports)}</p>
+                <span>{t(@locale, :analysis_machine_readable)}</span>
+              </header>
+              <nav class="simulation-analysis-exports" aria-label={t(@locale, :analysis_exports)}>
+                <a href={
+                  result_export_path(@simulation.id, "analysis.json", @workspace.id, @locale)
+                }>
+                  Analysis JSON
+                </a>
+                <a href={
+                  result_export_path(@simulation.id, "metrics.csv", @workspace.id, @locale)
+                }>
+                  Metrics CSV
+                </a>
+                <a href={result_export_path(@simulation.id, "events.csv", @workspace.id, @locale)}>
+                  Events CSV
+                </a>
+                <a href={
+                  result_export_path(@simulation.id, "transactions.csv", @workspace.id, @locale)
+                }>
+                  Transactions CSV
+                </a>
+              </nav>
+            </section>
+
+            <details class="simulation-analysis-lineage-details">
+              <summary>{t(@locale, :analysis_lineage)}</summary>
+              <dl>
+                <div>
+                  <dt>Run</dt>
+                  <dd><code>{short_hash(@latest_run.result_hash)}</code></dd>
+                </div>
+                <div>
+                  <dt>Pack</dt>
+                  <dd><code>{short_hash(@latest_run.pack_hash)}</code></dd>
+                </div>
+                <div>
+                  <dt>Analysis</dt>
+                  <dd><code>{short_hash(@analysis_pack.content_hash)}</code></dd>
+                </div>
+                <div>
+                  <dt>{t(@locale, :run_seed)}</dt>
+                  <dd>{@latest_run.seed}</dd>
+                </div>
+              </dl>
+            </details>
+          </aside>
+        </div>
+      <% end %>
     <% :compare -> %>
       <section class="simulation-stage-empty">
         <span aria-hidden="true">⇄</span>

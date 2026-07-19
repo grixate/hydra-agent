@@ -76,6 +76,68 @@ defmodule HydraAgentWeb.SimulationController do
   def results(conn, params), do: render_stage(conn, params, :results)
   def compare(conn, params), do: render_stage(conn, params, :compare)
 
+  def create_report(conn, params) do
+    attrs = params["report"] || %{}
+
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         %{} = record <- latest_completed_run(simulation),
+         {:ok, analysis_pack} <- ensure_analysis_pack(record),
+         {:ok, _report} <-
+           Simulations.queue_simulation_report(
+             analysis_pack,
+             conn.assigns[:current_user],
+             attrs
+           ) do
+      conn
+      |> put_flash(:info, t(conn, :report_queued))
+      |> redirect(to: stage_path(simulation.id, :results, workspace.id, conn.assigns.locale))
+    else
+      {:error, :report_route_unavailable} ->
+        conn
+        |> put_flash(:error, t(conn, :report_route_unavailable))
+        |> redirect(
+          to: stage_path(params["id"], :results, params["workspace_id"], conn.assigns.locale)
+        )
+
+      {:error, :analysis_exceeds_report_input_envelope} ->
+        conn
+        |> put_flash(:error, t(conn, :report_too_large))
+        |> redirect(
+          to: stage_path(params["id"], :results, params["workspace_id"], conn.assigns.locale)
+        )
+
+      _reason ->
+        not_found(conn)
+    end
+  end
+
+  def export_results(conn, params) do
+    with {_workspace, simulation} <- fetch_simulation(conn, params, "viewer"),
+         %{} = record <- latest_completed_run(simulation),
+         {:ok, pack} <- ensure_analysis_pack(record),
+         {:ok, body, filename, content_type} <- result_export(params["artifact"], record, pack) do
+      send_download(conn, {:binary, body}, filename: filename, content_type: content_type)
+    else
+      _reason -> not_found(conn)
+    end
+  end
+
+  def export_report(conn, params) do
+    with {_workspace, simulation} <- fetch_simulation(conn, params, "viewer"),
+         %{} = record <- latest_completed_run(simulation),
+         {:ok, pack} <- ensure_analysis_pack(record),
+         %{} = report <- Simulations.get_simulation_report(pack, params["report_id"]),
+         true <- report.status == "ready",
+         {:ok, body, extension, content_type} <- report_export(report, params["format"]) do
+      send_download(conn, {:binary, body},
+        filename: "hydra-report-#{report.version}.#{extension}",
+        content_type: content_type
+      )
+    else
+      _reason -> not_found(conn)
+    end
+  end
+
   def start_quick_run(conn, params) do
     with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
          {:ok, _record} <-
@@ -406,9 +468,24 @@ defmodule HydraAgentWeb.SimulationController do
       stages = Simulations.list_build_stages(simulation)
 
       run_records =
-        if stage == :run, do: Simulations.list_simulation_run_records(simulation), else: []
+        if stage in [:run, :results, :compare],
+          do: Simulations.list_simulation_run_records(simulation),
+          else: []
 
-      latest_run = List.first(run_records)
+      latest_run =
+        if stage in [:results, :compare],
+          do: Enum.find(run_records, &(&1.run.status == "completed")),
+          else: List.first(run_records)
+
+      analysis_pack =
+        if stage == :results && latest_run do
+          case ensure_analysis_pack(latest_run) do
+            {:ok, pack} -> pack
+            _error -> nil
+          end
+        end
+
+      reports = if analysis_pack, do: Simulations.list_simulation_reports(analysis_pack), else: []
 
       recent_decisions =
         if latest_run do
@@ -452,7 +529,12 @@ defmodule HydraAgentWeb.SimulationController do
                 if(latest_run, do: [simulation_run_record_id: latest_run.id], else: [])
               ),
             else: nil
-          )
+          ),
+        analysis_pack: analysis_pack,
+        reports: reports,
+        latest_report: List.first(reports),
+        report_provider_routes:
+          if(analysis_pack, do: Simulations.report_provider_routes(analysis_pack), else: [])
       )
     else
       _ -> not_found(conn)
@@ -601,6 +683,49 @@ defmodule HydraAgentWeb.SimulationController do
   defp error_copy(conn, :mode_disabled), do: t(conn, :mode_disabled)
   defp error_copy(conn, :invalid_historical_cutoff), do: t(conn, :invalid_cutoff)
   defp error_copy(conn, _reason), do: t(conn, :invalid_form)
+
+  defp latest_completed_run(simulation) do
+    simulation
+    |> Simulations.list_simulation_run_records()
+    |> Enum.find(&(&1.run.status == "completed"))
+  end
+
+  defp ensure_analysis_pack(record) do
+    case Simulations.get_analysis_pack(record) do
+      nil -> Simulations.ensure_analysis_pack(record)
+      pack -> {:ok, pack}
+    end
+  end
+
+  defp result_export("analysis.json", record, pack),
+    do:
+      {:ok, Simulations.export_analysis_json(pack), "hydra-analysis-#{record.id}.json",
+       "application/json"}
+
+  defp result_export("metrics.csv", record, pack),
+    do:
+      {:ok, Simulations.export_analysis_metrics_csv(pack), "hydra-metrics-#{record.id}.csv",
+       "text/csv"}
+
+  defp result_export("events.csv", record, _pack),
+    do:
+      {:ok, Simulations.export_run_events_csv(record), "hydra-events-#{record.id}.csv",
+       "text/csv"}
+
+  defp result_export("transactions.csv", record, _pack),
+    do:
+      {:ok, Simulations.export_run_transactions_csv(record),
+       "hydra-transactions-#{record.id}.csv", "text/csv"}
+
+  defp result_export(_artifact, _record, _pack), do: {:error, :unsupported_export}
+
+  defp report_export(report, "md"),
+    do: {:ok, Simulations.export_report_markdown(report), "md", "text/markdown"}
+
+  defp report_export(report, "html"),
+    do: {:ok, Simulations.export_report_html(report), "html", "text/html"}
+
+  defp report_export(_report, _format), do: {:error, :unsupported_export}
 
   defp stringify_form(form) when is_map(form) do
     Map.new(form, fn

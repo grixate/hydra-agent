@@ -208,6 +208,13 @@ defmodule HydraAgentWeb.Router do
     post "/simulations/:id/run/:run_id/replay", SimulationController, :replay_run
     post "/simulations/:id/run/:run_id/rerun", SimulationController, :rerun_fresh
     get "/simulations/:id/results", SimulationController, :results
+    post "/simulations/:id/results/reports", SimulationController, :create_report
+    get "/simulations/:id/results/export/:artifact", SimulationController, :export_results
+
+    get "/simulations/:id/results/reports/:report_id/export/:format",
+        SimulationController,
+        :export_report
+
     get "/simulations/:id/compare", SimulationController, :compare
     post "/simulations/:id/duplicate", SimulationController, :duplicate
     post "/simulations/:id/archive", SimulationController, :archive

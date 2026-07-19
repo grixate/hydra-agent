@@ -1,6 +1,9 @@
 defmodule HydraAgent.Simulations.Engine do
   @moduledoc "Public execution boundary for per-run simulation supervision."
 
+  require Logger
+
+  alias HydraAgent.Simulations.AnalysisBuilder
   alias HydraAgent.Simulations.Engine.{RunCoordinator, RunStore, Supervisor}
 
   def execute(record_id, opts \\ []) do
@@ -18,8 +21,31 @@ defmodule HydraAgent.Simulations.Engine do
   defp await_and_stop(record_id) do
     result = await_with_restart(record_id, 5)
     _stopped = Supervisor.stop_run(record_id)
-    result
+    ensure_analysis(result)
   end
+
+  defp ensure_analysis({:ok, record} = result) do
+    case AnalysisBuilder.ensure_for_run(record) do
+      {:ok, _pack} ->
+        result
+
+      {:error, reason} ->
+        Logger.error(
+          "completed simulation analysis could not be published run_record_id=#{record.id} reason=#{inspect(reason)}"
+        )
+
+        result
+    end
+  rescue
+    error ->
+      Logger.error(
+        "completed simulation analysis stopped safely run_record_id=#{record.id} error=#{Exception.message(error)}"
+      )
+
+      result
+  end
+
+  defp ensure_analysis(result), do: result
 
   defp await_with_restart(_record_id, 0), do: {:error, :coordinator_unavailable}
 

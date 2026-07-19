@@ -142,35 +142,58 @@ defmodule HydraAgentWeb.CoreComponents do
   """
   attr :flash, :map, required: true, doc: "the map of flash messages"
   attr :id, :string, default: "flash-group", doc: "the optional id of flash container"
+  attr :locale, :string, default: "en", doc: "the interface locale"
 
   def flash_group(assigns) do
+    assigns = assign(assigns, :copy, flash_group_copy(assigns.locale))
+
     ~H"""
     <div id={@id}>
-      <.flash kind={:info} title="Done" flash={@flash} />
-      <.flash kind={:error} title="Needs attention" flash={@flash} />
+      <.flash kind={:info} title={@copy.done} flash={@flash} />
+      <.flash kind={:error} title={@copy.needs_attention} flash={@flash} />
       <.flash
         id="client-error"
         kind={:error}
-        title="Connection lost"
+        title={@copy.connection_lost}
         phx-disconnected={show(".phx-client-error #client-error")}
         phx-connected={hide("#client-error")}
         hidden
       >
-        Reconnecting… <.icon name="hero-arrow-path" class="ml-1 h-3 w-3 animate-spin" />
+        {@copy.reconnecting} <.icon name="hero-arrow-path" class="ml-1 h-3 w-3 animate-spin" />
       </.flash>
 
       <.flash
         id="server-error"
         kind={:error}
-        title="Temporarily unavailable"
+        title={@copy.temporarily_unavailable}
         phx-disconnected={show(".phx-server-error #server-error")}
         phx-connected={hide("#server-error")}
         hidden
       >
-        Reconnecting… <.icon name="hero-arrow-path" class="ml-1 h-3 w-3 animate-spin" />
+        {@copy.reconnecting} <.icon name="hero-arrow-path" class="ml-1 h-3 w-3 animate-spin" />
       </.flash>
     </div>
     """
+  end
+
+  defp flash_group_copy("ru") do
+    %{
+      done: "Готово",
+      needs_attention: "Требуется внимание",
+      connection_lost: "Соединение потеряно",
+      temporarily_unavailable: "Временно недоступно",
+      reconnecting: "Переподключение…"
+    }
+  end
+
+  defp flash_group_copy(_locale) do
+    %{
+      done: "Done",
+      needs_attention: "Needs attention",
+      connection_lost: "Connection lost",
+      temporarily_unavailable: "Temporarily unavailable",
+      reconnecting: "Reconnecting…"
+    }
   end
 
   @doc """

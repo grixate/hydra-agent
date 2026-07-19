@@ -49,6 +49,8 @@ defmodule HydraAgent.Simulations.SimulationRunRecord do
     has_many :budget_reservations, HydraAgent.Simulations.BudgetReservation
     has_many :decisions, HydraAgent.Simulations.RunDecision
     has_many :replays, __MODULE__, foreign_key: :replay_source_id
+    has_one :analysis_pack, HydraAgent.Simulations.AnalysisPack
+    has_many :reports, HydraAgent.Simulations.SimulationReport
 
     timestamps(type: :utc_datetime_usec)
   end

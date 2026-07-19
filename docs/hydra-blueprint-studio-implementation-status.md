@@ -11,10 +11,11 @@ entire epic or release is complete.
 
 ## Current status
 
-- Active epic: **Epic 9 — Deterministic analysis and uncertainty**
-- Completed epic: **Epic 8 — Balanced hybrid cognition**
-- Next vertical slice: immutable Analysis Packs, deterministic metrics and
-  segments, uncertainty diagnostics, sensitivity runs, and traceable claims
+- Active epic: **Epic 10 — State, Flow, and Explain Observatory**
+- Completed epic: **Epic 9 — Analysis Pack and Report Blueprint**
+- Next vertical slice: the three-lens results shell, compact visualization
+  protocol, inspectable agents and drivers, comparable Runs, semantic zoom,
+  and equivalent accessible representations
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
@@ -62,8 +63,8 @@ product behavior.
 | Run Event | Runtime `run_events`, legacy `sim_lab_outcome_events` | Runtime events now carry optional simulation sequence, round, phase, targets, source, provenance, and idempotency fields. Simulation events fail closed when ordering fields are absent. |
 | Run Snapshot | General `run_snapshots`; legacy `sim_lab_snapshots` | Implemented as append-only, checksummed, engine/schema-versioned full recovery state owned by the neutral run. Legacy snapshots remain unchanged. |
 | Resource Transaction | `resource_transactions` | Implemented as an append-only Decimal ledger with stable ordering, provenance, resulting balances, and retry-safe idempotency. |
-| Analysis Pack | Forecast inputs and `Forecast` calculations | Add deterministic versioned artifact; report generation must consume it rather than raw mutable state. |
-| Report | `sim_lab_forecast_reports` | Adapt as legacy reports; add Blueprint/model/language/validation metadata. |
+| Analysis Pack | `HydraAgent.Simulations.AnalysisPack`; forecast inputs and `Forecast` calculations | Implemented as a bounded immutable artifact derived only from a verified completed Run. Legacy forecast calculations remain separate compatibility inputs. |
+| Report | `HydraAgent.Simulations.SimulationReport`; `sim_lab_forecast_reports` | Implemented as immutable per-attempt model interpretation with exact Analysis/Blueprint/route/price lineage and strict claim validation. Legacy reports are unchanged. |
 | Calibration | `sim_lab_calibration_records` | Reuse as observed-outcome links without rewriting original predictions. |
 
 ### Contexts, workers, and events
@@ -186,6 +187,12 @@ converted by Epic 0.
   exact workspace/Run/reservation scope, immutable decision provenance,
   stable affected-agent mappings, strict replay-source compatibility, and
   immutable Run lineage after creation. Quick Run constraints remain intact.
+- Epic 9: additive immutable `simulation_analysis_packs` and lifecycle-governed
+  `simulation_reports`. Database constraints and triggers require exact
+  completed-Run lineage, one Analysis per Run, bounded reference-addressable
+  content, at most eight Report attempts per Analysis, enabled workspace-valid
+  providers, exact regeneration-source scope, immutable route and reservation
+  envelopes, valid state transitions, and immutable terminal Report history.
 
 ## Acceptance ledger
 
@@ -524,6 +531,48 @@ dependency lock hygiene and audit, formatting, Sobelow with only the
 repository's reviewed low-confidence findings, and 670 ExUnit tests with zero
 failures (seed 667028, 44.5 seconds). `mix assets.build` also passes.
 
+### Epic 9 — Analysis Pack and Report Blueprint
+
+- [x] A completed Run publishes one immutable, content-addressed Analysis Pack
+  without making Report generation part of Run success.
+- [x] Analysis verifies exact lineage and authoritative snapshots before
+  deriving bounded metrics, segments, timeline, resource flows, pivotal events,
+  representative traces, model decisions, scenario deltas, robustness,
+  uncertainty, grounding, usage, and limitations.
+- [x] Every reportable artifact has a stable reference and numeric variants;
+  rebuilding the same Run produces the same Analysis content hash.
+- [x] Report attempts record exact Analysis, Blueprint, instructions, language,
+  audience, length, provider/model route, price, token, and cost envelopes.
+- [x] Queuing is atomic with its durable job, each Analysis allows at most eight
+  attempts, and regeneration appends a new immutable version without rerunning.
+- [x] Duplicate first-attempt delivery never redispatches an active provider
+  request; an ambiguous retry fails visibly instead of risking duplicate cost.
+- [x] Structured validation rejects unknown fields or references, unsupported
+  numbers, invented URLs, unsupported quotations, and unreferenced numeric
+  prose before a Report can become ready.
+- [x] Report failure and provider interruption leave both the completed Run and
+  immutable Analysis unchanged.
+- [x] English and Russian Reports preserve the exact nine-section contract;
+  the interface localizes generation, failure, version, evidence, and flash
+  states independently from the selected Report language.
+- [x] Analysis JSON, metrics CSV, events CSV, transactions CSV, Report Markdown,
+  and escaped printable HTML preserve provenance and content hashes.
+- [x] The Results surface provides a quiet, responsive Analysis/Report hierarchy,
+  explicit synthetic-evidence warning, progressive reference disclosure,
+  report history, and 44 px mobile generation controls.
+
+Focused Analysis and Results coverage passes 26 tests with zero failures. It
+covers deterministic construction, append-only Analysis, valid English/Russian
+generation, immutable terminal Reports, at-most-once duplicate delivery,
+attempt caps, invalid claims, Run isolation, exports, localized UI, and the
+complete controller journey. Architecture and operations are recorded in ADR
+0006 and `docs/analysis-and-reports.md`. The Analysis/Report migration was
+applied, rolled back, and applied again on the development database. The exact
+implementation worktree passed `mix precommit` on 2026-07-18: warnings-as-errors
+compilation, dependency lock hygiene and audit, formatting, Sobelow with only
+the repository's reviewed low-confidence findings, and 678 ExUnit tests with
+zero failures (seed 841782, 48.8 seconds). `mix assets.build` also passes.
+
 ## Baseline evidence
 
 The previous production-readiness pass recorded 543 tests, 75.04% line
@@ -697,6 +746,23 @@ Simulation was archived and the temporary provider removed. Evidence is in:
 - `docs/screenshots/simulation-studio-epic8-2026-07-18/balanced-exact-replay-mobile-trace.png`;
 - `docs/screenshots/simulation-studio-epic8-2026-07-18/balanced-exact-replay-mobile-actions.png`.
 
+Epic 9 Results browser QA reused the real completed 5,000-agent Balanced Run
+and its exact replay, generated validated English and Russian Report versions
+through the actual interface, and inspected deterministic Analysis, exact
+lineage, report history, regeneration, evidence references, validation copy,
+and exports. The desktop viewport was 1,280×900; the narrow viewport was
+390×844. Document width matched viewport width, all mobile report controls
+measured 44 px, keyboard focus had a visible 2 px outline, reduced-motion rules
+were present, and the final console had zero warnings or errors. The pass also
+localized global flash titles and corrected English and Russian evidence-count
+grammar. The QA Simulation was archived and its temporary provider disabled.
+Evidence is in:
+
+- `docs/screenshots/simulation-studio-epic9-2026-07-18/analysis-report-en-desktop-top.png`;
+- `docs/screenshots/simulation-studio-epic9-2026-07-18/analysis-report-en-desktop.png`;
+- `docs/screenshots/simulation-studio-epic9-2026-07-18/analysis-report-ru-mobile-top.png`;
+- `docs/screenshots/simulation-studio-epic9-2026-07-18/analysis-report-ru-mobile.png`.
+
 The exact-worktree aggregate Quick-engine baseline is recorded in
 `docs/benchmarks/2026-07-18-quick-engine-10k.json`. On the recorded arm64
 environment, ten measured 10k-population runs after two warmups produced a
@@ -718,10 +784,12 @@ engine must earn its own 10k result.
   Studio execution uses the general declarative Script and neutral Run profile.
 - Balanced has bounded selective execution, immutable decision provenance, and
   exact recorded-decision replay. Deep remains experimental and disabled.
-- Analysis Pack and claim-validated report regeneration are missing.
+- Analysis and claim-validated Report regeneration are complete. The
+  `.hydra-run` package, redacted export policy, and custom Report Blueprint
+  editor remain part of the portable-Pack and governance slices.
 - English/Russian copy and locale persistence are established across Blueprint,
-  Simulation, Context, Population, and Script surfaces; future Pack, Run,
-  Analysis, and Observatory inspectors must extend the same contract.
+  Simulation, Context, Population, Script, Run, Analysis, and Report surfaces;
+  the Observatory must extend the same contract.
 - Full snapshots intentionally favor exact recovery over compact storage;
   hosted retention, compression, and codec evolution need qualification before
   public launch.

@@ -134,7 +134,7 @@ defmodule HydraAgent.Simulations.BuiltInBlueprints do
       "hydra_blueprint" => 1,
       "id" => id,
       "name" => name,
-      "version" => "1.1.0",
+      "version" => "1.2.0",
       "description" => description,
       "modules" => %{
         "research" => %{
@@ -268,24 +268,47 @@ defmodule HydraAgent.Simulations.BuiltInBlueprints do
               })
           }
         }),
-      "schemas/report.schema.json" =>
-        object_schema("report", ~w(hydra_report summary claims), %{
-          "hydra_report" => %{"type" => "integer", "enum" => [1]},
-          "summary" => %{"type" => "string", "minLength" => 10},
-          "claims" => %{
+      "schemas/report.schema.json" => %{
+        "$schema" => "https://json-schema.org/draft/2020-12/schema",
+        "$id" => "https://hydra.local/schemas/report.schema.json",
+        "type" => "object",
+        "required" => ~w(title summary sections limitations recommended_next_steps),
+        "properties" => %{
+          "title" => %{"type" => "string", "minLength" => 1, "maxLength" => 180},
+          "summary" => %{"type" => "string", "minLength" => 1, "maxLength" => 1_500},
+          "sections" => %{
             "type" => "array",
-            "items" =>
-              object_schema(nil, ~w(id text references), %{
-                "id" => %{"type" => "string"},
-                "text" => %{"type" => "string"},
+            "minItems" => 9,
+            "maxItems" => 9,
+            "items" => %{
+              "type" => "object",
+              "required" => ~w(heading body references),
+              "properties" => %{
+                "heading" => %{"type" => "string", "minLength" => 1, "maxLength" => 140},
+                "body" => %{"type" => "string", "minLength" => 1, "maxLength" => 4_000},
                 "references" => %{
                   "type" => "array",
                   "minItems" => 1,
-                  "items" => %{"type" => "string"}
+                  "maxItems" => 12,
+                  "items" => %{"type" => "string", "minLength" => 1}
                 }
-              })
+              },
+              "additionalProperties" => false
+            }
+          },
+          "limitations" => %{
+            "type" => "array",
+            "maxItems" => 12,
+            "items" => %{"type" => "string", "minLength" => 1, "maxLength" => 1_000}
+          },
+          "recommended_next_steps" => %{
+            "type" => "array",
+            "maxItems" => 12,
+            "items" => %{"type" => "string", "minLength" => 1, "maxLength" => 1_000}
           }
-        })
+        },
+        "additionalProperties" => false
+      }
     }
   end
 
@@ -407,9 +430,18 @@ defmodule HydraAgent.Simulations.BuiltInBlueprints do
       "examples/sample-report.json" =>
         Jason.encode!(
           %{
-            "hydra_report" => 1,
+            "title" => "Miniature simulation report",
             "summary" => "A miniature portable report.",
-            "claims" => [%{"id" => "claim-1", "text" => "Example", "references" => ["fact-1"]}]
+            "sections" =>
+              Enum.map(1..9, fn _ ->
+                %{
+                  "heading" => "Recorded result",
+                  "body" => "The miniature run remains directional.",
+                  "references" => ["metric:adapted_count"]
+                }
+              end),
+            "limitations" => ["The miniature population is synthetic."],
+            "recommended_next_steps" => ["Compare the direction with observed evidence."]
           },
           pretty: true
         )

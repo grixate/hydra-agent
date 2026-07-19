@@ -1,5 +1,6 @@
 defmodule HydraAgentWeb.SimulationControllerTest do
   use HydraAgentWeb.ConnCase, async: false
+  use Oban.Testing, repo: HydraAgent.Repo
 
   import HydraAgent.RuntimeFixtures
 
@@ -9,10 +10,13 @@ defmodule HydraAgentWeb.SimulationControllerTest do
   alias HydraAgent.Simulations.{
     Blueprints,
     Simulation,
+    SimulationReport,
     SimulationRunRecord,
     SimulationScript,
     SimulationVersion
   }
+
+  alias HydraAgent.Simulations.Workers.ReportGenerationWorker
 
   setup do
     workspace = workspace_fixture(%{name: "Simulation Studio", slug: "simulation-controller"})
@@ -20,12 +24,33 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     %{workspace: workspace, general: general, decision_replay: decision_replay}
   end
 
-  test "decision trace agent counts read naturally in both locales" do
+  test "count copy reads naturally in both locales" do
     assert HydraAgentWeb.SimulationHTML.cognition_agents_label(1, "en") == "1 agent"
     assert HydraAgentWeb.SimulationHTML.cognition_agents_label(2, "en") == "2 agents"
     assert HydraAgentWeb.SimulationHTML.cognition_agents_label(1, "ru") == "1 агент"
     assert HydraAgentWeb.SimulationHTML.cognition_agents_label(2, "ru") == "2 агента"
     assert HydraAgentWeb.SimulationHTML.cognition_agents_label(5, "ru") == "5 агентов"
+
+    assert HydraAgentWeb.SimulationHTML.report_reference_count("en", 1) ==
+             "1 evidence reference"
+
+    assert HydraAgentWeb.SimulationHTML.report_reference_count("en", 2) ==
+             "2 evidence references"
+
+    assert HydraAgentWeb.SimulationHTML.report_reference_count("ru", 1) ==
+             "Ссылка на данные: 1"
+
+    assert HydraAgentWeb.SimulationHTML.report_reference_count("ru", 2) ==
+             "Ссылки на данные: 2"
+
+    assert HydraAgentWeb.SimulationHTML.report_reference_count("ru", 5) ==
+             "Ссылок на данные: 5"
+
+    assert HydraAgentWeb.SimulationHTML.report_reference_count("ru", 11) ==
+             "Ссылок на данные: 11"
+
+    assert HydraAgentWeb.SimulationHTML.report_reference_count("ru", 21) ==
+             "Ссылка на данные: 21"
   end
 
   test "the index is quiet, bilingual, and starts with one clear action", %{
@@ -604,9 +629,7 @@ defmodule HydraAgentWeb.SimulationControllerTest do
       |> html_response(200)
 
     assert results =~ "Results will appear after a completed run"
-    assert results =~ "Locked · State"
-    assert results =~ "Locked · Flow"
-    assert results =~ "Locked · Explain"
+    assert results =~ "Run"
 
     compare =
       conn
@@ -725,6 +748,143 @@ defmodule HydraAgentWeb.SimulationControllerTest do
       })
 
     assert response(missing_cancel, 404)
+  end
+
+  test "completed results expose verified analysis, governed reports, and portable exports", %{
+    conn: conn,
+    workspace: workspace,
+    general: general
+  } do
+    assert {:ok, provider} =
+             HydraAgent.Runtime.create_provider(%{
+               workspace_id: workspace.id,
+               name: "Local reports",
+               kind: "mock",
+               model: "local-report-v1",
+               enabled: true,
+               metadata: %{
+                 "capabilities" => %{
+                   "structured_generation" => true,
+                   "local_execution" => true
+                 }
+               }
+             })
+
+    assert {:ok, simulation} =
+             HydraAgent.Simulations.create_simulation(workspace, nil, %{
+               "question" => "How might a bounded service change affect participant choices?",
+               "blueprint_id" => general.id,
+               "execution_mode" => "quick",
+               "population_size" => 32,
+               "horizon" => "3 rounds"
+             })
+
+    assert {:ok, record} = HydraAgent.Simulations.create_quick_run(simulation, nil)
+    assert {:ok, _completed} = HydraAgent.Simulations.Engine.execute(record.id)
+
+    path = "/simulations/#{simulation.id}/results?workspace_id=#{workspace.id}&locale=en"
+    analysis = conn |> get(path) |> html_response(200)
+
+    assert analysis =~ "Analysis ready"
+    assert analysis =~ "Verified from the final Run snapshot"
+    assert analysis =~ "Simulation output, not observed evidence"
+    assert analysis =~ "Computed metrics"
+    assert analysis =~ "Create a report"
+    assert analysis =~ "Analysis JSON"
+    assert analysis =~ "Metrics CSV"
+    assert analysis =~ "Local reports · local-report-v1 · Local"
+    refute analysis =~ "Results will appear after a completed run"
+    refute analysis =~ "style="
+
+    russian =
+      conn
+      |> recycle()
+      |> get("/simulations/#{simulation.id}/results?workspace_id=#{workspace.id}&locale=ru")
+      |> html_response(200)
+
+    assert russian =~ "Анализ готов"
+    assert russian =~ "Результат симуляции, а не наблюдаемое доказательство"
+    assert russian =~ "Создать отчёт"
+
+    queued =
+      conn
+      |> recycle()
+      |> post("/simulations/#{simulation.id}/results/reports", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "en",
+        "report" => %{
+          "provider_config_id" => to_string(provider.id),
+          "locale" => "en",
+          "audience" => "executive",
+          "length" => "concise"
+        }
+      })
+
+    assert redirected_to(queued) ==
+             "/simulations/#{simulation.id}/results?locale=en&workspace_id=#{workspace.id}"
+
+    report = Repo.one!(SimulationReport)
+    assert report.status == "queued"
+    assert :ok = perform_job(ReportGenerationWorker, %{"simulation_report_id" => report.id})
+
+    ready =
+      conn
+      |> recycle()
+      |> get(path)
+      |> html_response(200)
+
+    assert ready =~ "Validated report · v1"
+    assert ready =~ "Simulation report"
+    assert ready =~ "Setup and question"
+    assert ready =~ "Download Markdown"
+    assert ready =~ "Printable HTML"
+    assert ready =~ "Create another version"
+    assert ready =~ "1 evidence reference"
+
+    analysis_export =
+      conn
+      |> recycle()
+      |> get(
+        "/simulations/#{simulation.id}/results/export/analysis.json?workspace_id=#{workspace.id}&locale=en"
+      )
+
+    assert Jason.decode!(response(analysis_export, 200))["content_hash"] =~ ~r/^[a-f0-9]{64}$/
+    assert hd(get_resp_header(analysis_export, "content-disposition")) =~ "hydra-analysis"
+
+    report_export =
+      conn
+      |> recycle()
+      |> get(
+        "/simulations/#{simulation.id}/results/reports/#{report.id}/export/md?workspace_id=#{workspace.id}&locale=en"
+      )
+
+    assert response(report_export, 200) =~ "# Simulation report"
+    assert hd(get_resp_header(report_export, "content-disposition")) =~ "hydra-report-1.md"
+
+    russian_queue =
+      conn
+      |> recycle()
+      |> post("/simulations/#{simulation.id}/results/reports", %{
+        "workspace_id" => to_string(workspace.id),
+        "locale" => "ru",
+        "report" => %{
+          "provider_config_id" => to_string(provider.id),
+          "locale" => "ru",
+          "audience" => "general",
+          "length" => "standard"
+        }
+      })
+
+    russian_flash =
+      russian_queue
+      |> recycle()
+      |> get(redirected_to(russian_queue))
+      |> html_response(200)
+
+    assert russian_flash =~ "Готово"
+
+    assert russian_flash =~
+             "Отчёт поставлен в очередь. Страница обновится после проверки версии."
   end
 
   test "model routes are editable by role before a run and lock after start", %{

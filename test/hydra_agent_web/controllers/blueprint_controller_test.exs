@@ -105,7 +105,7 @@ defmodule HydraAgentWeb.BlueprintControllerTest do
     assert html_response(invalid, 422) =~ "Nothing was saved"
     assert Repo.aggregate(BlueprintVersion, :count) == initial_count
 
-    manifest = version.manifest |> Map.put("version", "1.1.0") |> BlueprintManifest.encode()
+    manifest = version.manifest |> Map.put("version", "1.3.0") |> BlueprintManifest.encode()
 
     instructions =
       Map.update!(version.instructions, "report", &(&1 <> "\nKeep conclusions concise."))
@@ -117,7 +117,7 @@ defmodule HydraAgentWeb.BlueprintControllerTest do
         "workspace_id" => to_string(workspace.id),
         "locale" => "en",
         "blueprint" => %{
-          "version" => "1.1.0",
+          "version" => "1.3.0",
           "manifest_yaml" => manifest,
           "instructions" => instructions
         }
@@ -126,7 +126,7 @@ defmodule HydraAgentWeb.BlueprintControllerTest do
     assert redirected_to(saved) =~ "/blueprints/#{copy.id}"
 
     assert Blueprints.get_blueprint_for_workspace!(workspace.id, copy.id).active_version.version ==
-             "1.1.0"
+             "1.3.0"
 
     assert Repo.aggregate(BlueprintVersion, :count) == initial_count + 1
   end

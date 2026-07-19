@@ -5,8 +5,76 @@ defmodule HydraAgentWeb.SimulationHTML do
 
   embed_templates "simulation_html/*"
 
+  attr :simulation, :any, required: true
+  attr :workspace, :any, required: true
+  attr :locale, :string, required: true
+  attr :routes, :list, required: true
+  attr :source_report, :any, default: nil
+
+  def report_form(assigns) do
+    ~H"""
+    <form
+      :if={@routes != []}
+      action={"/simulations/#{@simulation.id}/results/reports?workspace_id=#{@workspace.id}&locale=#{@locale}"}
+      method="post"
+      class="simulation-report-form"
+    >
+      <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+      <input
+        :if={@source_report}
+        type="hidden"
+        name="report[source_report_id]"
+        value={@source_report.id}
+      />
+      <label>
+        <span>{t(@locale, :report_language)}</span>
+        <select name="report[locale]">
+          <option value="en" selected={@locale == "en"}>{t(@locale, :report_language_en)}</option>
+          <option value="ru" selected={@locale == "ru"}>{t(@locale, :report_language_ru)}</option>
+        </select>
+      </label>
+      <label>
+        <span>{t(@locale, :report_audience)}</span>
+        <select name="report[audience]">
+          <option value="general">{t(@locale, :report_audience_general)}</option>
+          <option value="executive">{t(@locale, :report_audience_executive)}</option>
+          <option value="technical">{t(@locale, :report_audience_technical)}</option>
+        </select>
+      </label>
+      <label>
+        <span>{t(@locale, :report_length)}</span>
+        <select name="report[length]">
+          <option value="concise">{t(@locale, :report_length_concise)}</option>
+          <option value="standard" selected>{t(@locale, :report_length_standard)}</option>
+          <option value="detailed">{t(@locale, :report_length_detailed)}</option>
+        </select>
+      </label>
+      <label>
+        <span>{t(@locale, :report_model)}</span>
+        <select name="report[provider_config_id]">
+          <option :for={route <- @routes} value={route["id"]}>
+            {provider_option_label(route)}
+          </option>
+        </select>
+      </label>
+      <button type="submit">
+        {if @source_report,
+          do: t(@locale, :report_regenerate_action),
+          else: t(@locale, :report_generate)}
+      </button>
+      <small>{t(@locale, :report_no_rerun)}</small>
+    </form>
+    <p :if={@routes == []} class="simulation-report-route-missing">
+      {t(@locale, :report_route_unavailable)}
+    </p>
+    """
+  end
+
   def t(locale, key), do: SimulationCopy.t(locale, key)
   def tx(locale, key, values), do: SimulationCopy.interpolate(locale, key, values)
+
+  def report_reference_count(locale, count),
+    do: SimulationCopy.report_reference_count(locale, count)
 
   def localized(value, locale) when is_map(value) do
     value[locale] || value["en"] || "Blueprint"
@@ -61,6 +129,16 @@ defmodule HydraAgentWeb.SimulationHTML do
 
   def script_export_path(simulation_id, format, workspace_id, locale) do
     "/simulations/#{simulation_id}/script/export/#{format}?" <>
+      URI.encode_query(%{"workspace_id" => workspace_id, "locale" => locale})
+  end
+
+  def result_export_path(simulation_id, artifact, workspace_id, locale) do
+    "/simulations/#{simulation_id}/results/export/#{artifact}?" <>
+      URI.encode_query(%{"workspace_id" => workspace_id, "locale" => locale})
+  end
+
+  def report_export_path(simulation_id, report_id, format, workspace_id, locale) do
+    "/simulations/#{simulation_id}/results/reports/#{report_id}/export/#{format}?" <>
       URI.encode_query(%{"workspace_id" => workspace_id, "locale" => locale})
   end
 
@@ -264,6 +342,61 @@ defmodule HydraAgentWeb.SimulationHTML do
     |> Enum.reject(&(&1 in [nil, false, ""]))
     |> Enum.join(" · ")
   end
+
+  def robustness_key("available"), do: :analysis_robustness_available
+  def robustness_key(_status), do: :analysis_robustness_insufficient
+
+  def report_active?(%{status: status}), do: status in ~w(queued running)
+  def report_active?(_report), do: false
+
+  def report_status_key("ready"), do: :report_validated
+  def report_status_key("failed"), do: :report_not_published
+  def report_status_key(_status), do: :report_in_progress
+
+  def report_audience_key("executive"), do: :report_audience_executive
+  def report_audience_key("technical"), do: :report_audience_technical
+  def report_audience_key(_audience), do: :report_audience_general
+
+  def report_length_key("concise"), do: :report_length_concise
+  def report_length_key("detailed"), do: :report_length_detailed
+  def report_length_key(_length), do: :report_length_standard
+
+  def report_usage_label(report, locale) do
+    tokens = (report.actual_input_tokens || 0) + (report.actual_output_tokens || 0)
+
+    case report.actual_cost do
+      %Decimal{} = cost ->
+        amount = cost |> Decimal.round(4) |> Decimal.to_string(:normal)
+
+        tx(locale, :report_usage_cost,
+          tokens: format_count(tokens, locale),
+          cost: "#{report.currency} #{amount}"
+        )
+
+      _other ->
+        tx(locale, :report_usage, tokens: format_count(tokens, locale))
+    end
+  end
+
+  def analysis_metric_label(metric, locale),
+    do: context_identifier(metric["id"] || metric["ref"], locale)
+
+  def analysis_metric_value(%{"unit" => "fraction", "final" => value}, _locale)
+      when is_number(value),
+      do: "#{Float.round(value * 100, 1)}%"
+
+  def analysis_metric_value(%{"final" => value}, locale) when is_integer(value),
+    do: format_count(value, locale)
+
+  def analysis_metric_value(%{"final" => value}, _locale) when is_float(value),
+    do: value |> Float.round(3) |> :erlang.float_to_binary([:compact, decimals: 3])
+
+  def analysis_metric_value(_metric, _locale), do: "—"
+
+  def analysis_direction_key("increased"), do: :analysis_increased
+  def analysis_direction_key("decreased"), do: :analysis_decreased
+  def analysis_direction_key("stable"), do: :analysis_stable
+  def analysis_direction_key(_direction), do: :analysis_observed
 
   def runtime_label(seconds, "ru") when is_integer(seconds), do: "до #{div(seconds, 60)} мин"
 

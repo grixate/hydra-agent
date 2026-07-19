@@ -123,15 +123,18 @@ defmodule HydraAgent.Simulations.BlueprintTester do
         "stopping_conditions" => [%{"kind" => "final_round"}]
       },
       report: %{
-        "hydra_report" => 1,
-        "summary" => "Two of three mock participants adapted by the second round.",
-        "claims" => [
-          %{
-            "id" => "claim-1",
-            "text" => "Adaptation increased during the miniature preview.",
-            "references" => ["snapshot-round-1", "snapshot-round-2"]
-          }
-        ]
+        "title" => "Miniature simulation report",
+        "summary" => "The mock participants followed the deterministic preview rules.",
+        "sections" =>
+          Enum.map(1..9, fn _ ->
+            %{
+              "heading" => "Recorded result",
+              "body" => "Adaptation changed during the miniature preview.",
+              "references" => ["snapshot-round-1", "snapshot-round-2"]
+            }
+          end),
+        "limitations" => ["The miniature population is synthetic."],
+        "recommended_next_steps" => ["Compare the direction with observed evidence."]
       }
     }
   end

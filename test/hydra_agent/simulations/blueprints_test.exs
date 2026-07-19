@@ -21,7 +21,7 @@ defmodule HydraAgent.Simulations.BlueprintsTest do
 
     visible = Blueprints.list_blueprints(workspace.id)
     assert Enum.count(visible, & &1.built_in) == 2
-    assert Enum.all?(visible, &(&1.active_version.version == "1.1.0"))
+    assert Enum.all?(visible, &(&1.active_version.version == "1.2.0"))
     assert Enum.all?(visible, &(is_nil(&1.workspace_id) and is_nil(&1.owner_user_id)))
 
     assert {:error, changeset} =
@@ -63,7 +63,7 @@ defmodule HydraAgent.Simulations.BlueprintsTest do
     {:ok, copy} = Blueprints.duplicate_blueprint(general, workspace, nil)
     original = copy.active_version
 
-    manifest = Map.put(original.manifest, "version", "1.1.0")
+    manifest = Map.put(original.manifest, "version", "1.3.0")
 
     instructions =
       Map.update!(original.instructions, "research", &(&1 <> "\nKeep the test bounded."))
@@ -77,7 +77,7 @@ defmodule HydraAgent.Simulations.BlueprintsTest do
                readme: original.readme
              })
 
-    assert updated.active_version.version == "1.1.0"
+    assert updated.active_version.version == "1.3.0"
     assert updated.active_version.id != original.id
     assert Repo.get!(BlueprintVersion, original.id).instructions == original.instructions
 
