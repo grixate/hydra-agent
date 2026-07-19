@@ -11,11 +11,11 @@ entire epic or release is complete.
 
 ## Current status
 
-- Active epic: **Epic 10 — State, Flow, and Explain Observatory**
-- Completed epic: **Epic 9 — Analysis Pack and Report Blueprint**
-- Next vertical slice: the three-lens results shell, compact visualization
-  protocol, inspectable agents and drivers, comparable Runs, semantic zoom,
-  and equivalent accessible representations
+- Active epic: **Epic 11 — Portable Simulation Pack and Run Pack**
+- Completed epic: **Epic 10 — State, Flow, and Explain Observatory**
+- Next vertical slice: deterministic `.hydra-simpack` and `.hydra-run`
+  packages, safe import and compatibility checks, raw-source exclusion,
+  redaction, manual external-model handoff, and a reproducibility README
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
@@ -193,6 +193,11 @@ converted by Epic 0.
   content, at most eight Report attempts per Analysis, enabled workspace-valid
   providers, exact regeneration-source scope, immutable route and reservation
   envelopes, valid state transitions, and immutable terminal Report history.
+- Epic 10: no database migration. `hydra-observatory/v1` and
+  `hydra-observatory-agent/v1` are deterministic presentation protocols derived
+  from existing immutable Analysis Packs and Run snapshots. Workspace scope,
+  completion, comparison identity, and agent selection are enforced at the
+  domain and controller boundaries.
 
 ## Acceptance ledger
 
@@ -573,6 +578,52 @@ compilation, dependency lock hygiene and audit, formatting, Sobelow with only
 the repository's reviewed low-confidence findings, and 678 ExUnit tests with
 zero failures (seed 841782, 48.8 seconds). `mix assets.build` also passes.
 
+### Epic 10 — State, Flow, and Explain Observatory
+
+- [x] Results lead with a concise computed result and a three-lens State, Flow,
+  and Explain hierarchy before governed Report generation.
+- [x] State presents density/cohort aggregation, exact final state and resource
+  distributions, population/model-decision/persona/relationship scale, bounded
+  representative samples, and semantic zoom without one object per agent.
+- [x] Flow presents a compact metric timeline, keyboard round control, pivotal
+  events, aggregate resource movement, and an optional comparison path.
+- [x] Explain ranks bounded modeled drivers, high-reach model decisions,
+  grounding, uncertainty, limitations, and representative traces while
+  explicitly rejecting causal interpretation.
+- [x] Agent detail loads only after selection and includes bounded structured
+  profile, history, resources, relationships, actions, perceived context,
+  decision/reuse provenance, optional persona, grounding, and a synthetic-agent
+  disclosure. Full snapshots and memory seeds are never returned.
+- [x] `hydra-observatory/v1` is deterministic, content-addressed, privately
+  cached, ETagged, and bounded to 32 initial samples. PostgreSQL computes final
+  aggregates without transferring a multi-megabyte snapshot into the app.
+- [x] `hydra-observatory-agent/v1` uses identifier validation and bound JSONB
+  queries to select one agent across immutable snapshots.
+- [x] Comparison validates Population Model, Script, mode, model route, and
+  Budget Plan; seed and replay kind remain explicit controlled differences and
+  incompatible governing inputs produce a caution state.
+- [x] Locale switching preserves the selected primary/comparison Runs. Built-in
+  metric, cohort, resource, event, action, and decision labels are localized in
+  English and Russian.
+- [x] Every visual has an immediate table or textual equivalent. ARIA tabs,
+  keyboard semantic zoom and timeline controls, visible focus, reduced-motion
+  rules, 44 px mobile controls, and contained table scrolling are present.
+- [x] A real 5,000-agent automated acceptance Run stays below the 500 KB
+  compressed initial-payload envelope and contains no full `agents` array.
+
+Focused Observatory, Analysis, and Results coverage passes 11 tests with zero
+failures, including the real 5,000-agent scale case. The live 5,000-agent
+Balanced Run produced a 55,011-byte payload and a 7,242-byte compressed body,
+with 32 bounded samples. Browser review at 1,280×900, 390×844, and an effective
+320 px high-zoom viewport found no document overflow; tables retained contained
+scrolling, mobile primary controls were at least 44 px, keyboard focus was
+visible, and the final console had zero warnings or errors. Architecture and
+operations are recorded in ADR 0007 and `docs/observatory.md`. The exact
+implementation worktree passed `mix precommit` on 2026-07-18: warnings-as-errors
+compilation, dependency lock hygiene and audit, formatting, Sobelow with only
+the repository's reviewed low-confidence findings, and 681 ExUnit tests with
+zero failures (seed 937221, 54.2 seconds). `mix assets.build` also passes.
+
 ## Baseline evidence
 
 The previous production-readiness pass recorded 543 tests, 75.04% line
@@ -763,6 +814,19 @@ Evidence is in:
 - `docs/screenshots/simulation-studio-epic9-2026-07-18/analysis-report-ru-mobile-top.png`;
 - `docs/screenshots/simulation-studio-epic9-2026-07-18/analysis-report-ru-mobile.png`.
 
+Epic 10 Observatory browser QA reused that same completed 5,000-agent,
+12-round Balanced Run and its exact replay. It exercised all three lenses,
+semantic zoom, the on-demand Agent inspector, keyboard tab and timeline
+controls, direct comparison, preserved Run selection across locale changes,
+English/Russian derived labels, visible focus, 390 px reflow, and an effective
+320 px high-zoom layout. The final console reported no warnings or errors.
+Evidence is in:
+
+- `docs/screenshots/simulation-studio-epic10-2026-07-18/observatory-state-en-desktop.png`;
+- `docs/screenshots/simulation-studio-epic10-2026-07-18/observatory-flow-en-desktop.png`;
+- `docs/screenshots/simulation-studio-epic10-2026-07-18/observatory-compare-ru-mobile.png`;
+- `docs/screenshots/simulation-studio-epic10-2026-07-18/observatory-explain-ru-mobile.png`.
+
 The exact-worktree aggregate Quick-engine baseline is recorded in
 `docs/benchmarks/2026-07-18-quick-engine-10k.json`. On the recorded arm64
 environment, ten measured 10k-population runs after two warmups produced a
@@ -788,8 +852,9 @@ engine must earn its own 10k result.
   `.hydra-run` package, redacted export policy, and custom Report Blueprint
   editor remain part of the portable-Pack and governance slices.
 - English/Russian copy and locale persistence are established across Blueprint,
-  Simulation, Context, Population, Script, Run, Analysis, and Report surfaces;
-  the Observatory must extend the same contract.
+  Simulation, Context, Population, Script, Run, Analysis, Report, and
+  Observatory surfaces. Arbitrary provider prose remains recorded evidence and
+  is not silently translated.
 - Full snapshots intentionally favor exact recovery over compact storage;
   hosted retention, compression, and codec evolution need qualification before
   public launch.

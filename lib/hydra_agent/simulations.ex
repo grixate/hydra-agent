@@ -26,6 +26,7 @@ defmodule HydraAgent.Simulations do
     JsonSchema,
     ModelRoutePlan,
     ModelRouter,
+    Observatory,
     PersonaProjection,
     PersonaRenderer,
     PopulationBuilder,
@@ -301,6 +302,12 @@ defmodule HydraAgent.Simulations do
 
   def report_provider_routes(%AnalysisPack{} = pack),
     do: ModelRouter.available_routes(pack.workspace_id)
+
+  def build_observatory_payload(%AnalysisPack{} = pack, comparison_pack \\ nil),
+    do: Observatory.payload(pack, comparison_pack)
+
+  def get_observatory_agent(%SimulationRunRecord{} = record, agent_id, locale \\ "en"),
+    do: Observatory.agent_detail(record, agent_id, locale)
 
   def export_analysis_json(%AnalysisPack{} = pack), do: ReportExporter.analysis_json(pack)
   def export_analysis_metrics_csv(%AnalysisPack{} = pack), do: ReportExporter.metrics_csv(pack)

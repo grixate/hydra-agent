@@ -6,14 +6,32 @@
       </a>
       <nav class="blueprint-locale-switch" aria-label={t(@locale, :locale_label)}>
         <a
-          href={stage_path(@simulation.id, Atom.to_string(@stage), @workspace.id, "en")}
+          href={
+            stage_locale_path(
+              @simulation.id,
+              Atom.to_string(@stage),
+              @workspace.id,
+              "en",
+              @latest_run,
+              @selected_comparison
+            )
+          }
           aria-current={if @locale == "en", do: "page"}
         >
           {t(@locale, :english)}
         </a>
         <span aria-hidden="true">/</span>
         <a
-          href={stage_path(@simulation.id, Atom.to_string(@stage), @workspace.id, "ru")}
+          href={
+            stage_locale_path(
+              @simulation.id,
+              Atom.to_string(@stage),
+              @workspace.id,
+              "ru",
+              @latest_run,
+              @selected_comparison
+            )
+          }
           aria-current={if @locale == "ru", do: "page"}
         >
           {t(@locale, :russian)}
@@ -539,6 +557,17 @@
           </div>
         </dl>
 
+        <HydraAgentWeb.SimulationObservatoryComponents.observatory
+          :if={@observatory}
+          payload={@observatory}
+          simulation={@simulation}
+          workspace={@workspace}
+          run={@latest_run}
+          comparison_runs={@comparison_runs}
+          selected_comparison={@selected_comparison}
+          locale={@locale}
+        />
+
         <div class="simulation-results-layout">
           <main class="simulation-report-column">
             <section
@@ -703,36 +732,6 @@
           <aside class="simulation-analysis-column">
             <section>
               <header>
-                <p class="blueprint-eyebrow">{t(@locale, :analysis_metrics)}</p>
-                <span>{length(@analysis_pack.metrics)}</span>
-              </header>
-              <dl class="simulation-analysis-metrics">
-                <div :for={metric <- Enum.take(@analysis_pack.metrics, 8)}>
-                  <dt>{analysis_metric_label(metric, @locale)}</dt>
-                  <dd>{analysis_metric_value(metric, @locale)}</dd>
-                  <small>{t(@locale, analysis_direction_key(metric["direction"]))}</small>
-                </div>
-              </dl>
-            </section>
-
-            <section :if={@analysis_pack.pivotal_events != []}>
-              <header>
-                <p class="blueprint-eyebrow">{t(@locale, :analysis_pivotal_events)}</p>
-                <span>{length(@analysis_pack.pivotal_events)}</span>
-              </header>
-              <ol class="simulation-analysis-events">
-                <li :for={event <- Enum.take(@analysis_pack.pivotal_events, 6)}>
-                  <span>{event["round"]}</span>
-                  <div>
-                    <strong>{event["summary"]}</strong>
-                    <code>{event["ref"]}</code>
-                  </div>
-                </li>
-              </ol>
-            </section>
-
-            <section>
-              <header>
                 <p class="blueprint-eyebrow">{t(@locale, :analysis_exports)}</p>
                 <span>{t(@locale, :analysis_machine_readable)}</span>
               </header>
@@ -783,7 +782,17 @@
         </div>
       <% end %>
     <% :compare -> %>
-      <section class="simulation-stage-empty">
+      <HydraAgentWeb.SimulationObservatoryComponents.observatory
+        :if={@observatory}
+        payload={@observatory}
+        simulation={@simulation}
+        workspace={@workspace}
+        run={@latest_run}
+        comparison_runs={@comparison_runs}
+        selected_comparison={@selected_comparison}
+        locale={@locale}
+      />
+      <section :if={!@observatory} class="simulation-stage-empty">
         <span aria-hidden="true">⇄</span>
         <p class="blueprint-eyebrow">{t(@locale, :compare)}</p>
         <h2>{t(@locale, :compare_title)}</h2>

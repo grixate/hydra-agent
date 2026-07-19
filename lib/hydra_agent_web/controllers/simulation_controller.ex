@@ -8,6 +8,15 @@ defmodule HydraAgentWeb.SimulationController do
 
   plug :load_locale
 
+  plug HydraAgentWeb.Plugs.RateLimit,
+       [
+         scope: "simulation_observatory",
+         limit: 240,
+         window_seconds: 3_600,
+         identity: :user_workspace
+       ]
+       when action in [:observatory_payload, :observatory_agent]
+
   def index(conn, params) do
     workspaces = Accounts.list_research_workspaces(conn.assigns[:current_user])
     workspace = select_workspace(conn, params["workspace_id"], workspaces, "viewer")
@@ -108,6 +117,35 @@ defmodule HydraAgentWeb.SimulationController do
 
       _reason ->
         not_found(conn)
+    end
+  end
+
+  def observatory_payload(conn, params) do
+    with {_workspace, simulation} <- fetch_simulation(conn, params, "viewer"),
+         %{} = record <- completed_run(simulation, params["run_id"]),
+         {:ok, pack} <- ensure_analysis_pack(record),
+         {:ok, comparison_pack} <- comparison_pack(simulation, record, params["compare_run_id"]),
+         {:ok, payload} <- Simulations.build_observatory_payload(pack, comparison_pack) do
+      conn
+      |> put_resp_header("cache-control", "private, max-age=60")
+      |> put_resp_header("etag", ~s("#{payload["content_hash"]}"))
+      |> json(payload)
+    else
+      _reason -> not_found(conn)
+    end
+  end
+
+  def observatory_agent(conn, params) do
+    with {_workspace, simulation} <- fetch_simulation(conn, params, "viewer"),
+         %{} = record <- completed_run(simulation, params["run_id"]),
+         {:ok, detail} <-
+           Simulations.get_observatory_agent(record, params["agent_id"], conn.assigns.locale) do
+      conn
+      |> put_resp_header("cache-control", "private, max-age=300")
+      |> put_resp_header("etag", ~s("#{detail["content_hash"]}"))
+      |> json(detail)
+    else
+      _reason -> not_found(conn)
     end
   end
 
@@ -474,13 +512,45 @@ defmodule HydraAgentWeb.SimulationController do
 
       latest_run =
         if stage in [:results, :compare],
-          do: Enum.find(run_records, &(&1.run.status == "completed")),
+          do:
+            Enum.find(run_records, fn record ->
+              record.run.status == "completed" and
+                to_string(record.id) == to_string(params["run_id"])
+            end) || Enum.find(run_records, &(&1.run.status == "completed")),
           else: List.first(run_records)
 
       analysis_pack =
-        if stage == :results && latest_run do
+        if stage in [:results, :compare] && latest_run do
           case ensure_analysis_pack(latest_run) do
             {:ok, pack} -> pack
+            _error -> nil
+          end
+        end
+
+      comparison_runs =
+        Enum.filter(run_records, fn record ->
+          (record.run.status == "completed" and latest_run) && record.id != latest_run.id
+        end)
+
+      selected_comparison =
+        selected_comparison_run(
+          comparison_runs,
+          params["compare_run_id"],
+          if(stage == :compare, do: :first, else: :none)
+        )
+
+      comparison_analysis =
+        if selected_comparison do
+          case ensure_analysis_pack(selected_comparison) do
+            {:ok, pack} -> pack
+            _error -> nil
+          end
+        end
+
+      observatory =
+        if analysis_pack do
+          case Simulations.build_observatory_payload(analysis_pack, comparison_analysis) do
+            {:ok, payload} -> payload
             _error -> nil
           end
         end
@@ -531,6 +601,9 @@ defmodule HydraAgentWeb.SimulationController do
             else: nil
           ),
         analysis_pack: analysis_pack,
+        observatory: observatory,
+        comparison_runs: comparison_runs,
+        selected_comparison: selected_comparison,
         reports: reports,
         latest_report: List.first(reports),
         report_provider_routes:
@@ -689,6 +762,36 @@ defmodule HydraAgentWeb.SimulationController do
     |> Simulations.list_simulation_run_records()
     |> Enum.find(&(&1.run.status == "completed"))
   end
+
+  defp completed_run(simulation, nil), do: latest_completed_run(simulation)
+  defp completed_run(simulation, ""), do: latest_completed_run(simulation)
+
+  defp completed_run(simulation, record_id) do
+    simulation
+    |> Simulations.list_simulation_run_records()
+    |> Enum.find(fn record ->
+      record.run.status == "completed" and to_string(record.id) == to_string(record_id)
+    end)
+  end
+
+  defp comparison_pack(_simulation, _record, value) when value in [nil, ""], do: {:ok, nil}
+
+  defp comparison_pack(simulation, record, comparison_id) do
+    case completed_run(simulation, comparison_id) do
+      %{id: id} = comparison when id != record.id ->
+        ensure_analysis_pack(comparison)
+
+      _other ->
+        {:error, :invalid_comparison}
+    end
+  end
+
+  defp selected_comparison_run(runs, nil, :first), do: List.first(runs)
+  defp selected_comparison_run(_runs, nil, :none), do: nil
+  defp selected_comparison_run(runs, "", mode), do: selected_comparison_run(runs, nil, mode)
+
+  defp selected_comparison_run(runs, id, _mode),
+    do: Enum.find(runs, &(to_string(&1.id) == to_string(id)))
 
   defp ensure_analysis_pack(record) do
     case Simulations.get_analysis_pack(record) do

@@ -1,6 +1,13 @@
 defmodule HydraAgentWeb.Router do
   use HydraAgentWeb, :router
 
+  @secure_browser_headers %{
+    "content-security-policy" =>
+      "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
+    "permissions-policy" => "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+    "referrer-policy" => "strict-origin-when-cross-origin"
+  }
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -8,12 +15,16 @@ defmodule HydraAgentWeb.Router do
     plug :put_root_layout, html: {HydraAgentWeb.Layouts, :root}
     plug :protect_from_forgery
 
-    plug :put_secure_browser_headers, %{
-      "content-security-policy" =>
-        "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
-      "permissions-policy" => "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
-      "referrer-policy" => "strict-origin-when-cross-origin"
-    }
+    plug :put_secure_browser_headers, @secure_browser_headers
+
+    plug HydraAgentWeb.UserAuth, :fetch_current_user
+  end
+
+  pipeline :browser_json do
+    plug :accepts, ["json"]
+    plug :fetch_session
+    plug :protect_from_forgery
+    plug :put_secure_browser_headers, @secure_browser_headers
 
     plug HydraAgentWeb.UserAuth, :fetch_current_user
   end
@@ -60,6 +71,16 @@ defmodule HydraAgentWeb.Router do
     get "/demo/simulations/:id", SimLabController, :show
     get "/demo/simulations/:id/observatory", SimLabController, :observatory
     get "/demo/simulations/:id/forecast.md", SimLabController, :demo_export_forecast
+  end
+
+  scope "/", HydraAgentWeb do
+    pipe_through [:browser_json, :require_authenticated_user]
+
+    get "/simulations/:id/results/observatory.json", SimulationController, :observatory_payload
+
+    get "/simulations/:id/results/observatory/agents/:agent_id/detail.json",
+        SimulationController,
+        :observatory_agent
   end
 
   scope "/", HydraAgentWeb do

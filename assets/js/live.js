@@ -1,6 +1,7 @@
 import "phoenix_html"
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
+import {initObservatories} from "./observatory"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
@@ -80,3 +81,5 @@ if (activeRun) {
 
 liveSocket.connect()
 window.liveSocket = liveSocket
+
+initObservatories()

@@ -788,13 +788,77 @@ defmodule HydraAgentWeb.SimulationControllerTest do
     assert analysis =~ "Analysis ready"
     assert analysis =~ "Verified from the final Run snapshot"
     assert analysis =~ "Simulation output, not observed evidence"
-    assert analysis =~ "Computed metrics"
+    assert analysis =~ "Observatory"
+    assert analysis =~ "Where agents ended up"
+    assert analysis =~ "What changed over time"
+    assert analysis =~ "Which modeled drivers mattered"
+    assert analysis =~ "Complete non-visual equivalent"
+    assert analysis =~ ~s(data-observatory)
+    assert analysis =~ ~s(data-copy-perceived-context="Perceived context")
     assert analysis =~ "Create a report"
     assert analysis =~ "Analysis JSON"
     assert analysis =~ "Metrics CSV"
     assert analysis =~ "Local reports · local-report-v1 · Local"
     refute analysis =~ "Results will appear after a completed run"
     refute analysis =~ "style="
+
+    record = HydraAgent.Simulations.get_simulation_run_record!(record.id)
+
+    observatory_conn =
+      conn
+      |> recycle()
+      |> put_req_header("accept", "application/json")
+      |> get(
+        "/simulations/#{simulation.id}/results/observatory.json?workspace_id=#{workspace.id}&locale=en&run_id=#{record.id}"
+      )
+
+    observatory = observatory_conn |> response(200) |> Jason.decode!()
+    assert observatory["protocol_version"] == "hydra-observatory/v1"
+    assert observatory["content_hash"] =~ ~r/^[a-f0-9]{64}$/
+    assert length(observatory["state"]["samples"]) <= 32
+    assert observatory["compressed_bytes"] < 500_000
+    refute response(observatory_conn, 200) =~ ~s("agents":)
+    assert get_resp_header(observatory_conn, "cache-control") == ["private, max-age=60"]
+    assert get_resp_header(observatory_conn, "etag") != []
+
+    sample = Enum.find(observatory["state"]["samples"], & &1["persona_available"])
+    assert sample
+
+    detail_conn =
+      conn
+      |> recycle()
+      |> put_req_header("accept", "application/json")
+      |> get(
+        "/simulations/#{simulation.id}/results/observatory/agents/#{sample["id"]}/detail.json?workspace_id=#{workspace.id}&locale=ru&run_id=#{record.id}"
+      )
+
+    detail = detail_conn |> response(200) |> Jason.decode!()
+    assert detail["protocol_version"] == "hydra-observatory-agent/v1"
+    assert detail["synthetic"]
+    assert detail["agent"]["id"] == sample["id"]
+    assert detail["persona"]["prose"] != ""
+    assert get_resp_header(detail_conn, "cache-control") == ["private, max-age=300"]
+
+    invalid_agent =
+      conn
+      |> recycle()
+      |> get(
+        "/simulations/#{simulation.id}/results/observatory/agents/not-present/detail.json?workspace_id=#{workspace.id}&locale=en&run_id=#{record.id}"
+      )
+
+    assert response(invalid_agent, 404)
+
+    foreign_workspace =
+      workspace_fixture(%{name: "Foreign Observatory", slug: "foreign-observatory"})
+
+    foreign_payload =
+      conn
+      |> recycle()
+      |> get(
+        "/simulations/#{simulation.id}/results/observatory.json?workspace_id=#{foreign_workspace.id}&locale=en&run_id=#{record.id}"
+      )
+
+    assert response(foreign_payload, 404)
 
     russian =
       conn
@@ -885,6 +949,23 @@ defmodule HydraAgentWeb.SimulationControllerTest do
 
     assert russian_flash =~
              "Отчёт поставлен в очередь. Страница обновится после проверки версии."
+
+    assert {:ok, replay} = HydraAgent.Simulations.create_exact_replay(record, nil)
+    assert {:ok, _completed_replay} = HydraAgent.Simulations.Engine.execute(replay.id)
+
+    compare_path =
+      "/simulations/#{simulation.id}/compare?workspace_id=#{workspace.id}&locale=en&run_id=#{record.id}&compare_run_id=#{replay.id}"
+
+    compare = conn |> recycle() |> get(compare_path) |> html_response(200)
+    assert compare =~ "Direct comparison"
+    assert compare =~ "Population, rules, mode, model route, and budget match"
+    assert compare =~ "The final population state"
+    assert compare =~ "How the modeled world moved"
+    assert compare =~ "Why the model produced this pattern"
+    assert compare =~ ~s(value="#{record.id}")
+
+    assert compare =~
+             "/simulations/#{simulation.id}/compare?compare_run_id=#{replay.id}&amp;locale=ru&amp;run_id=#{record.id}&amp;workspace_id=#{workspace.id}"
   end
 
   test "model routes are editable by role before a run and lock after start", %{

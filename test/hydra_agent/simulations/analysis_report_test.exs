@@ -55,6 +55,7 @@ defmodule HydraAgent.Simulations.AnalysisReportTest do
 
     %{
       workspace: workspace,
+      general: general,
       simulation: simulation,
       record: record,
       pack: pack,
@@ -90,6 +91,103 @@ defmodule HydraAgent.Simulations.AnalysisReportTest do
       |> where([current], current.id == ^pack.id)
       |> Repo.update_all(set: [protocol_version: "mutated"])
     end
+  end
+
+  test "Observatory is deterministic, aggregate-first, compact, and inspectable on demand", %{
+    record: record,
+    pack: pack
+  } do
+    assert {:ok, first} = Simulations.build_observatory_payload(pack)
+    assert {:ok, second} = Simulations.build_observatory_payload(pack)
+    assert first == second
+    assert first["protocol_version"] == "hydra-observatory/v1"
+    assert first["content_hash"] =~ ~r/^[a-f0-9]{64}$/
+    assert first["comparison"] == %{"status" => "none"}
+
+    type_cohorts = Enum.filter(first["state"]["cohorts"], &(&1["kind"] == "type"))
+    assert Enum.sum(Enum.map(type_cohorts, & &1["count"])) == first["run"]["population_size"]
+    assert length(first["state"]["samples"]) <= 32
+    assert length(first["flow"]["timeline"]) <= 48
+    assert length(first["explain"]["modeled_drivers"]) <= 16
+    assert Enum.all?(first["state"]["resources"], &is_number(&1["mean"]))
+
+    encoded = Jason.encode!(first)
+    refute encoded =~ ~s("agents":)
+    assert byte_size(encoded) < 2_000_000
+    assert encoded |> :zlib.gzip() |> byte_size() < 500_000
+
+    sample = Enum.find(first["state"]["samples"], & &1["persona_available"])
+    assert sample
+    assert {:ok, detail} = Simulations.get_observatory_agent(record, sample["id"], "ru")
+    assert detail["protocol_version"] == "hydra-observatory-agent/v1"
+    assert detail["synthetic"]
+    assert detail["agent"]["id"] == sample["id"]
+    assert detail["persona"]["prose"] != ""
+    assert length(detail["history"]) <= 64
+    assert length(detail["relationships"]) <= 24
+    assert length(detail["decisions"]) <= 32
+    refute Map.has_key?(detail["agent"], "memory_seeds")
+
+    assert {:error, :invalid_agent_id} =
+             Simulations.get_observatory_agent(record, "../../not-an-agent", "en")
+
+    assert {:error, :agent_not_found} =
+             Simulations.get_observatory_agent(record, "agent-not-present", "en")
+  end
+
+  test "Observatory comparison keeps governing compatibility and replay differences explicit", %{
+    record: record,
+    pack: pack
+  } do
+    assert {:ok, replay} = Simulations.create_exact_replay(record, nil)
+    assert {:ok, _completed} = Engine.execute(replay.id)
+    replay = Simulations.get_simulation_run_record!(replay.id)
+    replay_pack = Simulations.get_analysis_pack(replay)
+
+    assert {:ok, comparison} = Simulations.build_observatory_payload(pack, replay_pack)
+    assert comparison["comparison"]["status"] == "ready"
+    assert comparison["comparison"]["directly_comparable"]
+    assert comparison["comparison"]["differences"] == []
+
+    assert Enum.any?(comparison["comparison"]["controlled_differences"], fn difference ->
+             difference["field"] == "replay_kind" and
+               difference["current"] == "original" and
+               difference["baseline"] == "exact_replay"
+           end)
+
+    assert comparison["flow"]["baseline_timeline"] != []
+    assert comparison["comparison"]["metric_deltas"] != []
+  end
+
+  test "a 5,000-agent Observatory remains below the initial-payload envelope", %{
+    workspace: workspace,
+    general: general
+  } do
+    assert {:ok, simulation} =
+             Simulations.create_simulation(workspace, nil, %{
+               "question" => "How does a large bounded synthetic population distribute outcomes?",
+               "blueprint_id" => general.id,
+               "locale" => "en",
+               "execution_mode" => "quick",
+               "population_size" => "5000",
+               "horizon" => "3 rounds",
+               "inputs" => %{}
+             })
+
+    assert {:ok, record} = Simulations.create_quick_run(simulation, nil)
+    assert {:ok, _completed} = Engine.execute(record.id)
+    record = Simulations.get_simulation_run_record!(record.id)
+    pack = Simulations.get_analysis_pack(record)
+    assert {:ok, payload} = Simulations.build_observatory_payload(pack)
+
+    encoded = Jason.encode!(payload)
+    compressed = encoded |> :zlib.gzip() |> byte_size()
+
+    assert payload["run"]["population_size"] == 5_000
+    assert length(payload["state"]["samples"]) <= 32
+    assert length(payload["state"]["cohorts"]) < 100
+    refute encoded =~ ~s("agents":)
+    assert compressed < 500_000
   end
 
   test "a valid report is generated asynchronously and can be regenerated without rerunning", %{

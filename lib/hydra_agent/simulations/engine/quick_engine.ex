@@ -143,7 +143,7 @@ defmodule HydraAgent.Simulations.Engine.QuickEngine do
               emitted = %Event{
                 type: "simulation.world_event",
                 phase: phase,
-                summary: "Scheduled event #{event["id"]} applied",
+                summary: "Scheduled event applied: #{event["id"]}",
                 targets: sampled_targets(next["agents"], indices),
                 payload: %{
                   "event_id" => event["id"],
@@ -483,7 +483,7 @@ defmodule HydraAgent.Simulations.Engine.QuickEngine do
                 event = %Event{
                   type: "simulation.transition",
                   phase: "transitions",
-                  summary: "Transition #{transition["id"]} applied",
+                  summary: "Transition applied: #{transition["id"]}",
                   targets: sampled_targets(next["agents"], indices),
                   payload: %{
                     "transition_id" => transition["id"],

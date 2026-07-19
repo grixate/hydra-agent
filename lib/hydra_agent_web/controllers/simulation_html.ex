@@ -127,6 +127,29 @@ defmodule HydraAgentWeb.SimulationHTML do
       URI.encode_query(%{"workspace_id" => workspace_id, "locale" => locale})
   end
 
+  def stage_locale_path(
+        simulation_id,
+        stage,
+        workspace_id,
+        locale,
+        latest_run,
+        selected_comparison
+      ) do
+    params = %{"workspace_id" => workspace_id, "locale" => locale}
+
+    params =
+      if stage in ~w(results compare) and latest_run,
+        do: Map.put(params, "run_id", latest_run.id),
+        else: params
+
+    params =
+      if stage == "compare" and selected_comparison,
+        do: Map.put(params, "compare_run_id", selected_comparison.id),
+        else: params
+
+    "/simulations/#{simulation_id}/#{stage}?" <> URI.encode_query(params)
+  end
+
   def script_export_path(simulation_id, format, workspace_id, locale) do
     "/simulations/#{simulation_id}/script/export/#{format}?" <>
       URI.encode_query(%{"workspace_id" => workspace_id, "locale" => locale})
