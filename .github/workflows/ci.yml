@@ -63,6 +63,12 @@ jobs:
       - run: docker build --tag hydra-agent:${{ github.sha }} .
       - run: docker build --tag hydra-browser-worker:${{ github.sha }} services/browser-worker
       - run: docker build --tag hydra-agent-backup:${{ github.sha }} ops/backup
+      - name: Scan production images
+        env:
+          HYDRA_IMAGE: hydra-agent:${{ github.sha }}
+          HYDRA_BROWSER_WORKER_IMAGE: hydra-browser-worker:${{ github.sha }}
+          HYDRA_BACKUP_IMAGE: hydra-agent-backup:${{ github.sha }}
+        run: ops/image-scan
       - name: Smoke-test the production release
         env:
           HYDRA_IMAGE: hydra-agent:${{ github.sha }}

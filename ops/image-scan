@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+
+scanner_image="${HYDRA_SCANNER_IMAGE:-aquasec/trivy:0.70.0}"
+scanner_version="${HYDRA_SCANNER_VERSION:-0.70.0}"
+scanner_cache="${HYDRA_SCANNER_CACHE_VOLUME:-hydra_trivy_cache}"
+docker_socket="${HYDRA_DOCKER_SOCKET:-/var/run/docker.sock}"
+
+application_image="${HYDRA_IMAGE:-hydra-agent:production-smoke}"
+browser_image="${HYDRA_BROWSER_WORKER_IMAGE:-hydra-browser-worker:production-smoke}"
+backup_image="${HYDRA_BACKUP_IMAGE:-hydra-agent-backup:production-smoke}"
+
+scanner_output="$(docker run --rm "$scanner_image" version)"
+echo "$scanner_output" | grep -q "^Version: $scanner_version$"
+
+for image in "$application_image" "$browser_image" "$backup_image"; do
+  docker image inspect "$image" >/dev/null
+
+  docker run --rm \
+    -v "$docker_socket:/var/run/docker.sock" \
+    -v "$scanner_cache:/root/.cache/" \
+    "$scanner_image" image \
+    --quiet \
+    --scanners vuln \
+    --severity HIGH,CRITICAL \
+    --ignore-unfixed \
+    --exit-code 1 \
+    "$image"
+
+  docker run --rm \
+    -v "$docker_socket:/var/run/docker.sock" \
+    -v "$scanner_cache:/root/.cache/" \
+    "$scanner_image" image \
+    --quiet \
+    --scanners misconfig,secret \
+    --image-config-scanners misconfig,secret \
+    --severity HIGH,CRITICAL \
+    --exit-code 1 \
+    "$image"
+done
+
+echo "production image security scan passed"

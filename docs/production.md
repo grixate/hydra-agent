@@ -241,6 +241,7 @@ in the incident trail.
 - `docker build .`
 - `docker build services/browser-worker`
 - `docker build ops/backup`
+- `HYDRA_IMAGE=<reviewed-image> HYDRA_BROWSER_WORKER_IMAGE=<worker-image> HYDRA_BACKUP_IMAGE=<backup-image> ops/image-scan`
 - `HYDRA_IMAGE=<reviewed-image> ops/release-smoke`
 - `HYDRA_IMAGE=<reviewed-image> HYDRA_BROWSER_WORKER_IMAGE=<worker-image> HYDRA_BACKUP_IMAGE=<backup-image> ops/compose-smoke`
 - authenticated desktop and 390px mobile smoke paths
