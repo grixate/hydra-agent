@@ -154,6 +154,7 @@ defmodule HydraAgent.Simulations.BalancedCognitionTest do
   end
 
   @tag timeout: 120_000
+  @tag :pilot_performance
   test "5,000 agents over 12 rounds stay within the decision cap and engine target", context do
     simulation = balanced_simulation(context, 5_000, "12 rounds")
     assert {:ok, record} = Simulations.create_simulation_run(simulation, nil)

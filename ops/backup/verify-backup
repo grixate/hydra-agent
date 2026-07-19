@@ -49,4 +49,30 @@ case "$migration_count" in
     ;;
 esac
 
-echo "restore verified: $migration_count migrations"
+core_table_count="$(psql "$restore_database_url" -v ON_ERROR_STOP=1 -Atqc \
+  "SELECT count(*) FROM unnest(ARRAY[
+    'public.workspaces',
+    'public.users',
+    'public.runs',
+    'public.simulations',
+    'public.simulation_run_records',
+    'public.run_snapshots',
+    'public.oban_jobs'
+  ]) AS required(name)
+  WHERE to_regclass(required.name) IS NOT NULL")"
+
+if [ "$core_table_count" != "7" ]; then
+  echo "restored database is missing one or more core application tables" >&2
+  exit 1
+fi
+
+record_counts="$(psql "$restore_database_url" -v ON_ERROR_STOP=1 -Atqc \
+  "SELECT concat(
+    'workspaces=', (SELECT count(*) FROM workspaces),
+    ' users=', (SELECT count(*) FROM users),
+    ' runs=', (SELECT count(*) FROM runs),
+    ' simulations=', (SELECT count(*) FROM simulations),
+    ' run_snapshots=', (SELECT count(*) FROM run_snapshots)
+  )")"
+
+echo "restore verified: $migration_count migrations; $core_table_count core tables; $record_counts"

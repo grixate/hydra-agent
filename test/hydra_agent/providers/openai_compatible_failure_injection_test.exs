@@ -46,32 +46,35 @@ defmodule HydraAgent.Providers.OpenAICompatibleFailureInjectionTest do
   end
 
   test "classifies authentication and rate-limit responses without returning raw bodies" do
-    Enum.each([{401, "invalid_api_key"}, {429, "rate_limit_exceeded"}], fn {status, code} ->
-      plug = fn conn ->
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(
-          status,
-          Jason.encode!(%{
-            "error" => %{
-              "code" => code,
-              "type" => "provider_error",
-              "message" => "bounded operator guidance",
-              "raw_secret" => "must-not-escape"
-            },
-            "unbounded_body" => String.duplicate("x", 10_000)
-          })
-        )
-      end
+    Enum.each(
+      [{401, "invalid_api_key"}, {403, "model_not_allowed"}, {429, "rate_limit_exceeded"}],
+      fn {status, code} ->
+        plug = fn conn ->
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.send_resp(
+            status,
+            Jason.encode!(%{
+              "error" => %{
+                "code" => code,
+                "type" => "provider_error",
+                "message" => "bounded operator guidance",
+                "raw_secret" => "must-not-escape"
+              },
+              "unbounded_body" => String.duplicate("x", 10_000)
+            })
+          )
+        end
 
-      assert {:error, error} = Providers.chat(provider(plug), %{"messages" => []})
-      assert error["reason"] == "provider_http_error"
-      assert error["status"] == status
-      assert error["provider_code"] == code
-      assert error["provider_message"] == "bounded operator guidance"
-      refute inspect(error) =~ "must-not-escape"
-      refute Map.has_key?(error, "body")
-    end)
+        assert {:error, error} = Providers.chat(provider(plug), %{"messages" => []})
+        assert error["reason"] == "provider_http_error"
+        assert error["status"] == status
+        assert error["provider_code"] == code
+        assert error["provider_message"] == "bounded operator guidance"
+        refute inspect(error) =~ "must-not-escape"
+        refute Map.has_key?(error, "body")
+      end
+    )
   end
 
   test "rejects malformed success responses and missing usage" do
@@ -101,6 +104,7 @@ defmodule HydraAgent.Providers.OpenAICompatibleFailureInjectionTest do
 
   test "converts transport exceptions and oversized prompts into bounded failures" do
     broken = fn _conn -> raise "fault proxy interrupted the connection" end
+    oversized = String.duplicate("x", 2_000_001)
 
     assert {:error, %{"reason" => "provider_request_failed"} = transport_error} =
              Providers.chat(provider(broken), %{"messages" => []})
@@ -109,10 +113,18 @@ defmodule HydraAgent.Providers.OpenAICompatibleFailureInjectionTest do
 
     assert {:error, %{"reason" => "provider_request_too_large"}} =
              Providers.chat(provider(broken), %{
-               "messages" => [
-                 %{"role" => "user", "content" => String.duplicate("x", 2_000_001)}
-               ]
+               "messages" => [%{"role" => "user", "content" => oversized}]
              })
+
+    assert {:error, %{"reason" => "provider_request_too_large"}} =
+             Providers.stream_chat(
+               provider(broken),
+               %{"messages" => [%{"role" => "user", "content" => oversized}]},
+               fn _event -> flunk("an oversized stream request must not emit events") end
+             )
+
+    assert {:error, %{"reason" => "provider_request_too_large"}} =
+             Providers.embed(provider(broken), %{"input" => oversized})
   end
 
   test "rejects invalid token totals" do

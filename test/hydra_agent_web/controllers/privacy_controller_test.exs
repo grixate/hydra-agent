@@ -38,7 +38,8 @@ defmodule HydraAgentWeb.PrivacyControllerTest do
       support_email: "support@example.test",
       security_email: "security@example.test",
       privacy_url: "https://example.test/privacy",
-      retention_summary: "Pilot data is reviewed every 30 days."
+      retention_summary: "Pilot data is reviewed every 30 days.",
+      retention_summary_ru: "Пилотные данные проверяются каждые 30 дней."
     )
 
     response =
@@ -53,6 +54,14 @@ defmodule HydraAgentWeb.PrivacyControllerTest do
     assert response =~ "Local model"
     assert response =~ "Local to this deployment"
     refute response =~ "Operator notice is incomplete"
+
+    russian =
+      conn
+      |> recycle()
+      |> get(~p"/settings/privacy?workspace_id=#{workspace.id}&locale=ru")
+      |> html_response(200)
+
+    assert russian =~ "Пилотные данные проверяются каждые 30 дней."
   end
 
   test "missing operator disclosure is visible and Russian copy preserves the contract", %{

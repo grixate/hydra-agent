@@ -23,29 +23,33 @@ defmodule HydraAgent.Providers.OpenAICompatible do
 
   @impl true
   def stream_chat(provider, request, callback) do
-    provider
-    |> stream_request(
-      %{
-        model: request["model"] || provider.model,
-        messages: request["messages"] || [],
-        temperature: request["temperature"],
-        max_tokens: request["max_tokens"],
-        stream: true,
-        stream_options: %{"include_usage" => true}
-      },
-      callback
-    )
-    |> normalize_stream_response(provider)
+    with :ok <- validate_request_size(request) do
+      provider
+      |> stream_request(
+        %{
+          model: request["model"] || provider.model,
+          messages: request["messages"] || [],
+          temperature: request["temperature"],
+          max_tokens: request["max_tokens"],
+          stream: true,
+          stream_options: %{"include_usage" => true}
+        },
+        callback
+      )
+      |> normalize_stream_response(provider)
+    end
   end
 
   @impl true
   def embed(provider, request) do
-    provider
-    |> request(:post, "/embeddings", %{
-      model: request["model"] || embedding_model(provider),
-      input: request["input"] || ""
-    })
-    |> normalize_embedding_response(provider)
+    with :ok <- validate_request_size(request) do
+      provider
+      |> request(:post, "/embeddings", %{
+        model: request["model"] || embedding_model(provider),
+        input: request["input"] || ""
+      })
+      |> normalize_embedding_response(provider)
+    end
   end
 
   @impl true

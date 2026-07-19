@@ -59,7 +59,7 @@ defmodule HydraAgentWeb.SimulationObservatoryComponents do
       <header class="simulation-observatory-header">
         <div>
           <p class="blueprint-eyebrow">{t(@locale, :observatory_label)}</p>
-          <h3 id="observatory-title">{main_result(@payload["main_result"], @locale)}</h3>
+          <h2 id="observatory-title">{main_result(@payload["main_result"], @locale)}</h2>
           <p>{t(@locale, :observatory_lede)}</p>
         </div>
         <.comparison_control
@@ -138,7 +138,7 @@ defmodule HydraAgentWeb.SimulationObservatoryComponents do
         <header class="simulation-observatory-panel-header">
           <div>
             <p class="blueprint-eyebrow">{t(@locale, :observatory_state)}</p>
-            <h4 id="observatory-state-title">{t(@locale, :observatory_state_title)}</h4>
+            <h3 id="observatory-state-title">{t(@locale, :observatory_state_title)}</h3>
             <p>{t(@locale, :observatory_state_lede)}</p>
           </div>
           <span>{t(@locale, :observatory_aggregate_only)}</span>
@@ -245,9 +245,9 @@ defmodule HydraAgentWeb.SimulationObservatoryComponents do
           <header>
             <div>
               <p class="blueprint-eyebrow">{t(@locale, :observatory_agent_inspector)}</p>
-              <h4 data-observatory-inspector-title tabindex="-1">
+              <h3 data-observatory-inspector-title tabindex="-1">
                 {t(@locale, :observatory_agent_empty)}
-              </h4>
+              </h3>
             </div>
             <span>{t(@locale, :observatory_loaded_on_demand)}</span>
           </header>
@@ -344,7 +344,7 @@ defmodule HydraAgentWeb.SimulationObservatoryComponents do
         <header class="simulation-observatory-panel-header">
           <div>
             <p class="blueprint-eyebrow">{t(@locale, :observatory_flow)}</p>
-            <h4 id="observatory-flow-title">{t(@locale, :observatory_flow_title)}</h4>
+            <h3 id="observatory-flow-title">{t(@locale, :observatory_flow_title)}</h3>
             <p>{t(@locale, :observatory_flow_lede)}</p>
           </div>
           <span>{t(@locale, :observatory_ordered_record)}</span>
@@ -475,7 +475,7 @@ defmodule HydraAgentWeb.SimulationObservatoryComponents do
         <header class="simulation-observatory-panel-header">
           <div>
             <p class="blueprint-eyebrow">{t(@locale, :observatory_explain)}</p>
-            <h4 id="observatory-explain-title">{t(@locale, :observatory_explain_title)}</h4>
+            <h3 id="observatory-explain-title">{t(@locale, :observatory_explain_title)}</h3>
             <p>{t(@locale, :observatory_explain_lede)}</p>
           </div>
           <span>{t(@locale, :observatory_not_causal)}</span>

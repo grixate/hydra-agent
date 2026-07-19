@@ -29,7 +29,8 @@ config :hydra_agent, :public_disclosure,
   support_email: nil,
   security_email: nil,
   privacy_url: nil,
-  retention_summary: nil
+  retention_summary: nil,
+  retention_summary_ru: nil
 
 config :hydra_agent, :mcp_security,
   stdio_executable_allowlist: [],

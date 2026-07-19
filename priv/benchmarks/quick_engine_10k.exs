@@ -1,5 +1,9 @@
 Logger.configure(level: :warning)
 
+if Mix.env() == :prod and System.get_env("HYDRA_ALLOW_PRODUCTION_BENCHMARK") != "1" do
+  raise "refusing to create temporary benchmark data in production without HYDRA_ALLOW_PRODUCTION_BENCHMARK=1"
+end
+
 alias HydraAgent.Repo
 alias HydraAgent.Runtime.Workspace
 alias HydraAgent.Simulations.{Blueprints, SimulationRunRecord}

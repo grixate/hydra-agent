@@ -1,7 +1,8 @@
 defmodule HydraAgent.PublicDisclosure do
   @moduledoc "Deployment-owned public privacy and support disclosure."
 
-  @fields ~w(operator_name support_email security_email privacy_url retention_summary)a
+  @required_fields ~w(operator_name support_email security_email privacy_url retention_summary)a
+  @fields @required_fields ++ [:retention_summary_ru]
 
   def snapshot do
     configured = Application.get_env(:hydra_agent, :public_disclosure, [])
@@ -11,7 +12,11 @@ defmodule HydraAgent.PublicDisclosure do
         {field, configured |> Keyword.get(field) |> normalize()}
       end)
 
-    Map.put(values, :complete?, Enum.all?(@fields, &(is_binary(values[&1]) and values[&1] != "")))
+    Map.put(
+      values,
+      :complete?,
+      Enum.all?(@required_fields, &(is_binary(values[&1]) and values[&1] != ""))
+    )
   end
 
   defp normalize(value) when is_binary(value) do

@@ -1,0 +1,46 @@
+#!/bin/sh
+set -eu
+
+: "${DATABASE_URL:?DATABASE_URL is required}"
+: "${RESTORE_TEST_DATABASE_URL:?RESTORE_TEST_DATABASE_URL is required}"
+: "${HYDRA_BACKUP_KEY_FILE:?HYDRA_BACKUP_KEY_FILE is required}"
+: "${HYDRA_BACKUP_DIR:?HYDRA_BACKUP_DIR is required}"
+
+if [ "${HYDRA_OFF_HOST_CONFIRMED:-}" != "1" ]; then
+  echo "set HYDRA_OFF_HOST_CONFIRMED=1 only after confirming the target survives loss of the application host" >&2
+  exit 64
+fi
+
+case "$HYDRA_BACKUP_DIR" in
+  /*) ;;
+  *) echo "HYDRA_BACKUP_DIR must be an absolute off-host path" >&2; exit 64 ;;
+esac
+
+mkdir -p "$HYDRA_BACKUP_DIR"
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+repository_dir="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
+source_device="$(df -P "$repository_dir" | awk 'NR == 2 {print $1}')"
+target_device="$(df -P "$HYDRA_BACKUP_DIR" | awk 'NR == 2 {print $1}')"
+
+if [ -z "$source_device" ] || [ -z "$target_device" ]; then
+  echo "unable to establish source and backup storage devices" >&2
+  exit 1
+fi
+
+if [ "$source_device" = "$target_device" ]; then
+  echo "backup target is on the same filesystem as the application; this is not an off-host rehearsal" >&2
+  exit 64
+fi
+
+backup_path="$($script_dir/backup)"
+verification="$($script_dir/verify-backup "$backup_path")"
+checksum="$(openssl dgst -sha256 "$backup_path" | awk '{print $NF}')"
+recorded_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+echo "off-host restore rehearsal passed"
+echo "recorded_at=$recorded_at"
+echo "backup_path=$backup_path"
+echo "sha256=$checksum"
+echo "source_device=$source_device"
+echo "target_device=$target_device"
+echo "$verification"

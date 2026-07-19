@@ -17,6 +17,19 @@ Required only on the first boot:
 - `HYDRA_BOOTSTRAP_ADMIN_EMAIL`
 - `HYDRA_BOOTSTRAP_ADMIN_PASSWORD` (at least 12 characters)
 
+Required before a controlled pilot or public deployment:
+
+- `HYDRA_OPERATOR_NAME`
+- `HYDRA_SUPPORT_EMAIL`
+- `HYDRA_SECURITY_EMAIL`
+- `HYDRA_PRIVACY_URL`
+- `HYDRA_RETENTION_SUMMARY`
+- `HYDRA_RETENTION_SUMMARY_RU` (optional localized retention text)
+
+Hydra displays these values under Settings → Privacy & data flow and marks the
+operator notice incomplete when any is absent. They are deployment-owned public
+copy, not secrets.
+
 Generate secrets with a password manager or `mix phx.gen.secret`; do not commit
 them. The bootstrap password is read from the environment and only a PBKDF2
 verifier is stored. Remove the two bootstrap variables after the first admin is
@@ -29,6 +42,9 @@ values. For a provider configuration that names another environment variable,
 create a mode-0600 provider file outside the repository and set
 `HYDRA_PROVIDER_ENV_FILE=/absolute/path/to/provider.env`. The default optional
 file is `.env.providers`, which is ignored by Git and the Docker build context.
+Before enabling a route for participants, run the live structured-output probe
+and failure matrix in `docs/provider-staging.md`. A mock provider or ambient
+local Codex CLI login is not production-provider evidence.
 
 MCP process and credential access is disabled unless the deployment operator
 opens it explicitly. `HYDRA_MCP_STDIO_EXECUTABLES` is a comma-separated list of
@@ -191,6 +207,22 @@ HYDRA_BACKUP_KEY_FILE=/run/secrets/hydra_backup_key \
 ops/backup/verify-backup /secure/off-host/path/hydra-agent-*.dump.enc
 ```
 
+For the release gate, run the complete rehearsal against a filesystem that is
+different from the application filesystem and survives loss of the host:
+
+```sh
+HYDRA_OFF_HOST_CONFIRMED=1 \
+DATABASE_URL="$DATABASE_URL" \
+RESTORE_TEST_DATABASE_URL="$RESTORE_TEST_DATABASE_URL" \
+HYDRA_BACKUP_DIR=/mounted/off-host/release-evidence \
+HYDRA_BACKUP_KEY_FILE=/run/secrets/hydra_backup_key \
+ops/backup/off-host-rehearsal
+```
+
+The rehearsal refuses same-filesystem storage and reports the archive SHA-256,
+source/target devices, migration count, required core tables, and non-sensitive
+record counts. Keep its output with the candidate release evidence.
+
 Keep database backups separate from application images and apply the same
 retention and access policy as workspace evidence.
 
@@ -215,10 +247,18 @@ in the incident trail.
 - cross-workspace read and mutation denial
 - restart with queued research and simulation jobs
 - backup restore rehearsal for schema-changing releases
+- live provider probe for every enabled route and fallback
+- automated keyboard/accessibility-tree audit plus manual screen-reader pass
+- completed General and Decision Replay case reports, including limitations and
+  an exact replay plus changed-model/Blueprint rerun
 
 The Compose smoke test creates an encrypted archive and restores it into a
 disposable database; keep the separate rehearsal for production storage,
 credentials, timing, and recovery procedures.
+
+The controlled-pilot sequence, support triage, disclosure templates, and
+evidence matrix are in `docs/pilot-operations.md` and
+`docs/pilot-release-evidence.md`.
 
 ## Public launch ownership
 

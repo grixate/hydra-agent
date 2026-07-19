@@ -41,7 +41,8 @@ config :hydra_agent, :public_disclosure,
   support_email: System.get_env("HYDRA_SUPPORT_EMAIL"),
   security_email: System.get_env("HYDRA_SECURITY_EMAIL"),
   privacy_url: System.get_env("HYDRA_PRIVACY_URL"),
-  retention_summary: System.get_env("HYDRA_RETENTION_SUMMARY")
+  retention_summary: System.get_env("HYDRA_RETENTION_SUMMARY"),
+  retention_summary_ru: System.get_env("HYDRA_RETENTION_SUMMARY_RU")
 
 if executables = System.get_env("HYDRA_MCP_STDIO_EXECUTABLES") do
   config :hydra_agent, :mcp_security,

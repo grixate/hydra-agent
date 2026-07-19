@@ -1,0 +1,114 @@
+{
+  "cases": [
+    {
+      "analysis_hash": "df824353f1b8feb3e53097f7704992fd1ffadec793d83c21bee32f76383e9028",
+      "blueprint": {
+        "en": "General Agent Simulation",
+        "ru": "Универсальная агентная симуляция"
+      },
+      "case": "General Simulation",
+      "hard_model_call_cap": 88,
+      "limitations": [
+        "the case is synthetic and does not predict real participant behavior",
+        "no external evidence was supplied, so conclusions inherit model assumptions",
+        "the report provider is a deterministic mock and does not qualify external latency, quality, or cost"
+      ],
+      "mode": "quick",
+      "observatory": {
+        "content_hash": "f2c1019278a1fe9f80ef0d89802fdbea27f9539c84fad1e2e8bb9497f0331583",
+        "explain": true,
+        "flow": true,
+        "state": true
+      },
+      "population_size": 48,
+      "question": "How might a bounded service change affect participant completion over three rounds?",
+      "report": {
+        "content_hash": "63513ee274c5a72fd846033dc5b166d2972cfd65cc8b6d54e59c5204e7b396f1",
+        "evidence_reference_count": 1,
+        "status": "ready",
+        "validation_status": "validated",
+        "version": 1
+      },
+      "result_hash": "7b0c8b65a2a587510aaacbe2bba9b261abaf3b05c97f57d10e5a1d0e74811bd5",
+      "rounds": 3,
+      "run_pack": {
+        "bytes": 44180,
+        "sha256": "401ae2febcb8bd3526e23532094ca0be6ab97adbf2e726bfffbaf6fe361acb4d"
+      },
+      "simulation_model_calls": 0,
+      "source_evidence": "none supplied",
+      "status": "completed",
+      "strengths": [
+        "one-question, no-data Build completed with explicit assumptions and gaps",
+        "Quick execution made zero simulation model calls",
+        "Analysis, validated Report, State, Flow, Explain, and a portable Run Pack were produced"
+      ]
+    },
+    {
+      "blueprint": {
+        "en": "Decision Replay",
+        "ru": "Реконструкция решения"
+      },
+      "case": "Decision Replay",
+      "changed_model_rerun": {
+        "model": "mock-pilot-b",
+        "model_changed": true,
+        "replay_kind": "fresh_rerun",
+        "report": {
+          "content_hash": "66c82dc09e9f25de2f04e98e2db64ba7d7f2c96c8bcc2e322257304585bbd0c7",
+          "evidence_reference_count": 1,
+          "status": "ready",
+          "validation_status": "validated",
+          "version": 1
+        },
+        "result_hash": "84ec26e4515bf5cc5334d6a802828042057f789c6164a7d5e5051b1c3467abde",
+        "seed_changed": true,
+        "status": "completed"
+      },
+      "exact_replay": {
+        "decision_manifest_equal": true,
+        "provider_calls": 0,
+        "result_hash_equal": true,
+        "state_hash_equal": true,
+        "status": "completed"
+      },
+      "fallbacks": 0,
+      "hard_model_call_cap": 88,
+      "historical_cutoff": "2024-01-31",
+      "limitations": [
+        "the fixture contains no verified historical sources, so it exposes gaps rather than reconstructing facts",
+        "mock-model agreement is not evidence of real-model quality or cross-model robustness",
+        "a changed seed and model route are controlled differences, so the fresh rerun is not an exact comparison"
+      ],
+      "mode": "balanced",
+      "population_size": 60,
+      "question": "What could a team have known before a bounded launch decision, and how might participants have responded?",
+      "report": {
+        "content_hash": "3fa08668f9d71022cbf81ef6a2c71e9443f20a2151267c1d86a4295b5c131b6c",
+        "evidence_reference_count": 1,
+        "status": "ready",
+        "validation_status": "validated",
+        "version": 1
+      },
+      "result_hash": "522f1c94e2469ee1a19b3198e9503d1eb1b8b56647fb1b9e84b25bae5d98879f",
+      "rounds": 3,
+      "run_pack": {
+        "bytes": 85775,
+        "sha256": "eb82b8bfc4a3b49fe17b66935e38f4bbf7fcffcef0e4caf3d77241540698cd6a"
+      },
+      "simulation_model_calls": 36,
+      "status": "completed",
+      "strengths": [
+        "historical-cutoff handling remained explicit in the immutable Context lineage",
+        "Balanced cognition stayed inside its hard call cap and exact replay made zero provider calls",
+        "a fresh rerun used a changed model route and produced a separately validated Report"
+      ],
+      "strict_historical_cutoff": true
+    }
+  ],
+  "provider_posture": "deterministic structured mock; external latency and billing are excluded",
+  "qualification": "controlled-pilot fixture",
+  "recorded_at": "2026-07-19T02:54:29.511086Z",
+  "release_claim": "Application-flow evidence only. Real-provider staging, assistive-technology review, and off-host recovery remain separate gates.",
+  "schema_version": 1
+}

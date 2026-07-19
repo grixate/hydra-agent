@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-19T03:14:12.470Z",
+  "qualification": "local candidate accessibility audit",
+  "worktree_parent_commit": "05a1a4985b22e1a8c2dbcebb2aa2d0b548cfda72",
+  "environment": {
+    "operating_system": "macOS 26.5.1 (25F80)",
+    "browser": "Google Chrome 150.0.7871.127",
+    "playwright": "1.61.0",
+    "node": "25.6.0"
+  },
+  "viewports": {
+    "desktop": "1280x900",
+    "mobile": "390x844",
+    "high_zoom_reflow": "320x720"
+  },
+  "audits": [
+    {
+      "locale": "en",
+      "routes": 13,
+      "checks": 39,
+      "passed": 39,
+      "failed": 0
+    },
+    {
+      "locale": "ru",
+      "routes": 10,
+      "checks": 30,
+      "passed": 30,
+      "failed": 0
+    }
+  ],
+  "checked_surfaces": [
+    "Simulations index",
+    "one-question composer",
+    "Blueprint library",
+    "privacy and data flow",
+    "account security",
+    "Build",
+    "Population",
+    "Script",
+    "Run",
+    "Results and validated Report",
+    "State",
+    "Flow",
+    "Explain",
+    "Compare"
+  ],
+  "violation_totals": {
+    "duplicate_ids": 0,
+    "unnamed_controls": 0,
+    "broken_aria_references": 0,
+    "heading_jumps": 0,
+    "images_without_alt": 0,
+    "unnamed_canvases": 0,
+    "tables_without_headers": 0,
+    "controls_below_24_by_24_css_pixels": 0,
+    "invisible_focus": 0,
+    "missing_focus_indicators": 0,
+    "horizontal_overflow": 0,
+    "console_errors": 0
+  },
+  "representative_accessibility_tree_sha256": {
+    "composer_en_desktop": "4cee3d0ef70d6d27ac53274b80964aec0ad18a1f599b132eb22cf3410a44fb08",
+    "privacy_en_mobile": "2e0e5648c78c43bc193e946143d5440cf85c01964c7329adea1e22e4ccc97c62",
+    "build_en_desktop": "16c80663f361ce7c1cf7e4143df5c8c58c40ae056acad16697c4f6d0c1b076f1",
+    "population_en_mobile": "2268b08887496e553b47bf8c4d462dcf6f0ca92532c0ffff8582823c5d958412",
+    "results_en_mobile": "0ed15402fc2bbc2edeca01f504c5b252d3d0f969027a34b41bfb3b5480e21ad7",
+    "composer_ru_mobile": "577ff0fd9b66bfea5ea01cb5d5e8a0d1d426770aeaad119d68529a3356e7503d",
+    "privacy_ru_mobile": "7cb6a37d6de060e93dd8753de2eb43b6de161477b9486384827d2b60bcb2a716",
+    "results_ru_mobile": "965db871643a353258d3d868d684772878864055212e3571241f4c39383408e2"
+  },
+  "issues_found_and_corrected": [
+    "nested main landmarks in the composer and Results layout",
+    "an Observatory heading-level jump",
+    "14-pixel disclosure targets in Build, Script, and Report",
+    "22-pixel Population attribute-removal targets",
+    "20-pixel Simulation duplicate/archive actions",
+    "audit target measurement now uses the effective label target for visually hidden radios, checkboxes, and file controls"
+  ],
+  "privacy": "Accessibility tree text was excluded; only character counts and SHA-256 hashes were recorded.",
+  "limitation": "This evidence covers automated keyboard, semantic, responsive, reduced-motion, and accessibility-tree checks. A human VoiceOver/Safari pass remains required for the controlled-pilot release gate."
+}

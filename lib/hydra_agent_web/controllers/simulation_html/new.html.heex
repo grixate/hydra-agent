@@ -31,7 +31,7 @@
       @form["blueprint_id"] || @blueprints |> List.first() |> then(&(&1 && to_string(&1.id))) %>
     <% selected_mode = @form["execution_mode"] || "quick" %>
 
-    <main class="simulation-composer-main">
+    <div class="simulation-composer-main">
       <header>
         <p class="blueprint-eyebrow">01 · {t(@locale, :describe)}</p>
         <h1>{t(@locale, :compose_title)}</h1>
@@ -236,6 +236,6 @@
           </button>
         </footer>
       </form>
-    </main>
+    </div>
   <% end %>
 </div>

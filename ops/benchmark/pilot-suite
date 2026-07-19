@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+repository_dir="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+cd "$repository_dir"
+
+echo "running Hydra Quick 10k benchmark (three full samples)"
+MIX_ENV=test mix run priv/benchmarks/quick_engine_10k.exs
+
+echo "running Hydra Balanced 5k bounded-cognition benchmark"
+MIX_ENV=test mix test test/hydra_agent/simulations/balanced_cognition_test.exs \
+  --only pilot_performance

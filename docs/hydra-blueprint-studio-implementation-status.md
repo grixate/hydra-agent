@@ -13,13 +13,13 @@ entire epic or release is complete.
 
 - Active epic: **Epic 12 — Pilot hardening**
 - Completed epic: **Epic 11 — Portable Simulation Pack and Run Pack**
-- Next vertical slice: real-provider failure injection, accessibility and
-  performance qualification, off-host restore rehearsal, operator kit,
-  privacy/provider disclosures, and two complete pilot cases
+- Next vertical slice: deployment-owned real-provider probe, manual
+  assistive-technology review, and off-host restore evidence
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
-- Controlled-pilot status: not ready under the new specification
+- Controlled-pilot status: application ready for environment qualification;
+  external credential, assistive-technology, and independent-storage gates open
 
 ## Feature flags
 
@@ -682,6 +682,66 @@ warnings-as-errors compilation, dependency lock hygiene and audit, formatting,
 Sobelow with only the repository's reviewed low-confidence findings, and 695
 ExUnit tests with zero failures (seed 626548, 56.7 seconds). `mix assets.build`
 also passes.
+
+### Epic 12 — Pilot hardening
+
+- [x] OpenAI-compatible chat, streaming, and embedding paths plus Anthropic and
+  Ollama chat paths enforce bounded requests. Chat staging paths additionally
+  enforce no retries/redirects/compression, strict content/usage contracts, and
+  privacy-safe HTTP/transport failures.
+- [x] One explicit low-cost live staging command validates a random structured
+  nonce and normalized usage without returning prompts, content, endpoints, or
+  credentials. Mock providers are rejected.
+- [x] Workspace admins can download a scoped, no-store Run diagnostic with a
+  support code, public routes, hard-budget state, reservation terminality,
+  failure/fallback counts, recovery lineage, report failures, severity, and
+  stable next actions. Prompts, rationales, sources, and secrets are excluded.
+- [x] Settings → Privacy & data flow presents operator/support/security/privacy/
+  retention disclosure, exact stage data flows, enabled route posture,
+  safeguards, storage/deletion honesty, and the local Codex boundary in English
+  and Russian. Missing operator values remain visibly incomplete.
+- [x] The reusable Playwright audit checks desktop, 390 px mobile, and 320 px
+  high-zoom layouts for semantic structure, naming, ARIA references, heading
+  order, effective target size, overflow, keyboard focus, reduced motion,
+  accessibility-tree presence, and console errors without recording tree text.
+- [x] 69 English/Russian route/viewport checks passed with zero violations.
+  Review corrected nested main landmarks, an Observatory heading jump, and
+  several overly small quiet controls while preserving the visual hierarchy.
+- [x] A repeatable temporary pilot fixture completes a no-data General Quick
+  case and a strict-cutoff Decision Replay Balanced case, validates Reports,
+  builds State/Flow/Explain, exports Run Packs, proves exact replay equality,
+  and completes a fresh changed-model rerun. Its artifact states strengths and
+  limitations and explicitly excludes real-provider claims.
+- [x] The performance suite includes the complete 10k/20-round Quick benchmark
+  and the bounded 5k/12-round Balanced benchmark; recorded artifacts preserve
+  local/mock qualification limits.
+- [x] Restore verification now proves the migration ledger and seven core
+  application tables, reports safe record counts, and the off-host wrapper
+  refuses a same-filesystem target or unconfirmed independent storage.
+- [x] The operator kit covers ownership, deployment, disclosure, live provider
+  staging, support diagnosis, incident recovery, accessibility, pilot cases,
+  privacy/provider templates, and explicit go/no-go evidence.
+- [ ] Run the live provider probe for every enabled production route and
+  fallback. No non-mock provider or production credential exists locally.
+- [ ] Complete a human VoiceOver/Safari review against the immutable staging
+  candidate.
+- [ ] Complete the encrypted restore rehearsal on storage that survives loss of
+  the application host. The local repository and Downloads share one device.
+
+Repeatable application-flow evidence is in
+`docs/pilot-cases/2026-07-18-controlled-pilot-fixture.json`; automated
+accessibility evidence is in
+`docs/accessibility/2026-07-18-blueprint-studio-audit.json`. The release status
+and external blockers are explicit in `docs/pilot-release-evidence.md`.
+
+The exact Epic 12 worktree passed `mix precommit` on 2026-07-19: warning-free
+compilation, dependency lock hygiene and audit with no known vulnerabilities,
+formatting, Sobelow with only the repository's reviewed low-confidence
+findings, and 710 ExUnit tests with zero failures (seed 598090, 57.5 seconds).
+The same worktree passed the coverage floor at 76.78% with 710 tests and zero
+failures. Browser-worker syntax and proxy-security tests passed with nine tests
+and two environment-dependent real-Chromium cases skipped; the separate live
+Chrome accessibility audit passed all 69 route/viewport checks.
 
 ## Baseline evidence
 
