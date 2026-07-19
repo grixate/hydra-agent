@@ -9,6 +9,7 @@ port="${HYDRA_SMOKE_PORT:-4199}"
 secret_key_base="${SECRET_KEY_BASE:-$(openssl rand 64 | base64 | tr -d '\n')}"
 api_token="${HYDRA_API_TOKEN:-$(openssl rand 32 | od -An -tx1 | tr -d ' \n')}"
 postgres_password="${POSTGRES_PASSWORD:-$(openssl rand 24 | od -An -tx1 | tr -d ' \n')}"
+erl_flags="${HYDRA_ERL_FLAGS:-}"
 login_body="/tmp/hydra-login-$$.html"
 asset_headers="/tmp/hydra-asset-$$.headers"
 asset_body="/tmp/hydra-asset-$$.body"
@@ -44,6 +45,7 @@ docker run --rm --network "$network" \
   -e PHX_HOST=hydra.test \
   -e "SECRET_KEY_BASE=$secret_key_base" \
   -e "HYDRA_API_TOKEN=$api_token" \
+  -e "ERL_FLAGS=$erl_flags" \
   -e "DATABASE_URL=$database_url" \
   "$image" /app/bin/hydra_agent eval 'HydraAgent.Release.migrate()'
 
@@ -52,6 +54,7 @@ docker run -d --name "$app" --network "$network" -p "$port:4000" \
   -e PHX_HOST=hydra.test \
   -e "SECRET_KEY_BASE=$secret_key_base" \
   -e "HYDRA_API_TOKEN=$api_token" \
+  -e "ERL_FLAGS=$erl_flags" \
   -e "DATABASE_URL=$database_url" \
   "$image" >/dev/null
 

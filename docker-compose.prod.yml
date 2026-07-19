@@ -109,6 +109,7 @@ services:
       PHX_SERVER: "true"
       PHX_HOST: ${PHX_HOST:?set PHX_HOST}
       PORT: "4000"
+      ERL_FLAGS: ${HYDRA_ERL_FLAGS:-}
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE}
       DATABASE_URL: ecto://hydra:${POSTGRES_PASSWORD}@postgres/hydra_agent
       HYDRA_API_TOKEN_ENV: HYDRA_API_TOKEN
@@ -168,6 +169,7 @@ services:
     command: ["/app/bin/hydra_agent", "eval", "HydraAgent.Release.migrate()"]
     environment:
       PHX_HOST: ${PHX_HOST:?set PHX_HOST}
+      ERL_FLAGS: ${HYDRA_ERL_FLAGS:-}
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE}
       DATABASE_URL: ecto://hydra:${POSTGRES_PASSWORD}@postgres/hydra_agent
       HYDRA_API_TOKEN_ENV: HYDRA_API_TOKEN
