@@ -1,31 +1,45 @@
 {
-  "schema_version": 1,
-  "recorded_at": "2026-07-19T04:11:11Z",
-  "qualification": "local arm64 production-artifact smoke",
-  "candidate_repository_commit": "b8e25e7f29d0af99061ab3599b78d3d67f1cc160",
+  "schema_version": 2,
+  "recorded_at": "2026-07-19T05:20:50Z",
+  "qualification": "local multi-architecture production-artifact qualification",
+  "candidate_repository_commit": "37891364ad43f14f53d7270ce83a05130587c621",
   "environment": {
-    "host": "macOS 26.5.1 (25F80)",
+    "host": "macOS 26.5.1 (25F80) on Apple arm64",
     "virtualization": "Colima 0.10.1 with macOS Virtualization.Framework and virtiofs",
     "docker_client": "29.5.2",
     "docker_server": "29.2.1",
     "docker_compose": "5.1.4",
-    "architecture": "linux/arm64"
+    "docker_buildx": "0.35.0",
+    "buildkit": "0.27.1",
+    "qualified_architectures": [
+      "linux/arm64 native",
+      "linux/amd64 via Apple Rosetta user-mode emulation"
+    ]
+  },
+  "cross_architecture_method": {
+    "arm64": "native build and runtime with the default BEAM JIT memory mapping",
+    "amd64": "Docker Buildx build and runtime through Colima's Rosetta device",
+    "emulator_compatibility_flag": "+JMsingle true",
+    "flag_scope": "passed only as the opt-in ERL_FLAGS build argument and HYDRA_ERL_FLAGS smoke environment; not embedded in either production image",
+    "reference": "https://www.erlang.org/doc/apps/erts/erl_cmd.html"
   },
   "images": [
     {
-      "name": "hydra-agent:pilot-b8e25e7",
-      "image_id": "sha256:b56a24da6a17a19f876c58a38cad7ddb498ddd351ed887b3d15fa72e5113994e",
-      "size_bytes": 81377361,
+      "name": "hydra-agent:pilot-3789136-arm64",
+      "architecture": "linux/arm64",
+      "image_id": "sha256:1ff0d7a613e6f0069cb5b77ceeffc72da48d0938530edd47878d3b6ae7a65b27",
+      "size_bytes": 81401360,
       "runtime_user": "hydra",
-      "revision_label": "b8e25e7f29d0af99061ab3599b78d3d67f1cc160",
+      "revision_label": "37891364ad43f14f53d7270ce83a05130587c621",
       "build": "passed"
     },
     {
-      "name": "hydra-browser-worker:pilot-b8e25e7",
-      "image_id": "sha256:0dba63f74c38a268bbbcc14cbc51303c166ccae2fbc91143e5d5717913aa1414",
-      "size_bytes": 942060061,
+      "name": "hydra-browser-worker:pilot-3789136-arm64",
+      "architecture": "linux/arm64",
+      "image_id": "sha256:e2a123313cd7933a81bf1470b891f034cb35dcdd000597e972013f67ca8ea977",
+      "size_bytes": 942060685,
       "runtime_user": "pwuser",
-      "revision_label": "b8e25e7f29d0af99061ab3599b78d3d67f1cc160",
+      "revision_label": "37891364ad43f14f53d7270ce83a05130587c621",
       "build": "passed",
       "containerized_browser_tests": {
         "passed": 11,
@@ -35,11 +49,45 @@
       }
     },
     {
-      "name": "hydra-agent-backup:pilot-b8e25e7",
-      "image_id": "sha256:dd34a2f44b43509a3cc87442df73639db689a0c2288e111a27b455d0e539a7ca",
-      "size_bytes": 114241393,
+      "name": "hydra-agent-backup:pilot-3789136-arm64",
+      "architecture": "linux/arm64",
+      "image_id": "sha256:c523976e7cbf0eeb34576dfc79e62301c66ee7f1fe3ddfd96bdc2a186e243094",
+      "size_bytes": 114241829,
       "runtime_user": "postgres",
-      "revision_label": "b8e25e7f29d0af99061ab3599b78d3d67f1cc160",
+      "revision_label": "37891364ad43f14f53d7270ce83a05130587c621",
+      "build": "passed"
+    },
+    {
+      "name": "hydra-agent:pilot-3789136-amd64",
+      "architecture": "linux/amd64",
+      "image_id": "sha256:7e866624d7f3a0af74aedf3c62e6618b178230bf1b8933a05ce4a1d84302e95d",
+      "size_bytes": 81998690,
+      "runtime_user": "hydra",
+      "revision_label": "37891364ad43f14f53d7270ce83a05130587c621",
+      "build": "passed"
+    },
+    {
+      "name": "hydra-browser-worker:pilot-3789136-amd64",
+      "architecture": "linux/amd64",
+      "image_id": "sha256:550224b7906dfc58ea0efe53f2d5ce6bbb12dee9aaa8efcef2469cbc277ada97",
+      "size_bytes": 932941719,
+      "runtime_user": "pwuser",
+      "revision_label": "37891364ad43f14f53d7270ce83a05130587c621",
+      "build": "passed",
+      "containerized_browser_tests": {
+        "passed": 11,
+        "failed": 0,
+        "skipped": 0,
+        "includes_real_chromium_dns_rebinding_and_loopback_bypass": true
+      }
+    },
+    {
+      "name": "hydra-agent-backup:pilot-3789136-amd64",
+      "architecture": "linux/amd64",
+      "image_id": "sha256:7889cf8721b5c6162088d28539b6735481e3d8451227360a1b0d10d45c3bca87",
+      "size_bytes": 116419358,
+      "runtime_user": "postgres",
+      "revision_label": "37891364ad43f14f53d7270ce83a05130587c621",
       "build": "passed"
     }
   ],
@@ -50,27 +98,30 @@
     "postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777"
   ],
   "vulnerability_scan": {
-    "status": "passed",
+    "status": "passed on arm64 and amd64",
     "scanner": "Trivy 0.70.0",
     "scanner_image": "aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
     "policy": "fail on fixable HIGH or CRITICAL findings; ignore unfixed findings",
-    "application_high": 0,
-    "application_critical": 0,
-    "browser_high": 0,
-    "browser_critical": 0,
-    "backup_high": 0,
-    "backup_critical": 0,
-    "high_or_critical_image_misconfigurations": 0,
-    "embedded_secrets": 0,
-    "ci_regression_gate": "ops/image-scan",
-    "hardening": [
-      "upgraded Debian build and runtime packages before compilation and release assembly",
-      "removed the global npm toolchain and audit/test sources from the browser runtime after image tests",
-      "removed unused gosu from the backup runtime, which already executes as postgres"
-    ]
+    "architectures": {
+      "linux/arm64": {
+        "application_high_or_critical": 0,
+        "browser_high_or_critical": 0,
+        "backup_high_or_critical": 0,
+        "high_or_critical_image_misconfigurations": 0,
+        "embedded_secrets": 0
+      },
+      "linux/amd64": {
+        "application_high_or_critical": 0,
+        "browser_high_or_critical": 0,
+        "backup_high_or_critical": 0,
+        "high_or_critical_image_misconfigurations": 0,
+        "embedded_secrets": 0
+      }
+    },
+    "ci_regression_gate": "ops/image-scan"
   },
   "release_smoke": {
-    "status": "passed",
+    "status": "passed on native arm64 and emulated amd64",
     "assertions": [
       "all migrations applied to a blank PostgreSQL 16 database",
       "application reached ready state",
@@ -81,7 +132,7 @@
     ]
   },
   "compose_smoke": {
-    "status": "passed",
+    "status": "passed on native arm64 and emulated amd64",
     "assertions": [
       "migration service exited successfully before application start",
       "application, browser worker, backup service, and PostgreSQL reached the expected states",
@@ -97,15 +148,25 @@
   },
   "repository_gate": {
     "mix_precommit": "passed",
+    "test_seed": 573163,
     "tests": 710,
     "failures": 0,
     "dependency_audit": "no known vulnerabilities",
+    "runtime_dependency_updates": [
+      "Phoenix 1.8.9",
+      "Plug 1.20.3",
+      "Req 0.6.3",
+      "Mint 1.9.3",
+      "Postgrex 0.22.3"
+    ],
     "static_analysis": "completed with only reviewed low-confidence findings"
   },
   "limitations": [
-    "This is a local arm64 build and runtime qualification; registry push, signing, provenance attestation, target-architecture scanning, and target-host capacity remain deployment actions.",
+    "The amd64 runtime qualification used Apple Rosetta on an arm64 host; a native amd64 target-host capacity and environment check remains a deployment action.",
+    "Registry publication, immutable registry digests, signing, and externally verifiable provenance remain release-distribution actions.",
     "The successful disposable restore used a Docker volume on the same physical host and does not satisfy the independent off-host restore gate.",
     "No enabled non-mock provider or production credential was available, so real-provider staging remains open.",
-    "Automated accessibility evidence does not replace the required human VoiceOver/Safari pass."
+    "Automated accessibility evidence does not replace the required human VoiceOver/Safari pass.",
+    "Operator-specific privacy, support, retention, and provider disclosure values must still be reviewed and published."
   ]
 }

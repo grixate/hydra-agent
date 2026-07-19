@@ -1,6 +1,6 @@
 # Hydra Blueprint Studio implementation status
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 
 Governing product loop: **Describe -> Build -> Run -> Explore**
 
@@ -20,6 +20,10 @@ entire epic or release is complete.
 - Legacy route removal: none
 - Controlled-pilot status: application ready for environment qualification;
   external credential, assistive-technology, and independent-storage gates open
+- Artifact status: application, browser-worker, and backup images qualified
+  locally on native ARM64 and emulated AMD64 at commit `3789136`; both
+  architectures passed security scanning, release smoke, and Compose restore
+  smoke
 
 ## Feature flags
 
@@ -722,15 +726,18 @@ also passes.
   staging, support diagnosis, incident recovery, accessibility, pilot cases,
   privacy/provider templates, and explicit go/no-go evidence.
 - [x] Exact-revision production application, browser-worker, and backup images
-  build successfully. Release and Compose smoke cover blank-database
-  migrations, readiness, API boundaries, immutable assets, concurrent health,
-  container isolation and limits, encrypted backup, and disposable restore.
+  build successfully for native ARM64 and emulated AMD64. Both architectures
+  pass security scans, blank-database release smoke, and Compose smoke covering
+  readiness, API boundaries, immutable assets, concurrent health, container
+  isolation and limits, encrypted backup, and disposable restore.
 - [ ] Run the live provider probe for every enabled production route and
   fallback. No non-mock provider or production credential exists locally.
 - [ ] Complete a human VoiceOver/Safari review against the immutable staging
   candidate.
 - [ ] Complete the encrypted restore rehearsal on storage that survives loss of
   the application host. The local repository and Downloads share one device.
+- [ ] Publish operator-reviewed privacy, support, retention, and provider
+  disclosure values before participants enter data.
 
 Repeatable application-flow evidence is in
 `docs/pilot-cases/2026-07-18-controlled-pilot-fixture.json`; automated
@@ -738,24 +745,26 @@ accessibility evidence is in
 `docs/accessibility/2026-07-18-blueprint-studio-audit.json`. The release status
 and external blockers are explicit in `docs/pilot-release-evidence.md`.
 
-The exact Epic 12 worktree passed `mix precommit` on 2026-07-19: warning-free
-compilation, dependency lock hygiene and audit with no known vulnerabilities,
-formatting, Sobelow with only the repository's reviewed low-confidence
-findings, and 710 ExUnit tests with zero failures (seed 598090, 57.5 seconds).
+The exact Epic 12 code candidate passed `mix precommit` on 2026-07-19:
+warning-free compilation, dependency lock hygiene and audit with no known
+vulnerabilities, formatting, Sobelow with only the repository's reviewed
+low-confidence findings, and 710 ExUnit tests with zero failures (seed 573163,
+59.2 seconds).
 The same worktree passed the coverage floor at 76.78% with 710 tests and zero
-failures. Browser-worker syntax and proxy-security tests passed with nine tests
-and two environment-dependent real-Chromium cases skipped; the separate live
-Chrome accessibility audit passed all 69 route/viewport checks.
+failures. The separate live Chrome accessibility audit passed all 69
+route/viewport checks.
 
-Candidate commit `b8e25e7f29d0af99061ab3599b78d3d67f1cc160` passed a clean
-`mix precommit` with 710 tests and zero failures, built all three `linux/arm64`
-production images, passed all 11 browser-worker tests inside its Playwright
-image, and passed both `ops/release-smoke` and `ops/compose-smoke`. The latter
+Candidate commit `37891364ad43f14f53d7270ce83a05130587c621` built all three
+production images for both `linux/arm64` and `linux/amd64`, passed all 11
+browser-worker tests per architecture, and passed `ops/release-smoke` plus
+`ops/compose-smoke` on native ARM64 and Rosetta-emulated AMD64. The latter
 includes an encrypted disposable restore and full container-boundary checks;
 it remains intentionally distinct from the required independent-storage
-rehearsal. All three exact-revision images also pass the Trivy 0.70.0 gate with
-zero fixable HIGH/CRITICAL findings after Debian package upgrades and removal
-of unused runtime npm/gosu tooling. Content-addressed evidence is in
+rehearsal. All six exact-revision images pass the pinned Trivy 0.70.0 gate with
+zero fixable HIGH/CRITICAL findings, high/critical image misconfigurations, or
+embedded secrets. The refreshed Hex advisory database also prompted upgrades
+to patched Phoenix, Plug, Req, Mint, Postgrex, and related runtime versions.
+Content-addressed evidence is in
 `docs/release/2026-07-19-production-artifact-smoke.json`.
 
 ## Baseline evidence
