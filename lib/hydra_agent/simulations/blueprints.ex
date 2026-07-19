@@ -90,6 +90,31 @@ defmodule HydraAgent.Simulations.Blueprints do
     end
   end
 
+  @doc "Reuses an exact portable Blueprint or imports a conflict-safe workspace copy."
+  def ensure_portable_blueprint(%Workspace{} = workspace, user, binary) when is_binary(binary) do
+    with :ok <- authorize_editor(user, workspace),
+         {:ok, package} <- BlueprintPackage.import(binary) do
+      case exact_active_blueprint(workspace.id, package.content_hash) do
+        %Blueprint{} = blueprint ->
+          {:ok, blueprint}
+
+        nil ->
+          if ProductFeatures.enabled?(:blueprint_import) do
+            source_content_hash = package.content_hash
+            package = avoid_portable_slug_conflict(workspace.id, package)
+
+            create_from_package(workspace, user, package, %{
+              "kind" => "simulation_pack_import",
+              "content_hash" => package.content_hash,
+              "source_content_hash" => source_content_hash
+            })
+          else
+            {:error, :blueprint_import_disabled}
+          end
+      end
+    end
+  end
+
   def duplicate_blueprint(
         %Blueprint{} = source,
         %Workspace{} = workspace,
@@ -336,6 +361,62 @@ defmodule HydraAgent.Simulations.Blueprints do
     if package.manifest["id"] == blueprint.slug,
       do: :ok,
       else: {:error, :manifest_id_mismatch}
+  end
+
+  defp exact_active_blueprint(workspace_id, content_hash) do
+    Blueprint
+    |> join(:inner, [blueprint], version in BlueprintVersion,
+      on: version.id == blueprint.active_version_id
+    )
+    |> where(
+      [blueprint, version],
+      version.content_hash == ^content_hash and blueprint.status == "active" and
+        ((blueprint.built_in and is_nil(blueprint.workspace_id)) or
+           blueprint.workspace_id == ^workspace_id)
+    )
+    |> preload([:active_version])
+    |> Repo.one()
+  end
+
+  defp avoid_portable_slug_conflict(workspace_id, package) do
+    slug = package.manifest["id"]
+
+    conflict? =
+      Repo.exists?(
+        from blueprint in Blueprint,
+          where: blueprint.workspace_id == ^workspace_id and blueprint.slug == ^slug
+      )
+
+    if conflict? do
+      portable_slug = available_import_slug(workspace_id, slug)
+
+      {:ok, renamed} =
+        BlueprintPackage.from_components(%{
+          manifest: Map.put(package.manifest, "id", portable_slug),
+          instructions: package.instructions,
+          schemas: package.schemas,
+          examples: package.examples,
+          readme: package.readme
+        })
+
+      renamed
+    else
+      package
+    end
+  end
+
+  defp available_import_slug(workspace_id, source_slug) do
+    Stream.iterate(1, &(&1 + 1))
+    |> Enum.find_value(fn number ->
+      suffix = if number == 1, do: "portable", else: "portable-#{number}"
+      candidate = String.slice("#{source_slug}-#{suffix}", 0, 100)
+
+      unless Repo.exists?(
+               from blueprint in Blueprint,
+                 where: blueprint.workspace_id == ^workspace_id and blueprint.slug == ^candidate
+             ),
+             do: candidate
+    end)
   end
 
   defp ensure_newer_version(nil, _package), do: :ok

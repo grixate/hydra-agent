@@ -42,6 +42,36 @@
     <button type="submit">{t(@locale, :switch)}</button>
   </form>
 
+  <details :if={@workspace && @can_create} class="simulation-portable-import">
+    <summary>
+      <span>
+        <strong>{t(@locale, :portable_import_title)}</strong>
+        <small>{t(@locale, :portable_import_lede)}</small>
+      </span>
+    </summary>
+    <form
+      action="/simulations/import"
+      method="post"
+      enctype="multipart/form-data"
+      class="simulation-portable-upload"
+    >
+      <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+      <input type="hidden" name="workspace_id" value={@workspace.id} />
+      <input type="hidden" name="locale" value={@locale} />
+      <label>
+        <span>{t(@locale, :portable_import_file)}</span>
+        <input
+          type="file"
+          name="simulation_pack[file]"
+          accept=".hydra-simpack,application/zip"
+          required
+        />
+      </label>
+      <button type="submit">{t(@locale, :portable_import_action)}</button>
+      <small>{t(@locale, :portable_import_safety)}</small>
+    </form>
+  </details>
+
   <section :if={!@workspace} class="blueprint-empty-state">
     <span aria-hidden="true">00</span>
     <h2>{t(@locale, :no_workspace)}</h2>

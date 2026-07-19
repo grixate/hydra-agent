@@ -1,9 +1,10 @@
 defmodule HydraAgentWeb.Router do
   use HydraAgentWeb, :router
 
+  @frame_src if(Mix.env() == :dev, do: "'self'", else: "'none'")
   @secure_browser_headers %{
     "content-security-policy" =>
-      "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
+      "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src #{@frame_src}; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
     "permissions-policy" => "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
     "referrer-policy" => "strict-origin-when-cross-origin"
   }
@@ -196,8 +197,12 @@ defmodule HydraAgentWeb.Router do
     get "/simulations", SimulationController, :index
     get "/simulations/new", SimulationController, :new
     post "/simulations", SimulationController, :create
+    post "/simulations/import", SimulationController, :import_pack
     get "/simulations/:id", SimulationController, :show
     get "/simulations/:id/build", SimulationController, :build
+    get "/simulations/:id/export/simpack", SimulationController, :export_simulation_pack
+    get "/simulations/:id/manual-request.json", SimulationController, :export_manual_request
+    post "/simulations/:id/manual-import", SimulationController, :import_manual_artifacts
     get "/simulations/:id/context", SimulationController, :context
     post "/simulations/:id/context/build", SimulationController, :build_context
     post "/simulations/:id/context/research", SimulationController, :research_context
@@ -231,6 +236,10 @@ defmodule HydraAgentWeb.Router do
     get "/simulations/:id/results", SimulationController, :results
     post "/simulations/:id/results/reports", SimulationController, :create_report
     get "/simulations/:id/results/export/:artifact", SimulationController, :export_results
+
+    get "/simulations/:id/results/runs/:run_id/export/run-pack",
+        SimulationController,
+        :export_run_pack
 
     get "/simulations/:id/results/reports/:report_id/export/:format",
         SimulationController,

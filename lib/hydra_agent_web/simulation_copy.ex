@@ -18,6 +18,63 @@ defmodule HydraAgentWeb.SimulationCopy do
       no_simulations_lede: "Start with one question. Files, URLs, and settings are optional.",
       no_workspace: "A workspace is required",
       no_workspace_lede: "Create or join a workspace before starting a simulation.",
+      portable_import_title: "Import Simulation Pack",
+      portable_import_lede: "Move a validated build from another compatible Hydra deployment.",
+      portable_import_file: "Simulation Pack file",
+      portable_import_action: "Validate and import",
+      portable_import_safety:
+        "Hydra checks archive safety, hashes, schemas, capabilities, and a bounded preview before saving.",
+      portable_eyebrow: "Portability",
+      portable_title: "Move or reproduce this simulation",
+      portable_lede:
+        "Portable files preserve exact declarative inputs and lineage without provider credentials.",
+      simpack_title: "Simulation Pack",
+      simpack_lede:
+        "Blueprint, context, population, rules, route requirements, budget, and passed preview.",
+      simpack_download: "Download Simulation Pack",
+      simpack_safe_default: "Raw sources and provider details are excluded by default.",
+      portable_options: "Privacy options",
+      portable_redact: "Redact identities",
+      portable_redact_hint: "Pseudonymizes structured identities and always excludes raw text.",
+      portable_raw: "Include raw sources",
+      portable_raw_hint: "Includes attached text and URLs. Review the file before sharing.",
+      portable_providers: "Include provider details",
+      portable_providers_hint: "Includes provider and model names, never credentials.",
+      manual_title: "Use an external model manually",
+      manual_lede:
+        "Use any model outside Hydra, then return schema-valid JSON. No provider connection is required.",
+      manual_step_export: "Download the exact request and schemas.",
+      manual_step_run: "Run its modules in order with your external model.",
+      manual_step_import: "Upload the resulting JSON for validation and preview.",
+      manual_download: "Download external-model request",
+      manual_file: "Completed artifact JSON",
+      manual_import: "Validate and apply",
+      manual_imported: "External artifacts validated. New immutable build versions are active.",
+      runpack_title: "Run Pack",
+      runpack_portable: "Reproducible audit record",
+      runpack_lede:
+        "The exact Simulation Pack, seed, engine, events, decisions, transactions, analysis, usage, reports, and hashes.",
+      runpack_download: "Download Run Pack",
+      runpack_rationales: "Include model rationales",
+      runpack_rationales_hint:
+        "Includes recorded prompts, outputs, scores, and short rationales.",
+      runpack_safe_default:
+        "Raw sources, provider details, model rationales, and recovery snapshots are excluded by default.",
+      portable_imported: "Simulation Pack validated and imported.",
+      portable_imported_with_changes:
+        "Simulation imported. Missing private sources stayed excluded; routes and pricing were resolved for this workspace.",
+      portable_incompatible:
+        "This portable file needs a different Hydra version. Upgrade Hydra or export a compatible version.",
+      portable_too_large: "This portable file exceeds Hydra’s safe size limit.",
+      portable_route_missing:
+        "This Pack needs a model capability that is not configured in this workspace.",
+      portable_invalid_file: "Choose a valid .hydra-simpack or JSON file within the size limit.",
+      portable_invalid:
+        "Nothing was imported. The portable file did not pass Hydra’s safety and validation checks.",
+      manual_stale:
+        "The simulation changed while the external model was running. Download a new request and try again.",
+      manual_schema_invalid:
+        "The external output does not match this Blueprint’s schema. Correct it and upload again.",
       stage: "Stage",
       blueprint: "Blueprint",
       population: "Population",
@@ -723,6 +780,65 @@ defmodule HydraAgentWeb.SimulationCopy do
       no_simulations_lede: "Начните с одного вопроса. Файлы, ссылки и настройки необязательны.",
       no_workspace: "Нужно рабочее пространство",
       no_workspace_lede: "Создайте рабочее пространство или присоединитесь к нему.",
+      portable_import_title: "Импорт пакета симуляции",
+      portable_import_lede: "Перенесите проверенную сборку из совместимой установки Hydra.",
+      portable_import_file: "Файл пакета симуляции",
+      portable_import_action: "Проверить и импортировать",
+      portable_import_safety:
+        "Перед сохранением Hydra проверит безопасность архива, хэши, схемы, возможности и мини-прогон.",
+      portable_eyebrow: "Переносимость",
+      portable_title: "Перенос и воспроизведение симуляции",
+      portable_lede:
+        "Переносимые файлы сохраняют точные декларативные данные и происхождение без учётных данных провайдера.",
+      simpack_title: "Пакет симуляции",
+      simpack_lede:
+        "Шаблон, контекст, популяция, правила, требования к маршрутам, бюджет и пройденный мини-прогон.",
+      simpack_download: "Скачать пакет симуляции",
+      simpack_safe_default: "Исходные материалы и данные провайдера по умолчанию исключены.",
+      portable_options: "Параметры конфиденциальности",
+      portable_redact: "Скрыть идентифицирующие данные",
+      portable_redact_hint:
+        "Псевдонимизирует структурированные данные и всегда исключает исходный текст.",
+      portable_raw: "Включить исходные материалы",
+      portable_raw_hint: "Включает приложенный текст и ссылки. Проверьте файл перед отправкой.",
+      portable_providers: "Включить данные провайдера",
+      portable_providers_hint: "Включает названия провайдера и модели, но не учётные данные.",
+      manual_title: "Ручная работа с внешней моделью",
+      manual_lede:
+        "Используйте любую модель вне Hydra и верните JSON по схеме. Подключение провайдера не требуется.",
+      manual_step_export: "Скачайте точный запрос и схемы.",
+      manual_step_run: "Выполните модули по порядку во внешней модели.",
+      manual_step_import: "Загрузите итоговый JSON для проверки и мини-прогона.",
+      manual_download: "Скачать запрос для внешней модели",
+      manual_file: "Готовый JSON с артефактами",
+      manual_import: "Проверить и применить",
+      manual_imported: "Внешние артефакты проверены. Активны новые неизменяемые версии сборки.",
+      runpack_title: "Пакет запуска",
+      runpack_portable: "Воспроизводимый журнал",
+      runpack_lede:
+        "Точный пакет симуляции, seed, движок, события, решения, транзакции, анализ, использование, отчёты и хэши.",
+      runpack_download: "Скачать пакет запуска",
+      runpack_rationales: "Включить обоснования модели",
+      runpack_rationales_hint:
+        "Включает записанные запросы, ответы, оценки и краткие обоснования.",
+      runpack_safe_default:
+        "Исходные материалы, данные провайдера, обоснования и снимки восстановления по умолчанию исключены.",
+      portable_imported: "Пакет симуляции проверен и импортирован.",
+      portable_imported_with_changes:
+        "Симуляция импортирована. Закрытые источники остались исключены, маршруты и цены определены для этого пространства.",
+      portable_incompatible:
+        "Для этого файла нужна другая версия Hydra. Обновите Hydra или экспортируйте совместимую версию.",
+      portable_too_large: "Переносимый файл превышает безопасный лимит Hydra.",
+      portable_route_missing:
+        "Для этого пакета нужна возможность модели, не настроенная в рабочем пространстве.",
+      portable_invalid_file:
+        "Выберите корректный файл .hydra-simpack или JSON в пределах лимита.",
+      portable_invalid:
+        "Ничего не импортировано. Файл не прошёл проверки безопасности и корректности Hydra.",
+      manual_stale:
+        "Пока внешняя модель работала, симуляция изменилась. Скачайте новый запрос и повторите.",
+      manual_schema_invalid:
+        "Ответ внешней модели не соответствует схеме шаблона. Исправьте его и загрузите снова.",
       stage: "Этап",
       blueprint: "Шаблон",
       population: "Популяция",

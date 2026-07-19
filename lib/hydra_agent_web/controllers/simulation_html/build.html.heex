@@ -300,6 +300,97 @@
     </div>
   </section>
 
+  <section class="simulation-portability" aria-labelledby="portability-title">
+    <header>
+      <div>
+        <p class="blueprint-eyebrow">{t(@locale, :portable_eyebrow)}</p>
+        <h2 id="portability-title">{t(@locale, :portable_title)}</h2>
+        <p>{t(@locale, :portable_lede)}</p>
+      </div>
+      <span aria-hidden="true">↗</span>
+    </header>
+
+    <div class="simulation-portability-grid">
+      <article>
+        <h3>{t(@locale, :simpack_title)}</h3>
+        <p>{t(@locale, :simpack_lede)}</p>
+        <form
+          action={simulation_pack_export_path(@simulation.id)}
+          method="get"
+          class="simulation-portable-form"
+        >
+          <input type="hidden" name="workspace_id" value={@workspace.id} />
+          <input type="hidden" name="locale" value={@locale} />
+          <button type="submit">{t(@locale, :simpack_download)}</button>
+          <details>
+            <summary>{t(@locale, :portable_options)}</summary>
+            <div class="simulation-portable-options">
+              <label>
+                <input type="checkbox" name="privacy[redact_identities]" value="1" />
+                <span>
+                  <strong>{t(@locale, :portable_redact)}</strong>
+                  <small>{t(@locale, :portable_redact_hint)}</small>
+                </span>
+              </label>
+              <label :if={@can_edit}>
+                <input type="checkbox" name="privacy[include_raw_sources]" value="1" />
+                <span>
+                  <strong>{t(@locale, :portable_raw)}</strong>
+                  <small>{t(@locale, :portable_raw_hint)}</small>
+                </span>
+              </label>
+              <label>
+                <input type="checkbox" name="privacy[include_provider_details]" value="1" />
+                <span>
+                  <strong>{t(@locale, :portable_providers)}</strong>
+                  <small>{t(@locale, :portable_providers_hint)}</small>
+                </span>
+              </label>
+            </div>
+          </details>
+          <small>{t(@locale, :simpack_safe_default)}</small>
+        </form>
+      </article>
+
+      <article :if={@can_edit}>
+        <h3>{t(@locale, :manual_title)}</h3>
+        <p>{t(@locale, :manual_lede)}</p>
+        <ol>
+          <li>{t(@locale, :manual_step_export)}</li>
+          <li>{t(@locale, :manual_step_run)}</li>
+          <li>{t(@locale, :manual_step_import)}</li>
+        </ol>
+        <a
+          class="simulation-portable-download"
+          href={manual_request_path(@simulation.id, @workspace.id, @locale)}
+          download
+        >
+          {t(@locale, :manual_download)}
+        </a>
+        <form
+          action={manual_import_path(@simulation.id)}
+          method="post"
+          enctype="multipart/form-data"
+          class="simulation-portable-upload"
+        >
+          <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+          <input type="hidden" name="workspace_id" value={@workspace.id} />
+          <input type="hidden" name="locale" value={@locale} />
+          <label>
+            <span>{t(@locale, :manual_file)}</span>
+            <input
+              type="file"
+              name="manual_artifacts[file]"
+              accept="application/json,.json"
+              required
+            />
+          </label>
+          <button type="submit">{t(@locale, :manual_import)}</button>
+        </form>
+      </article>
+    </div>
+  </section>
+
   <section class="simulation-version-contract" aria-label={t(@locale, :selected_method)}>
     <div>
       <span>{t(@locale, :selected_method)}</span>

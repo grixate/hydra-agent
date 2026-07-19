@@ -24,6 +24,7 @@ defmodule HydraAgent.Simulations do
     ContextResearchRun,
     InputContract,
     JsonSchema,
+    ManualExternalModel,
     ModelRoutePlan,
     ModelRouter,
     Observatory,
@@ -37,16 +38,19 @@ defmodule HydraAgent.Simulations do
     PriceRegistry,
     ReportExporter,
     ReportGenerator,
+    RunPack,
     ScriptBuilder,
     ScriptExporter,
     ScriptPreview,
     ScriptPreviewEngine,
     ScriptValidator,
     Simulation,
+    SimulationPack,
     SimulationRunRecord,
     SimulationReport,
     SimulationScript,
-    SimulationVersion
+    SimulationVersion,
+    UntrustedText
   }
 
   alias HydraAgent.Runtime.{Run, RunEvent}
@@ -322,6 +326,69 @@ defmodule HydraAgent.Simulations do
     do: ReportExporter.report_markdown(report)
 
   def export_report_html(%SimulationReport{} = report), do: ReportExporter.report_html(report)
+
+  def export_simulation_pack(%Simulation{} = simulation, opts \\ []) do
+    SimulationPack.export(
+      simulation,
+      Keyword.merge(
+        [
+          model_route_plan: current_model_route_plan(simulation),
+          budget_plan: current_budget_plan(simulation)
+        ],
+        opts
+      )
+    )
+  end
+
+  def import_simulation_pack(%Workspace{} = workspace, user, binary) when is_binary(binary) do
+    with true <- Accounts.workspace_authorized?(user, workspace.id, "researcher"),
+         {:ok, package} <- SimulationPack.import(binary),
+         {:ok, blueprint} <-
+           Blueprints.ensure_portable_blueprint(workspace, user, package.blueprint_binary),
+         {:ok, prepared} <- prepare_imported_simulation_pack(workspace, blueprint, package),
+         {:ok, simulation} <-
+           persist_imported_simulation_pack(workspace, user, blueprint, prepared) do
+      {:ok,
+       %{
+         simulation: simulation,
+         warnings: prepared.warnings,
+         artifact_hash: package.archive.content_hash
+       }}
+    else
+      false -> {:error, :forbidden}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def import_simulation_pack(_workspace, _user, _binary), do: {:error, :invalid_simulation_pack}
+
+  def export_run_pack(%SimulationRunRecord{} = record, opts \\ []) do
+    with {:ok, analysis_pack} <- ensure_analysis_pack(record) do
+      RunPack.export(record, analysis_pack, opts)
+    end
+  end
+
+  def inspect_run_pack(binary), do: RunPack.import(binary)
+
+  def export_manual_external_request(%Simulation{} = simulation),
+    do: ManualExternalModel.request(simulation)
+
+  def import_manual_external_artifacts(%Simulation{} = simulation, user, binary)
+      when is_binary(binary) do
+    with true <- Accounts.workspace_authorized?(user, simulation.workspace_id, "researcher"),
+         {:ok, bundle} <- ManualExternalModel.parse(binary),
+         :ok <- validate_manual_lineage(simulation, bundle),
+         {:ok, prepared} <- prepare_manual_external_artifacts(simulation, bundle),
+         {:ok, result} <- persist_manual_external_artifacts(simulation, user, prepared) do
+      {:ok, result}
+    else
+      false -> {:error, :forbidden}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def import_manual_external_artifacts(_simulation, _user, _binary),
+    do: {:error, :invalid_manual_artifacts}
 
   def current_model_route_plan(%Simulation{} = simulation) do
     case current_budget_plan(simulation) do
@@ -2966,6 +3033,1097 @@ defmodule HydraAgent.Simulations do
   end
 
   defp active_excluded_source_ids(_pack), do: []
+
+  defp validate_manual_lineage(simulation, bundle) do
+    simulation =
+      Repo.preload(simulation, [
+        :active_version,
+        :active_context_pack,
+        :active_population_model,
+        :active_script,
+        selected_blueprint: :active_version
+      ])
+
+    expected_artifacts = %{
+      "context_pack" =>
+        simulation.active_context_pack && simulation.active_context_pack.content_hash,
+      "population_model" =>
+        simulation.active_population_model && simulation.active_population_model.content_hash,
+      "simulation_script" => simulation.active_script && simulation.active_script.content_hash
+    }
+
+    cond do
+      bundle["simulation_version_hash"] != simulation.active_version.content_hash ->
+        {:error,
+         %{
+           code: :stale_manual_request,
+           message:
+             "The Simulation changed after this request was exported. Export a new external-model request and try again."
+         }}
+
+      bundle["blueprint_version_hash"] !=
+          simulation.selected_blueprint.active_version.content_hash ->
+        {:error,
+         %{
+           code: :stale_blueprint_request,
+           message:
+             "The Blueprint changed after this request was exported. Export a new request and try again."
+         }}
+
+      bundle["base_artifact_hashes"] != expected_artifacts ->
+        {:error,
+         %{
+           code: :stale_artifact_request,
+           message:
+             "The Context, Population, or Script changed while the external model was running. Export a new request before importing."
+         }}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp prepare_manual_external_artifacts(simulation, bundle) do
+    simulation =
+      Repo.preload(simulation, [
+        :active_version,
+        :active_context_pack,
+        :active_population_model,
+        active_script: :preview,
+        selected_blueprint: :active_version
+      ])
+
+    blueprint = simulation.selected_blueprint.active_version
+
+    with :ok <- validate_manual_schema(blueprint, "research", bundle["context_pack"]),
+         :ok <- validate_manual_schema(blueprint, "agents", bundle["population_model"]),
+         :ok <- validate_manual_schema(blueprint, "simulation", bundle["simulation_script"]),
+         {:ok, context} <- compile_manual_context(simulation, bundle["context_pack"]),
+         context_record <- portable_context_record(context),
+         {:ok, population} <-
+           compile_manual_population(simulation, context_record, bundle["population_model"]),
+         population_record <- portable_population_record(population),
+         {:ok, script, preview} <-
+           compile_manual_script(
+             simulation,
+             context_record,
+             population_record,
+             bundle["simulation_script"]
+           ) do
+      {:ok,
+       %{
+         context: context,
+         population: population,
+         script: script,
+         preview: preview,
+         source_version_hash: simulation.active_version.content_hash,
+         source_artifact_hashes: bundle["base_artifact_hashes"]
+       }}
+    end
+  end
+
+  defp validate_manual_schema(blueprint_version, module, output) do
+    schema_path = get_in(blueprint_version.manifest, ["modules", module, "output_schema"])
+    schema = schema_path && blueprint_version.schemas[schema_path]
+
+    cond do
+      is_nil(schema) ->
+        {:error, %{code: :manual_schema_missing, message: "Blueprint output schema is missing"}}
+
+      true ->
+        case JsonSchema.validate(schema, output) do
+          :ok ->
+            :ok
+
+          {:error, errors} ->
+            {:error,
+             %{
+               code: :manual_schema_invalid,
+               message: "The #{module} output does not match the Blueprint schema",
+               detail: errors
+             }}
+        end
+    end
+  end
+
+  defp compile_manual_context(simulation, output) do
+    base = simulation.active_context_pack
+    facts = output["facts"] || []
+    assumptions = output["assumptions"] || []
+
+    cond do
+      String.trim(output["question"] || "") != String.trim(simulation.active_version.question) ->
+        {:error,
+         %{
+           code: :manual_question_mismatch,
+           message: "The external Context output must preserve the exact Simulation question."
+         }}
+
+      length(facts) > 120 or length(assumptions) > 40 ->
+        {:error,
+         %{
+           code: :manual_output_too_large,
+           message: "The external Context output exceeds Hydra's bounded artifact limits."
+         }}
+
+      true ->
+        source_ids = MapSet.new(base.sources, & &1["id"])
+
+        with {:ok, manual_claims, downgrades} <- manual_claims(facts, source_ids),
+             {:ok, manual_assumptions} <- manual_assumptions(assumptions) do
+          preserved_claims =
+            Enum.reject(base.claims, &(&1["grounding_class"] in ~w(model_prior assumption)))
+
+          claims =
+            (preserved_claims ++ manual_claims)
+            |> Enum.uniq_by(& &1["id"])
+            |> Enum.take(120)
+            |> Enum.sort_by(& &1["id"])
+
+          assumptions =
+            (base.assumptions ++ manual_assumptions)
+            |> Enum.uniq_by(& &1["id"])
+            |> Enum.take(40)
+            |> Enum.sort_by(& &1["id"])
+
+          grounded? =
+            Enum.any?(
+              claims,
+              &(&1["grounding_class"] in ~w(user_data user_document external_source analogue))
+            )
+
+          confidence_values = Enum.map(claims, &manual_number(&1["confidence"], 0.35))
+
+          confidence =
+            if confidence_values == [],
+              do: 0.0,
+              else: min(Enum.sum(confidence_values) / length(confidence_values), 0.7)
+
+          contract = %{
+            "interpretation" =>
+              Map.put(base.interpretation, "primary_question", simulation.active_version.question),
+            "scope" => base.scope,
+            "research_plan" => base.research_plan,
+            "sources" => base.sources,
+            "claims" => claims,
+            "assumptions" => assumptions,
+            "gaps" => base.gaps,
+            "research_metadata" =>
+              (base.research_metadata || %{})
+              |> Map.put("generation_route", "manual_external_model")
+              |> Map.put("manual_external_import", true)
+              |> Map.put("manual_grounding_downgrades", downgrades)
+              |> Map.put("provider_usage", "external_unmetered"),
+            "historical_cutoff" =>
+              if(base.historical_cutoff, do: Date.to_iso8601(base.historical_cutoff), else: nil),
+            "status" => if(grounded?, do: "ready", else: "partial"),
+            "confidence" => Float.round(confidence, 3)
+          }
+
+          contract = Map.put(contract, "content_hash", ContentHash.digest(contract))
+
+          case validate_context_contract(simulation.selected_blueprint.active_version, contract) do
+            :ok -> {:ok, contract}
+            {:error, _reason} = error -> error
+          end
+        end
+    end
+  end
+
+  defp manual_claims(facts, source_ids) do
+    facts
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, [], 0}, fn {fact, index}, {:ok, claims, downgrades} ->
+      source_id = if is_map(fact), do: fact["source_id"]
+      declared_class = if is_map(fact), do: fact["grounding_class"]
+      sourced_class? = declared_class in ~w(user_data user_document external_source analogue)
+
+      cond do
+        not is_map(fact) ->
+          {:halt,
+           {:error,
+            %{
+              code: :manual_fact_invalid,
+              message: "Context fact #{index + 1} must be a JSON object."
+            }}}
+
+        is_binary(source_id) and not MapSet.member?(source_ids, source_id) ->
+          {:halt,
+           {:error,
+            %{
+              code: :manual_source_unknown,
+              message:
+                "Context fact #{index + 1} references a source that is not in the current Context Pack."
+            }}}
+
+        true ->
+          statement = manual_text(fact["statement"], 1_000)
+          downgraded? = sourced_class? and is_nil(source_id)
+          grounding_class = if downgraded?, do: "model_prior", else: declared_class
+
+          claim = %{
+            "id" => manual_id("claim", "#{fact["id"]}:#{statement}:#{index}"),
+            "statement" => statement,
+            "grounding_class" => grounding_class,
+            "source_id" => if(downgraded?, do: nil, else: source_id),
+            "confidence" =>
+              manual_number(fact["confidence"], if(downgraded?, do: 0.35, else: 0.6)),
+            "influences" => [],
+            "instruction_flags" =>
+              if(downgraded?, do: ["manual_external_unverified_grounding"], else: [])
+          }
+
+          {:cont, {:ok, [claim | claims], downgrades + if(downgraded?, do: 1, else: 0)}}
+      end
+    end)
+    |> case do
+      {:ok, claims, downgrades} -> {:ok, Enum.reverse(claims), downgrades}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp manual_assumptions(assumptions) do
+    assumptions
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {statement, index}, {:ok, items} ->
+      statement = manual_text(statement, 1_000)
+
+      if statement == "" do
+        {:halt,
+         {:error,
+          %{
+            code: :manual_assumption_invalid,
+            message: "Context assumption #{index + 1} cannot be empty."
+          }}}
+      else
+        assumption = %{
+          "id" => manual_id("assumption", "#{statement}:#{index}"),
+          "statement" => statement,
+          "grounding_class" => "assumption",
+          "rationale" => "Supplied through the manual external-model workflow.",
+          "visible" => true
+        }
+
+        {:cont, {:ok, [assumption | items]}}
+      end
+    end)
+    |> case do
+      {:ok, items} -> {:ok, Enum.reverse(items)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp compile_manual_population(simulation, context_record, output) do
+    version = simulation.active_version
+
+    with true <- output["population_size"] == version.population_size,
+         {:ok, base} <- PopulationBuilder.build(version, context_record),
+         {:ok, archetypes} <- apply_manual_archetypes(base, output["archetypes"] || []),
+         contract <-
+           base
+           |> Map.put("archetypes", archetypes)
+           |> Map.put("compile_summary", %{})
+           |> Map.update("generation_metadata", %{}, fn metadata ->
+             metadata
+             |> Map.put("route", "manual_external_model")
+             |> Map.put("provider_usage", "external_unmetered")
+             |> Map.put("source_context_hash", context_record.content_hash)
+           end),
+         :ok <- PopulationValidator.validate(contract, context_record),
+         {:ok, compiled} <- PopulationCompiler.compile(contract) do
+      contract = Map.put(contract, "compile_summary", compiled.summary)
+
+      {:ok,
+       Map.put(contract, "content_hash", ContentHash.digest(Map.delete(contract, "content_hash")))}
+    else
+      false ->
+        {:error,
+         %{
+           code: :manual_population_size_mismatch,
+           message: "The external Population output must preserve the requested population size."
+         }}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp apply_manual_archetypes(base, external) do
+    base_by_id = Map.new(base["archetypes"], &{&1["id"], &1})
+    external_by_id = Map.new(external, &{&1["id"], &1})
+
+    cond do
+      map_size(external_by_id) != length(external) ->
+        {:error,
+         %{
+           code: :manual_archetype_duplicate,
+           message: "External Population archetype identifiers must be unique."
+         }}
+
+      MapSet.new(Map.keys(external_by_id)) != MapSet.new(Map.keys(base_by_id)) ->
+        {:error,
+         %{
+           code: :manual_archetype_mismatch,
+           message:
+             "External Population archetypes must preserve the identifiers supplied in the manual request.",
+           detail: %{
+             expected: Map.keys(base_by_id) |> Enum.sort(),
+             received: Map.keys(external_by_id) |> Enum.sort()
+           }
+         }}
+
+      not Enum.all?(external, &(is_integer(&1["count"]) and &1["count"] >= 0)) ->
+        {:error,
+         %{
+           code: :manual_archetype_count_invalid,
+           message: "Every external Population archetype needs a non-negative integer count."
+         }}
+
+      Enum.sum(Enum.map(external, & &1["count"])) != base["population_size"] ->
+        {:error,
+         %{
+           code: :manual_archetype_count_mismatch,
+           message:
+             "External Population archetype counts must sum to the requested population size."
+         }}
+
+      true ->
+        type_totals =
+          Enum.reduce(external, %{}, fn external_archetype, totals ->
+            type = base_by_id[external_archetype["id"]]["agent_type"]
+
+            Map.update(
+              totals,
+              type,
+              external_archetype["count"],
+              &(&1 + external_archetype["count"])
+            )
+          end)
+
+        if Enum.any?(type_totals, fn {_type, total} -> total == 0 end) do
+          {:error,
+           %{
+             code: :manual_agent_type_empty,
+             message: "Every Population agent type must retain at least one agent."
+           }}
+        else
+          archetypes =
+            Enum.map(base["archetypes"], fn archetype ->
+              external_archetype = external_by_id[archetype["id"]]
+              total = type_totals[archetype["agent_type"]]
+
+              archetype
+              |> Map.put("weight", external_archetype["count"] / total)
+              |> Map.put("goals", Enum.take(external_archetype["goals"] || [], 16))
+              |> Map.put("initial_state", external_archetype["initial_state"] || %{})
+            end)
+
+          {:ok, archetypes}
+        end
+    end
+  end
+
+  defp compile_manual_script(simulation, context_record, population_record, script) do
+    mode = simulation.active_version.execution_mode
+
+    with {:ok, validation_report} <-
+           ScriptValidator.validate(script, population_record, model_budget?: mode == "balanced"),
+         {:ok, preview} <-
+           ScriptPreviewEngine.run(script, population_record, model_budget?: mode == "balanced") do
+      contract = %{
+        "schema_version" => 1,
+        "compiler_version" => SimulationScript.compiler_version(),
+        "script" => script,
+        "validation_report" =>
+          validation_report
+          |> Map.put("preview_status", preview.status)
+          |> Map.put("preview_error_count", length(preview.errors)),
+        "generation_metadata" => %{
+          "route" => "manual_external_model",
+          "model_calls" => 0,
+          "provider_usage" => "external_unmetered",
+          "source_context_hash" => context_record.content_hash,
+          "source_context_version" => context_record.version,
+          "source_population_hash" => population_record.content_hash,
+          "source_population_version" => population_record.version,
+          "protocol_version" => "hydra-script/v1"
+        },
+        "status" => "ready"
+      }
+
+      contract = Map.put(contract, "content_hash", ContentHash.digest(contract))
+
+      case validate_script_contract(simulation.selected_blueprint.active_version, contract) do
+        :ok -> {:ok, contract, preview}
+        {:error, _reason} = error -> error
+      end
+    else
+      {:error, preview} when is_map(preview) ->
+        {:error,
+         %{
+           code: :manual_preview_failed,
+           message: "The external Simulation Script did not pass Hydra's bounded preview.",
+           detail: preview.errors
+         }}
+
+      {:error, errors} when is_list(errors) ->
+        {:error,
+         %{
+           code: :manual_script_invalid,
+           message: "The external Simulation Script failed semantic validation.",
+           detail: errors
+         }}
+    end
+  end
+
+  defp persist_manual_external_artifacts(simulation, user, prepared) do
+    author_id = user && user.id
+
+    Repo.transaction(fn ->
+      locked =
+        Simulation
+        |> where([current], current.id == ^simulation.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+        |> Repo.preload([
+          :active_version,
+          :active_context_pack,
+          :active_population_model,
+          active_script: :preview
+        ])
+
+      current_hashes = %{
+        "context_pack" => locked.active_context_pack && locked.active_context_pack.content_hash,
+        "population_model" =>
+          locked.active_population_model && locked.active_population_model.content_hash,
+        "simulation_script" => locked.active_script && locked.active_script.content_hash
+      }
+
+      if locked.active_version.content_hash != prepared.source_version_hash or
+           current_hashes != prepared.source_artifact_hashes do
+        Repo.rollback(%{
+          code: :stale_manual_request,
+          message:
+            "The Simulation changed before the import could be saved. Export a new request and try again."
+        })
+      end
+
+      context_pack =
+        insert_context_pack(
+          Repo,
+          locked.workspace_id,
+          locked.id,
+          locked.active_version_id,
+          author_id,
+          next_context_version(locked.active_version_id),
+          prepared.context
+        )
+        |> case do
+          {:ok, context_pack} -> context_pack
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+      population_model =
+        insert_population_model(
+          Repo,
+          locked.workspace_id,
+          locked.id,
+          locked.active_version_id,
+          context_pack.id,
+          author_id,
+          next_population_version(locked.active_version_id),
+          prepared.population
+        )
+        |> case do
+          {:ok, population_model} -> population_model
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+      script =
+        insert_script(
+          Repo,
+          locked.workspace_id,
+          locked.id,
+          locked.active_version_id,
+          context_pack.id,
+          population_model.id,
+          author_id,
+          next_script_version(locked.active_version_id),
+          prepared.script
+        )
+        |> case do
+          {:ok, script} -> script
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+      preview =
+        insert_script_preview(
+          Repo,
+          locked.workspace_id,
+          locked.id,
+          locked.active_version_id,
+          population_model.id,
+          script.id,
+          prepared.preview
+        )
+        |> case do
+          {:ok, preview} -> preview
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+      update_context_stages!(locked, context_pack, population_model, script, preview)
+
+      activated =
+        locked
+        |> Simulation.activate_context_changeset(context_pack, population_model, script)
+        |> Repo.update!()
+
+      %{
+        simulation:
+          Repo.preload(
+            activated,
+            [
+              :workspace,
+              :active_version,
+              :active_context_pack,
+              :active_population_model,
+              active_script: :preview,
+              selected_blueprint: :active_version
+            ],
+            force: true
+          ),
+        context_pack: context_pack,
+        population_model: population_model,
+        script: script,
+        preview: preview
+      }
+    end)
+    |> case do
+      {:ok, result} -> {:ok, result}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp next_context_version(simulation_version_id) do
+    ContextPack
+    |> where([pack], pack.simulation_version_id == ^simulation_version_id)
+    |> select([pack], max(pack.version))
+    |> Repo.one()
+    |> case do
+      nil -> 1
+      version -> version + 1
+    end
+  end
+
+  defp manual_text(value, max) when is_binary(value) do
+    value
+    |> UntrustedText.sanitize()
+    |> Map.fetch!("text")
+    |> UntrustedText.excerpt(max)
+    |> String.trim()
+  end
+
+  defp manual_text(_value, _max), do: ""
+
+  defp manual_number(value, _fallback) when is_number(value),
+    do: (value / 1) |> max(0.0) |> min(1.0) |> Float.round(3)
+
+  defp manual_number(_value, fallback), do: fallback
+
+  defp manual_id(prefix, value) do
+    hash = :crypto.hash(:sha256, to_string(value)) |> Base.encode16(case: :lower)
+    "#{prefix}-#{String.slice(hash, 0, 16)}"
+  end
+
+  defp prepare_imported_simulation_pack(workspace, blueprint, package) do
+    source_version = package.version
+    mode = source_version["execution_mode"]
+    selection = portable_route_selection(workspace.id, mode, package.route)
+    route_contract = ModelRouter.build(workspace.id, mode, selection)
+
+    with :ok <- validate_import_route(mode, route_contract, package.route),
+         {:ok, version} <- imported_version_contract(blueprint, package, selection),
+         {:ok, context} <- imported_context_contract(blueprint, package),
+         context_record <- portable_context_record(context),
+         {:ok, population} <- imported_population_contract(blueprint, package, context_record),
+         population_record <- portable_population_record(population),
+         {:ok, script, preview} <-
+           imported_script_contract(blueprint, package, population_record, mode),
+         budget <- imported_budget_contract(workspace.id, version, route_contract, package.budget) do
+      warnings =
+        package.warnings ++
+          portable_route_warnings(package.route, route_contract) ++
+          ["budget_repriced_for_destination"]
+
+      {:ok,
+       %{
+         version: version,
+         context: context,
+         population: population,
+         script: script,
+         preview: preview,
+         route: route_contract,
+         budget: budget,
+         warnings: Enum.uniq(warnings),
+         source_hash: package.archive.content_hash
+       }}
+    end
+  end
+
+  defp imported_version_contract(blueprint, package, selection) do
+    source = package.version
+
+    normalized_input =
+      (source["normalized_input"] || %{})
+      |> Map.put("portable_origin", %{
+        "format" => "hydra-simpack",
+        "format_version" => SimulationPack.format_version(),
+        "artifact_hash" => package.archive.content_hash,
+        "source_version_hash" => source["content_hash"],
+        "privacy" => package.privacy
+      })
+
+    contract = %{
+      "blueprint_version_hash" => blueprint.active_version.content_hash,
+      "title" => source["title"],
+      "question" => source["question"],
+      "locale" => source["locale"],
+      "normalized_input" => normalized_input,
+      "inputs" => package.inputs,
+      "instruction_overrides" => source["instruction_overrides"] || %{},
+      "research_settings" =>
+        (source["research_settings"] || %{})
+        |> Map.put("portable_import", true)
+        |> Map.put("web_research", false),
+      "population_size" => source["population_size"],
+      "execution_mode" => source["execution_mode"],
+      "budget_preset" => source["budget_preset"],
+      "model_routes" => selection
+    }
+
+    {:ok, Map.put(contract, "content_hash", ContentHash.digest(contract))}
+  end
+
+  defp imported_context_contract(blueprint, package) do
+    source = package.context
+
+    contract =
+      source
+      |> Map.take(~w(
+        interpretation scope research_plan sources claims assumptions gaps research_metadata
+        historical_cutoff status confidence
+      ))
+      |> Map.update("research_metadata", %{}, fn metadata ->
+        metadata
+        |> Map.put("portable_import", true)
+        |> Map.put("source_pack_hash", package.archive.content_hash)
+        |> Map.put("raw_sources_included", package.privacy["raw_sources"] == "included")
+      end)
+
+    contract = Map.put(contract, "content_hash", ContentHash.digest(contract))
+
+    case validate_context_contract(blueprint.active_version, contract) do
+      :ok -> {:ok, contract}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp imported_population_contract(blueprint, package, context_record) do
+    source = package.population
+
+    contract =
+      source
+      |> Map.take(~w(
+        schema_version compiler_version seed population_size agent_types archetypes
+        conditional_distributions relationship_rules representative_rules imported_agents
+        imported_relationships import_summary generation_metadata status
+      ))
+      |> Map.update("generation_metadata", %{}, fn metadata ->
+        metadata
+        |> Map.put("route", "portable_import")
+        |> Map.put("source_context_hash", context_record.content_hash)
+        |> Map.put("source_context_version", 1)
+        |> Map.put("source_pack_hash", package.archive.content_hash)
+      end)
+      |> Map.put("compile_summary", %{})
+
+    with :ok <- validate_population_contract(blueprint.active_version, contract),
+         :ok <- PopulationValidator.validate(contract, context_record),
+         {:ok, compiled} <- PopulationCompiler.compile(contract) do
+      contract = Map.put(contract, "compile_summary", compiled.summary)
+      {:ok, Map.put(contract, "content_hash", ContentHash.digest(contract))}
+    end
+  end
+
+  defp imported_script_contract(blueprint, package, population_record, mode) do
+    source = package.script
+
+    contract =
+      source
+      |> Map.take(~w(schema_version compiler_version script generation_metadata status))
+      |> Map.update("generation_metadata", %{}, fn metadata ->
+        metadata
+        |> Map.put("route", "portable_import")
+        |> Map.put(
+          "source_context_hash",
+          population_record.generation_metadata["source_context_hash"]
+        )
+        |> Map.put("source_population_hash", population_record.content_hash)
+        |> Map.put("source_pack_hash", package.archive.content_hash)
+      end)
+
+    with :ok <- validate_script_contract(blueprint.active_version, contract),
+         {:ok, validation_report} <-
+           ScriptValidator.validate(
+             contract["script"],
+             population_record,
+             model_budget?: mode == "balanced"
+           ),
+         {:ok, preview} <-
+           ScriptPreviewEngine.run(
+             contract["script"],
+             population_record,
+             model_budget?: mode == "balanced"
+           ) do
+      validation_report =
+        validation_report
+        |> Map.put("preview_status", preview.status)
+        |> Map.put("preview_error_count", length(preview.errors))
+
+      contract =
+        contract
+        |> Map.put("status", "ready")
+        |> Map.put("validation_report", validation_report)
+
+      {:ok, Map.put(contract, "content_hash", ContentHash.digest(contract)), preview}
+    else
+      {:error, preview} when is_map(preview) ->
+        {:error,
+         %{
+           code: :preview_not_passed,
+           message: "Imported Simulation Pack did not pass the destination preview",
+           detail: preview.errors
+         }}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp portable_context_record(contract) do
+    %ContextPack{
+      version: 1,
+      interpretation: contract["interpretation"],
+      scope: contract["scope"],
+      research_plan: contract["research_plan"],
+      sources: contract["sources"],
+      claims: contract["claims"],
+      assumptions: contract["assumptions"],
+      gaps: contract["gaps"],
+      research_metadata: contract["research_metadata"],
+      historical_cutoff: parse_portable_date(contract["historical_cutoff"]),
+      status: contract["status"],
+      confidence: contract["confidence"],
+      content_hash: contract["content_hash"]
+    }
+  end
+
+  defp portable_population_record(contract) do
+    %PopulationModel{
+      version: 1,
+      schema_version: contract["schema_version"],
+      compiler_version: contract["compiler_version"],
+      seed: contract["seed"],
+      population_size: contract["population_size"],
+      agent_types: contract["agent_types"],
+      archetypes: contract["archetypes"],
+      conditional_distributions: contract["conditional_distributions"],
+      relationship_rules: contract["relationship_rules"],
+      representative_rules: contract["representative_rules"],
+      imported_agents: contract["imported_agents"],
+      imported_relationships: contract["imported_relationships"],
+      import_summary: contract["import_summary"],
+      compile_summary: contract["compile_summary"],
+      generation_metadata: contract["generation_metadata"],
+      status: contract["status"],
+      content_hash: contract["content_hash"]
+    }
+  end
+
+  defp portable_route_selection(workspace_id, mode, source_route) do
+    available = ModelRouter.available_routes(workspace_id)
+    source_resolved = source_route["resolved_routes"] || %{}
+
+    Map.new(~w(build simulation report), fn role ->
+      value =
+        cond do
+          role == "simulation" and mode == "quick" ->
+            "none"
+
+          match = matching_portable_route(available, source_resolved[role]) ->
+            match["id"]
+
+          true ->
+            "automatic"
+        end
+
+      {role, value}
+    end)
+  end
+
+  defp matching_portable_route(_available, nil), do: nil
+
+  defp matching_portable_route(available, source) do
+    Enum.find(available, fn candidate ->
+      candidate["provider"] == source["provider"] and candidate["model"] == source["model"]
+    end)
+  end
+
+  defp validate_import_route("quick", _route_contract, _source_route), do: :ok
+
+  defp validate_import_route("balanced", route_contract, source_route) do
+    route = get_in(route_contract, ["resolved_routes", "simulation"]) || %{}
+    required = get_in(source_route, ["capability_requirements", "simulation"]) || []
+    capabilities = route["capabilities"] || %{}
+
+    cond do
+      route["status"] != "resolved" ->
+        {:error,
+         %{
+           code: :missing_model_capability,
+           message:
+             "This Balanced Pack needs a configured Simulation model with structured output. Add or enable a compatible provider, then import again.",
+           detail: required
+         }}
+
+      not Enum.all?(required, &(capabilities[&1] == true)) ->
+        {:error,
+         %{
+           code: :missing_model_capability,
+           message:
+             "The available Simulation model does not satisfy this Pack's declared capabilities. Configure a compatible provider, then import again.",
+           detail: required
+         }}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_import_route(_mode, _route_contract, _source_route),
+    do: {:error, :unsupported_execution_mode}
+
+  defp portable_route_warnings(source, destination) do
+    source_route = get_in(source, ["resolved_routes", "simulation"]) || %{}
+    destination_route = get_in(destination, ["resolved_routes", "simulation"]) || %{}
+
+    if Map.take(source_route, ~w(provider model route_version)) ==
+         Map.take(destination_route, ~w(provider model route_version)) do
+      []
+    else
+      ["model_route_rebound"]
+    end
+  end
+
+  defp imported_budget_contract(workspace_id, version, route_contract, source) do
+    base =
+      BudgetPlanBuilder.build(
+        workspace_id,
+        version["budget_preset"],
+        route_contract["resolved_routes"]
+      )
+
+    preserved =
+      source
+      |> Map.take(~w(
+        hard_input_token_cap hard_output_token_cap hard_model_call_cap
+        hard_retrieval_request_cap hard_runtime_seconds max_concurrency fallback_policy
+      ))
+
+    base = Map.merge(base, preserved)
+
+    base =
+      if source["currency"] == base["currency"] and is_binary(source["hard_cost_cap"]) do
+        Map.put(base, "hard_cost_cap", source["hard_cost_cap"])
+      else
+        base
+      end
+
+    Map.put(base, "content_hash", ContentHash.digest(Map.delete(base, "content_hash")))
+  end
+
+  defp persist_imported_simulation_pack(workspace, user, blueprint, prepared) do
+    author_id = user && user.id
+
+    Multi.new()
+    |> Multi.insert(
+      :simulation,
+      Simulation.creation_changeset(%Simulation{}, %{
+        workspace_id: workspace.id,
+        selected_blueprint_id: blueprint.id,
+        owner_user_id: author_id,
+        title: prepared.version["title"],
+        question: prepared.version["question"],
+        locale: prepared.version["locale"],
+        status: "draft"
+      })
+    )
+    |> Multi.run(:version, fn repo, %{simulation: simulation} ->
+      %SimulationVersion{}
+      |> SimulationVersion.changeset(%{
+        workspace_id: workspace.id,
+        simulation_id: simulation.id,
+        blueprint_version_id: blueprint.active_version.id,
+        created_by_user_id: author_id,
+        version: 1,
+        title: prepared.version["title"],
+        question: prepared.version["question"],
+        locale: prepared.version["locale"],
+        normalized_input: prepared.version["normalized_input"],
+        inputs: prepared.version["inputs"],
+        instruction_overrides: prepared.version["instruction_overrides"],
+        research_settings: prepared.version["research_settings"],
+        population_size: prepared.version["population_size"],
+        execution_mode: prepared.version["execution_mode"],
+        budget_preset: prepared.version["budget_preset"],
+        model_routes: prepared.version["model_routes"],
+        content_hash: prepared.version["content_hash"]
+      })
+      |> repo.insert()
+    end)
+    |> Multi.run(:model_route_plan, fn repo, %{simulation: simulation, version: version} ->
+      insert_model_route_plan(repo, simulation, version, prepared.route)
+    end)
+    |> Multi.run(:budget_plan, fn repo,
+                                  %{
+                                    simulation: simulation,
+                                    version: version,
+                                    model_route_plan: route_plan
+                                  } ->
+      insert_budget_plan(repo, simulation, version, route_plan, prepared.budget)
+    end)
+    |> Multi.run(:context_pack, fn repo, %{simulation: simulation, version: version} ->
+      insert_context_pack(
+        repo,
+        workspace.id,
+        simulation.id,
+        version.id,
+        author_id,
+        1,
+        prepared.context
+      )
+    end)
+    |> Multi.run(:population_model, fn repo,
+                                       %{
+                                         simulation: simulation,
+                                         version: version,
+                                         context_pack: context_pack
+                                       } ->
+      insert_population_model(
+        repo,
+        workspace.id,
+        simulation.id,
+        version.id,
+        context_pack.id,
+        author_id,
+        1,
+        prepared.population
+      )
+    end)
+    |> Multi.run(:script, fn repo,
+                             %{
+                               simulation: simulation,
+                               version: version,
+                               context_pack: context_pack,
+                               population_model: population_model
+                             } ->
+      insert_script(
+        repo,
+        workspace.id,
+        simulation.id,
+        version.id,
+        context_pack.id,
+        population_model.id,
+        author_id,
+        1,
+        prepared.script
+      )
+    end)
+    |> Multi.run(:script_preview, fn repo,
+                                     %{
+                                       simulation: simulation,
+                                       version: version,
+                                       population_model: population_model,
+                                       script: script
+                                     } ->
+      insert_script_preview(
+        repo,
+        workspace.id,
+        simulation.id,
+        version.id,
+        population_model.id,
+        script.id,
+        prepared.preview
+      )
+    end)
+    |> Multi.run(:stages, fn repo,
+                             %{
+                               simulation: simulation,
+                               version: version
+                             } ->
+      insert_initial_stages(
+        repo,
+        workspace.id,
+        simulation.id,
+        version.id,
+        prepared.context,
+        prepared.population,
+        %{contract: prepared.script, preview: prepared.preview}
+      )
+    end)
+    |> Multi.run(:activated, fn repo,
+                                %{
+                                  simulation: simulation,
+                                  version: version,
+                                  context_pack: context_pack,
+                                  population_model: population_model,
+                                  script: script
+                                } ->
+      simulation
+      |> Simulation.activate_build_changeset(version, context_pack, population_model, script)
+      |> repo.update()
+    end)
+    |> Multi.update(:ready, fn %{activated: simulation} ->
+      Ecto.Changeset.change(simulation, status: "ready_to_run")
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{ready: simulation}} ->
+        {:ok,
+         Repo.preload(simulation, [
+           :workspace,
+           :active_version,
+           :active_context_pack,
+           :active_population_model,
+           active_script: :preview,
+           selected_blueprint: :active_version
+         ])}
+
+      {:error, _step, reason, _changes} ->
+        {:error, reason}
+    end
+  end
+
+  defp parse_portable_date(nil), do: nil
+
+  defp parse_portable_date(value) when is_binary(value) do
+    case Date.from_iso8601(value) do
+      {:ok, date} -> date
+      _ -> nil
+    end
+  end
+
+  defp parse_portable_date(_value), do: nil
 
   defp maybe_queue_initial_context_research(%Simulation{} = simulation) do
     provider =

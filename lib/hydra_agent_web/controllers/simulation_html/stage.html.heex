@@ -757,6 +757,61 @@
               </nav>
             </section>
 
+            <section class="simulation-run-pack">
+              <header>
+                <p class="blueprint-eyebrow">{t(@locale, :runpack_title)}</p>
+                <span>{t(@locale, :runpack_portable)}</span>
+              </header>
+              <p>{t(@locale, :runpack_lede)}</p>
+              <form
+                action={run_pack_export_path(@simulation.id, @latest_run.id)}
+                method="get"
+                class="simulation-portable-form"
+              >
+                <input type="hidden" name="workspace_id" value={@workspace.id} />
+                <input type="hidden" name="locale" value={@locale} />
+                <button type="submit">{t(@locale, :runpack_download)}</button>
+                <details>
+                  <summary>{t(@locale, :portable_options)}</summary>
+                  <div class="simulation-portable-options">
+                    <label>
+                      <input type="checkbox" name="privacy[redact_identities]" value="1" />
+                      <span>
+                        <strong>{t(@locale, :portable_redact)}</strong>
+                        <small>{t(@locale, :portable_redact_hint)}</small>
+                      </span>
+                    </label>
+                    <label :if={@can_edit}>
+                      <input type="checkbox" name="privacy[include_raw_sources]" value="1" />
+                      <span>
+                        <strong>{t(@locale, :portable_raw)}</strong>
+                        <small>{t(@locale, :portable_raw_hint)}</small>
+                      </span>
+                    </label>
+                    <label>
+                      <input
+                        type="checkbox"
+                        name="privacy[include_model_rationales]"
+                        value="1"
+                      />
+                      <span>
+                        <strong>{t(@locale, :runpack_rationales)}</strong>
+                        <small>{t(@locale, :runpack_rationales_hint)}</small>
+                      </span>
+                    </label>
+                    <label>
+                      <input type="checkbox" name="privacy[include_provider_details]" value="1" />
+                      <span>
+                        <strong>{t(@locale, :portable_providers)}</strong>
+                        <small>{t(@locale, :portable_providers_hint)}</small>
+                      </span>
+                    </label>
+                  </div>
+                </details>
+                <small>{t(@locale, :runpack_safe_default)}</small>
+              </form>
+            </section>
+
             <details class="simulation-analysis-lineage-details">
               <summary>{t(@locale, :analysis_lineage)}</summary>
               <dl>

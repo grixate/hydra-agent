@@ -160,6 +160,19 @@ defmodule HydraAgentWeb.SimulationHTML do
       URI.encode_query(%{"workspace_id" => workspace_id, "locale" => locale})
   end
 
+  def simulation_pack_export_path(simulation_id),
+    do: "/simulations/#{simulation_id}/export/simpack"
+
+  def manual_request_path(simulation_id, workspace_id, locale) do
+    "/simulations/#{simulation_id}/manual-request.json?" <>
+      URI.encode_query(%{"workspace_id" => workspace_id, "locale" => locale})
+  end
+
+  def manual_import_path(simulation_id), do: "/simulations/#{simulation_id}/manual-import"
+
+  def run_pack_export_path(simulation_id, run_id),
+    do: "/simulations/#{simulation_id}/results/runs/#{run_id}/export/run-pack"
+
   def report_export_path(simulation_id, report_id, format, workspace_id, locale) do
     "/simulations/#{simulation_id}/results/reports/#{report_id}/export/#{format}?" <>
       URI.encode_query(%{"workspace_id" => workspace_id, "locale" => locale})

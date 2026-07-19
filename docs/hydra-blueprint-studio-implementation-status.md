@@ -11,11 +11,11 @@ entire epic or release is complete.
 
 ## Current status
 
-- Active epic: **Epic 11 — Portable Simulation Pack and Run Pack**
-- Completed epic: **Epic 10 — State, Flow, and Explain Observatory**
-- Next vertical slice: deterministic `.hydra-simpack` and `.hydra-run`
-  packages, safe import and compatibility checks, raw-source exclusion,
-  redaction, manual external-model handoff, and a reproducibility README
+- Active epic: **Epic 12 — Pilot hardening**
+- Completed epic: **Epic 11 — Portable Simulation Pack and Run Pack**
+- Next vertical slice: real-provider failure injection, accessibility and
+  performance qualification, off-host restore rehearsal, operator kit,
+  privacy/provider disclosures, and two complete pilot cases
 - Default product surface: `legacy_simlab`
 - Destructive migrations: none
 - Legacy route removal: none
@@ -56,7 +56,7 @@ product behavior.
 | Observation Plan | Script observations; legacy snapshot metrics, outcome events, forecast inputs | Implemented inside Script V1 as explicit typed metrics and trace selection. A separately versioned Pack reference remains for the portable-Pack epic. |
 | Budget Plan | Runtime `budgets`, `usage_records`, SimLab cost fields | Implemented as an immutable per-Simulation authorization envelope and price snapshot; neutral budgets and usage remain the general accounting primitives. |
 | Model Route Plan | Provider configs, credential pools, agent model routes | Implemented as immutable Build/Simulation/Report role selection and public resolution over the existing provider-neutral adapters. |
-| Simulation Pack | No equivalent; SimLab run `input_snapshot` is closest | Add immutable compiled reference object only after component versions exist. |
+| Simulation Pack | Deterministic `.hydra-simpack` assembled from the exact immutable components | Implemented as a content-addressed portable artifact; import recompiles and previews before one atomic destination Simulation commit. No duplicate database object is needed. |
 | Preview Run | `HydraAgent.Simulations.ScriptPreview`; existing deterministic runner assets | Implemented as a separate immutable, exact-lineage two-round result with at most 12 representatives, zero model calls, safe errors, and a deterministic result hash. |
 | Run | neutral runtime `runs`; legacy `sim_lab_runs` | Neutral `runs` is the execution identity. A one-to-one simulation profile captures exact lineage and deterministic execution metadata; legacy records remain compatibility assets. |
 | Run Decision | `HydraAgent.Simulations.RunDecision`, `simulation_run_decisions`, affected-agent mappings | Implemented as append-only, budget-linked, exact-contract decisions with stable signatures, typed actions, replay lineage, and explicit fallback provenance. |
@@ -198,6 +198,11 @@ converted by Epic 0.
   from existing immutable Analysis Packs and Run snapshots. Workspace scope,
   completion, comparison identity, and agent selection are enforced at the
   domain and controller boundaries.
+- Epic 11: no database migration. `.hydra-simpack`, `.hydra-run`, and manual
+  external-model JSON are deterministic transport artifacts assembled from and
+  validated into existing immutable records. Import adds only ordinary
+  workspace-scoped Simulation/Blueprint/component rows through existing schema
+  constraints and atomic transactions.
 
 ## Acceptance ledger
 
@@ -624,6 +629,60 @@ compilation, dependency lock hygiene and audit, formatting, Sobelow with only
 the repository's reviewed low-confidence findings, and 681 ExUnit tests with
 zero failures (seed 937221, 54.2 seconds). `mix assets.build` also passes.
 
+### Epic 11 — Portable Simulation Pack and Run Pack
+
+- [x] `.hydra-simpack` export is byte-deterministic and contains the exact
+  Blueprint, Simulation, Context, Population, Script, Observation, route,
+  budget, preview, compatibility, privacy, validation, and lineage contracts.
+- [x] Simulation Pack import rejects hostile archives and validates every file
+  hash, format/schema/compiler version, Blueprint and component lineage,
+  Population and Script semantics, and source input contract before persistence.
+- [x] Destination import resolves model capabilities without copying provider
+  identifiers or credentials, reprices inside the preserved hard envelope,
+  recompiles Population, and reruns the bounded preview before one atomic
+  runnable-Simulation commit.
+- [x] Raw notes, attachments, and URL inputs are excluded by default and require
+  an explicit editor control. Structured redaction pseudonymizes identities and
+  always overrides raw inclusion. Provider details are independently optional.
+- [x] `.hydra-run` export uses the Run's historical immutable components and
+  contains the exact Simulation Pack, Run/engine/seed/replay lineage, ordered
+  events, decisions, resource transactions, Analysis, Report versions, usage,
+  hashes, privacy declaration, and reproducibility README.
+- [x] Run Pack interface defaults exclude raw sources, provider details, model
+  rationales, and recovery snapshots while preserving the complete portable
+  audit record required for Quick reproduction and Balanced exact replay.
+- [x] Manual external-model request export includes exact instructions, JSON
+  Schemas, preceding artifacts, source metadata, and Simulation/Blueprint/base
+  artifact hashes without raw source text or credentials.
+- [x] Manual upload preserves lineage, validates all Blueprint schemas,
+  grounding, Population identity/count invariants, Script semantics, and a new
+  preview, then appends all new immutable artifacts atomically. Stale or invalid
+  output changes nothing.
+- [x] English and Russian UI presents safe one-click defaults, progressive
+  privacy controls, an explicit download/run/import manual flow, actionable
+  compatibility states, 44 px primary controls, visible focus, and responsive
+  reflow.
+- [x] Reproducibility and operator behavior are recorded in ADR 0008 and
+  `docs/portability.md`.
+
+Focused domain and controller portability coverage passes 14 tests with zero
+failures. It covers deterministic archives, traversal and executable rejection,
+size and hash enforcement, cross-workspace transfer, default raw exclusion,
+redacted and raw exports, provider omission, unsupported versions, component
+tampering, undeclared-file rejection, privacy-policy contradictions, forged
+preview and Analysis hashes, completed Run audit export, manual success and
+stale-lineage atomicity, upload-boundary enforcement, download headers, both
+locales, and the complete interface journey. Real Chromium review at 1,280×900
+and 390×844 covered import, safe and advanced Simulation Pack export, the manual
+external-model workflow, and Run Pack export in English and Russian. There was
+no document overflow, primary controls met 44 px on mobile, keyboard focus was
+visible, duplicate IDs were absent, and the final console had zero warnings or
+errors. The exact Epic 11 worktree passed `mix precommit` on 2026-07-18:
+warnings-as-errors compilation, dependency lock hygiene and audit, formatting,
+Sobelow with only the repository's reviewed low-confidence findings, and 695
+ExUnit tests with zero failures (seed 626548, 56.7 seconds). `mix assets.build`
+also passes.
+
 ## Baseline evidence
 
 The previous production-readiness pass recorded 543 tests, 75.04% line
@@ -827,6 +886,25 @@ Evidence is in:
 - `docs/screenshots/simulation-studio-epic10-2026-07-18/observatory-compare-ru-mobile.png`;
 - `docs/screenshots/simulation-studio-epic10-2026-07-18/observatory-explain-ru-mobile.png`.
 
+Epic 11 portability browser QA created a real provider-free 48-agent,
+three-round completed Run and reviewed Simulation Pack import, Simulation Pack
+export, the manual external-model handoff, and Run Pack export in English and
+Russian. At 1,280×900 and 390×844, document width matched viewport width. All
+new primary controls measured exactly 44 px high, keyboard disclosure focus had
+a visible 2 px outline, duplicate IDs were absent, and the final browser console
+reported no warnings or errors. The review also raised new explanatory and
+option text above the inherited micro-copy scale and kept raw-source inclusion
+behind deliberate progressive disclosure. Development-only live reload remains
+compatible with the secure frame policy while production/test builds retain
+`frame-src 'none'`. Evidence is in:
+
+- `docs/screenshots/simulation-studio-epic11-2026-07-18/import-simpack-en-desktop.png`;
+- `docs/screenshots/simulation-studio-epic11-2026-07-18/import-simpack-ru-mobile.png`;
+- `docs/screenshots/simulation-studio-epic11-2026-07-18/portability-build-en-desktop.png`;
+- `docs/screenshots/simulation-studio-epic11-2026-07-18/portability-build-ru-mobile.png`;
+- `docs/screenshots/simulation-studio-epic11-2026-07-18/run-pack-en-desktop.png`;
+- `docs/screenshots/simulation-studio-epic11-2026-07-18/run-pack-en-mobile.png`.
+
 The exact-worktree aggregate Quick-engine baseline is recorded in
 `docs/benchmarks/2026-07-18-quick-engine-10k.json`. On the recorded arm64
 environment, ten measured 10k-population runs after two warmups produced a
@@ -837,9 +915,10 @@ engine must earn its own 10k result.
 
 ## Known incompatibilities and open decisions
 
-- Context, Population, Script, model routes, budgets, and deterministic Quick
-  execution are durable and captured by the Run Pack hash, but the portable
-  separately persisted Simulation Pack object belongs to Epic 11.
+- Context, Population, Script, model routes, budgets, deterministic Quick
+  execution, and Balanced replay lineage are durable and portable. Simulation
+  Packs are deterministic transport artifacts rather than duplicate persisted
+  rows.
 - Normal Blueprint navigation is limited to Simulations, Blueprints, and
   Settings. Operations is role-gated to system administrators and workspace
   owners/administrators.
@@ -848,9 +927,9 @@ engine must earn its own 10k result.
   Studio execution uses the general declarative Script and neutral Run profile.
 - Balanced has bounded selective execution, immutable decision provenance, and
   exact recorded-decision replay. Deep remains experimental and disabled.
-- Analysis and claim-validated Report regeneration are complete. The
-  `.hydra-run` package, redacted export policy, and custom Report Blueprint
-  editor remain part of the portable-Pack and governance slices.
+- Analysis, claim-validated Report regeneration, `.hydra-run`, and redacted
+  export policy are complete. A custom Report Blueprint editor remains a later
+  governance extension rather than a controlled-pilot requirement.
 - English/Russian copy and locale persistence are established across Blueprint,
   Simulation, Context, Population, Script, Run, Analysis, Report, and
   Observatory surfaces. Arbitrary provider prose remains recorded evidence and

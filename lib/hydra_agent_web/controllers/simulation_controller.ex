@@ -17,6 +17,24 @@ defmodule HydraAgentWeb.SimulationController do
        ]
        when action in [:observatory_payload, :observatory_agent]
 
+  plug HydraAgentWeb.Plugs.RateLimit,
+       [
+         scope: "simulation_portable_export",
+         limit: 120,
+         window_seconds: 3_600,
+         identity: :user_workspace
+       ]
+       when action in [:export_simulation_pack, :export_run_pack, :export_manual_request]
+
+  plug HydraAgentWeb.Plugs.RateLimit,
+       [
+         scope: "simulation_portable_import",
+         limit: 30,
+         window_seconds: 3_600,
+         identity: :user_workspace
+       ]
+       when action in [:import_pack, :import_manual_artifacts]
+
   def index(conn, params) do
     workspaces = Accounts.list_research_workspaces(conn.assigns[:current_user])
     workspace = select_workspace(conn, params["workspace_id"], workspaces, "viewer")
@@ -58,6 +76,29 @@ defmodule HydraAgentWeb.SimulationController do
     workspaces = Accounts.list_research_workspaces(conn.assigns[:current_user])
     workspace = select_workspace(conn, params["workspace_id"], workspaces, "researcher")
     render_new(conn, workspace, workspaces, %{}, :invalid_input)
+  end
+
+  def import_pack(conn, params) do
+    workspaces = Accounts.list_research_workspaces(conn.assigns[:current_user])
+    workspace = select_workspace(conn, params["workspace_id"], workspaces, "researcher")
+    upload = get_in(params, ["simulation_pack", "file"])
+
+    with %Workspace{} <- workspace,
+         {:ok, binary} <- read_portable_upload(upload, [".hydra-simpack"], 8_000_000),
+         {:ok, result} <-
+           Simulations.import_simulation_pack(workspace, conn.assigns[:current_user], binary) do
+      conn
+      |> put_flash(:info, portable_import_success(conn, result.warnings))
+      |> redirect(to: stage_path(result.simulation.id, :build, workspace.id, conn.assigns.locale))
+    else
+      nil ->
+        not_found(conn)
+
+      {:error, reason} ->
+        conn
+        |> put_flash(:error, portable_error_copy(conn, reason))
+        |> redirect(to: index_path(workspace && workspace.id, conn.assigns.locale))
+    end
   end
 
   def show(conn, params) do
@@ -149,6 +190,49 @@ defmodule HydraAgentWeb.SimulationController do
     end
   end
 
+  def export_simulation_pack(conn, params) do
+    opts = simulation_pack_options(params)
+    minimum_role = if opts[:include_raw_sources], do: "researcher", else: "viewer"
+
+    with {_workspace, simulation} <- fetch_simulation(conn, params, minimum_role),
+         {:ok, export} <- Simulations.export_simulation_pack(simulation, opts) do
+      portable_download(conn, export, "application/vnd.hydra.simpack+zip")
+    else
+      {:error, reason} -> portable_download_error(conn, params, :build, reason)
+      _reason -> not_found(conn)
+    end
+  end
+
+  def export_manual_request(conn, params) do
+    with {_workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         {:ok, export} <- Simulations.export_manual_external_request(simulation) do
+      portable_download(conn, export, "application/json")
+    else
+      {:error, reason} -> portable_download_error(conn, params, :build, reason)
+      _reason -> not_found(conn)
+    end
+  end
+
+  def import_manual_artifacts(conn, params) do
+    upload = get_in(params, ["manual_artifacts", "file"])
+
+    with {%Workspace{} = workspace, simulation} <- fetch_simulation(conn, params, "researcher"),
+         {:ok, binary} <- read_portable_upload(upload, [".json"], 5_000_000),
+         {:ok, _result} <-
+           Simulations.import_manual_external_artifacts(
+             simulation,
+             conn.assigns[:current_user],
+             binary
+           ) do
+      conn
+      |> put_flash(:info, t(conn, :manual_imported))
+      |> redirect(to: stage_path(simulation.id, :build, workspace.id, conn.assigns.locale))
+    else
+      {:error, reason} -> portable_download_error(conn, params, :build, reason)
+      _reason -> not_found(conn)
+    end
+  end
+
   def export_results(conn, params) do
     with {_workspace, simulation} <- fetch_simulation(conn, params, "viewer"),
          %{} = record <- latest_completed_run(simulation),
@@ -156,6 +240,20 @@ defmodule HydraAgentWeb.SimulationController do
          {:ok, body, filename, content_type} <- result_export(params["artifact"], record, pack) do
       send_download(conn, {:binary, body}, filename: filename, content_type: content_type)
     else
+      _reason -> not_found(conn)
+    end
+  end
+
+  def export_run_pack(conn, params) do
+    opts = run_pack_options(params)
+    minimum_role = if opts[:include_raw_sources], do: "researcher", else: "viewer"
+
+    with {_workspace, simulation} <- fetch_simulation(conn, params, minimum_role),
+         %{} = record <- completed_run(simulation, params["run_id"]),
+         {:ok, export} <- Simulations.export_run_pack(record, opts) do
+      portable_download(conn, export, "application/vnd.hydra.run+zip")
+    else
+      {:error, reason} -> portable_download_error(conn, params, :results, reason)
       _reason -> not_found(conn)
     end
   end
@@ -715,6 +813,27 @@ defmodule HydraAgentWeb.SimulationController do
 
   defp validated_upload_path(_path), do: {:error, :invalid_upload_path}
 
+  # Plug owns the temporary path. Validate location, file type, filename, and
+  # size before allowing archive/JSON parsers to inspect untrusted bytes.
+  # sobelow_skip ["Traversal.FileModule"]
+  defp read_portable_upload(%Plug.Upload{} = upload, extensions, max_bytes) do
+    extension = upload.filename |> Path.extname() |> String.downcase()
+
+    with true <- extension in extensions,
+         {:ok, path} <- validated_upload_path(upload.path),
+         {:ok, stat} <- File.lstat(path),
+         true <- stat.type == :regular,
+         true <- stat.size <= max_bytes,
+         {:ok, content} <- File.read(path) do
+      {:ok, content}
+    else
+      _ -> {:error, :portable_invalid_file}
+    end
+  end
+
+  defp read_portable_upload(_upload, _extensions, _max_bytes),
+    do: {:error, :portable_invalid_file}
+
   defp select_workspace(conn, requested_id, workspaces, minimum_role) do
     fallback_id = Accounts.default_research_workspace_id(conn.assigns[:current_user])
     candidate_id = requested_id || fallback_id
@@ -756,6 +875,43 @@ defmodule HydraAgentWeb.SimulationController do
   defp error_copy(conn, :mode_disabled), do: t(conn, :mode_disabled)
   defp error_copy(conn, :invalid_historical_cutoff), do: t(conn, :invalid_cutoff)
   defp error_copy(conn, _reason), do: t(conn, :invalid_form)
+
+  defp portable_import_success(conn, []), do: t(conn, :portable_imported)
+  defp portable_import_success(conn, _warnings), do: t(conn, :portable_imported_with_changes)
+
+  defp portable_error_copy(conn, %{code: code})
+       when code in [
+              :unsupported_format_version,
+              :hydra_upgrade_required,
+              :unsupported_schema_version,
+              :unsupported_population_compiler,
+              :unsupported_script_compiler,
+              :unsupported_engine_version
+            ],
+       do: t(conn, :portable_incompatible)
+
+  defp portable_error_copy(conn, %{code: code})
+       when code in [:archive_too_large, :file_too_large, :upload_too_large],
+       do: t(conn, :portable_too_large)
+
+  defp portable_error_copy(conn, %{code: :missing_model_capability}),
+    do: t(conn, :portable_route_missing)
+
+  defp portable_error_copy(conn, %{code: code})
+       when code in [:stale_manual_request, :stale_blueprint_request, :stale_artifact_request],
+       do: t(conn, :manual_stale)
+
+  defp portable_error_copy(conn, %{code: :manual_schema_invalid}),
+    do: t(conn, :manual_schema_invalid)
+
+  defp portable_error_copy(conn, :portable_invalid_file), do: t(conn, :portable_invalid_file)
+  defp portable_error_copy(conn, _reason), do: t(conn, :portable_invalid)
+
+  defp portable_download_error(conn, params, stage, reason) do
+    conn
+    |> put_flash(:error, portable_error_copy(conn, reason))
+    |> redirect(to: stage_path(params["id"], stage, params["workspace_id"], conn.assigns.locale))
+  end
 
   defp latest_completed_run(simulation) do
     simulation
@@ -829,6 +985,35 @@ defmodule HydraAgentWeb.SimulationController do
     do: {:ok, Simulations.export_report_html(report), "html", "text/html"}
 
   defp report_export(_report, _format), do: {:error, :unsupported_export}
+
+  defp simulation_pack_options(params) do
+    privacy = params["privacy"] || %{}
+
+    [
+      include_raw_sources: truthy?(privacy["include_raw_sources"]),
+      redact_identities: truthy?(privacy["redact_identities"]),
+      include_provider_details: truthy?(privacy["include_provider_details"])
+    ]
+  end
+
+  defp run_pack_options(params) do
+    privacy = params["privacy"] || %{}
+
+    simulation_pack_options(params) ++
+      [include_model_rationales: truthy?(privacy["include_model_rationales"])]
+  end
+
+  defp truthy?(value), do: value in [true, "true", "1", "on"]
+
+  defp portable_download(conn, export, content_type) do
+    conn
+    |> put_resp_header("cache-control", "private, no-store")
+    |> put_resp_header("x-content-type-options", "nosniff")
+    |> send_download({:binary, export.binary},
+      filename: export.filename,
+      content_type: content_type
+    )
+  end
 
   defp stringify_form(form) when is_map(form) do
     Map.new(form, fn
