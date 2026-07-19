@@ -19,6 +19,9 @@ RUN mix local.hex --force && mix local.rebar --force
 COPY mix.exs mix.lock ./
 COPY config config
 RUN mix deps.get --only prod
+
+# User-mode cross-architecture builders may set this to "+JMsingle true".
+ARG ERL_FLAGS=""
 RUN mix deps.compile
 
 COPY lib lib
